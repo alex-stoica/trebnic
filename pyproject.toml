@@ -1,0 +1,22 @@
+[project]
+name = "trebnic" 
+version = "1.0.0"
+description = "Trebnic"
+authors = [
+    {name = "alex-stoica",email = "alexstoica@protonmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas (>=2.3.3,<3.0.0)",
+    "flet[build] (>=0.28.3,<0.29.0)",
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api" 
+
+[tool.flet]
+org = "ai.stoica"
+product = "Trebnic"
