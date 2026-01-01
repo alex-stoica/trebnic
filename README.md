@@ -1,12 +1,16 @@
-# Trebnic - Build & Deploy
+# Trebnic - build & deploy
+
+# Development with hot-reload
+```python
+flet run main.py
+```
 
 ## Prerequisites
 - USB Debugging enabled on phone (Settings → Developer Options → USB Debugging)
 - Phone connected via USB
 
 ## Build
-```bash
-cd C:\Users\alexs\Desktop\trebnic\trebnic
+```bash 
 flet build apk
 ```
 

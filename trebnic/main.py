@@ -38,9 +38,10 @@ def format_duration(minutes: int) -> str:
 
 
 def seconds_to_time(seconds: int) -> str:  
-    mins = seconds // 60  
-    secs = seconds % 60  
-    return f"{mins}:{secs:02d}"  
+    minutes = seconds // 60 
+    if minutes < 60: return f"{minutes} min" 
+    h, m = divmod(minutes, 60)
+    return f"{h}h" if m == 0 else f"{h}h {m}m"
 
 
 def open_custom_dialog(page: ft.Page, title: str, content: ft.Control, actions: List[ft.Control]) -> ft.AlertDialog: 
@@ -247,18 +248,33 @@ class AppState:
     def assign_project(self, task: Task, project_id: Optional[str]) -> None:  
         task.project_id = project_id  
 
-    def add_task(self, title: str, project_id: Optional[str] = None, due_date: Optional[date] = None, estimated_seconds: int = None) -> Task:  
+    def add_task(
+            self, 
+            title: str, 
+            project_id: Optional[str] = None, 
+            due_date: Optional[date] = None, 
+            estimated_seconds: int = None
+        ) -> Task:  
         if estimated_seconds is None:  
             estimated_seconds = self.default_estimated_minutes * 60  
+         
+        if due_date is None: 
+            if self.selected_nav == "inbox": 
+                due_date = None  
+            elif self.selected_nav == "upcoming":
+                due_date = date.today() + timedelta(days=1) 
+            else:    
+                due_date = date.today()
+
         new_task = Task(  
             title=title,  
             spent_seconds=0,  
             estimated_seconds=estimated_seconds,  
             project_id=project_id,  
-            due_date=due_date if due_date else date.today(),  
+            due_date=due_date, 
         )  
         self.tasks.append(new_task)  
-        return new_task  
+        return new_task
 
     def get_project_by_id(self, project_id: Optional[str]) -> Optional[dict]:  
         for p in self.projects:  
@@ -542,7 +558,7 @@ class TaskComponent:
         
         if self.state.is_mobile: 
             return ft.Container(    
-                padding=12,    
+                padding=8,
                 bgcolor=self._bg_color,    
                 border_radius=BORDER_RADIUS,    
                 data=self.task,    
@@ -555,10 +571,10 @@ class TaskComponent:
                         ]),    
                         ft.Row([tags_row], wrap=True)    
                     ],    
-                    spacing=8,    
+                    spacing=2,
                     tight=True    
                 )    
-            )    
+            )   
         
         return ft.Container(    
             padding=15,    
@@ -968,7 +984,13 @@ def main(page: ft.Page):
                 ft.Container( 
                     width=280, 
                     content=ft.Column([    
-                        create_option_row(ft.Icons.BLOCK, "🚫 No Due Date", clear_date, color=COLORS["danger"], text_color=COLORS["done_text"]),  
+                        create_option_row(
+                            ft.Icons.BLOCK, 
+                            "🚫 No due date", 
+                            clear_date, 
+                            color=COLORS["danger"], 
+                            text_color=COLORS["done_text"]
+                        ),  
                         ft.Divider(height=1, color=COLORS["border"]),    
                         create_option_row(ft.Icons.TODAY, "Today", lambda e: select_preset(0)),  
                         create_option_row(ft.Icons.CALENDAR_TODAY, "Tomorrow", lambda e: select_preset(1)),  
@@ -1026,13 +1048,14 @@ def main(page: ft.Page):
 
     def add_task(title):
         project_id = list(state.selected_projects)[0] if len(state.selected_projects) == 1 else None   
+        
         state.add_task(  
             title=title,  
             project_id=project_id,  
-            due_date=date.today(),  
             estimated_seconds=pending_task_details["estimated_minutes"] * 60,  
         )  
         pending_task_details["estimated_minutes"] = state.default_estimated_minutes  
+        details_button.content.controls[1].value = "Add details"
         refresh_lists()
 
     def on_task_submit(e):
@@ -1127,7 +1150,7 @@ def main(page: ft.Page):
             page.close(confirm_dialog)  
         
         confirm_dialog = open_custom_dialog(  
-            page, "Delete Project",  
+            page, "Delete project",  
             ft.Text(f"Delete '{project['name']}' and all its tasks?"),  
             [  
                 ft.TextButton("Cancel", on_click=cancel_delete),  
@@ -1430,7 +1453,7 @@ def main(page: ft.Page):
             page.close(details_dialog)  
             page.update()  
         details_dialog = open_custom_dialog(  
-            page, "Task Details",  
+            page, "Task details",  
             ft.Container(  
                 width=300,  
                 content=ft.Column([  
@@ -1461,7 +1484,7 @@ def main(page: ft.Page):
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.TUNE, size=16, color=COLORS["accent"]),
-                ft.Text("Add Details", size=13, color=COLORS["accent"]),
+                ft.Text("Add details", size=13, color=COLORS["accent"]),
                 ft.Icon(ft.Icons.KEYBOARD_ARROW_RIGHT, size=16, color=COLORS["accent"]),
             ],
             spacing=4,
