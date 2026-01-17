@@ -1,12 +1,13 @@
 import flet as ft
 from dataclasses import dataclass, field
-from typing import Optional, List, Set
+from typing import Optional, List, Set, Tuple 
 from datetime import date, timedelta
+import calendar 
 import re
 
 from constants import (
-    NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS,
-    PAGE_TASKS, COLORS
+    NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS, 
+    PAGE_TASKS, COLORS, DEFAULT_ESTIMATED_SECONDS 
 )
 from database import db
 
@@ -27,21 +28,29 @@ class Task:
     sort_order: int = 0 
 
     def to_dict(self, is_done: bool = False) -> dict:
-        return {"id": self.id, "title": self.title, "spent_seconds": self.spent_seconds,
-                "estimated_seconds": self.estimated_seconds, "project_id": self.project_id,
-                "due_date": self.due_date, "is_done": 1 if is_done else 0, "recurrent": 1 if self.recurrent else 0,
-                "recurrence_interval": self.recurrence_interval, "recurrence_frequency": self.recurrence_frequency,
-                "recurrence_weekdays": self.recurrence_weekdays, "notes": self.notes, "sort_order": self.sort_order} 
+        return { 
+            "id": self.id, "title": self.title, "spent_seconds": self.spent_seconds, 
+            "estimated_seconds": self.estimated_seconds, "project_id": self.project_id, 
+            "due_date": self.due_date, "is_done": 1 if is_done else 0, 
+            "recurrent": 1 if self.recurrent else 0, 
+            "recurrence_interval": self.recurrence_interval, 
+            "recurrence_frequency": self.recurrence_frequency, 
+            "recurrence_weekdays": self.recurrence_weekdays, "notes": self.notes, 
+            "sort_order": self.sort_order 
+        } 
 
     @classmethod
     def from_dict(cls, d: dict) -> "Task":
-        return cls(id=d.get("id"), title=d["title"], spent_seconds=d.get("spent_seconds", 0),
-                   estimated_seconds=d.get("estimated_seconds", 900), project_id=d.get("project_id"),
-                   due_date=d.get("due_date"), recurrent=bool(d.get("recurrent", 0)),
-                   recurrence_interval=d.get("recurrence_interval", 1),
-                   recurrence_frequency=d.get("recurrence_frequency", "weeks"),
-                   recurrence_weekdays=d.get("recurrence_weekdays", []), notes=d.get("notes", ""),
-                   sort_order=d.get("sort_order", 0))  
+        return cls( 
+            id=d.get("id"), title=d["title"], spent_seconds=d.get("spent_seconds", 0), 
+            estimated_seconds=d.get("estimated_seconds", DEFAULT_ESTIMATED_SECONDS), 
+            project_id=d.get("project_id"), due_date=d.get("due_date"), 
+            recurrent=bool(d.get("recurrent", 0)), 
+            recurrence_interval=d.get("recurrence_interval", 1), 
+            recurrence_frequency=d.get("recurrence_frequency", "weeks"), 
+            recurrence_weekdays=d.get("recurrence_weekdays", []), 
+            notes=d.get("notes", ""), sort_order=d.get("sort_order", 0) 
+        ) 
 
 
 @dataclass
@@ -74,14 +83,30 @@ class AppState:
         return state
 
     def _init_default_data(self):
-        for p in [{"id": "sport", "name": "Sport", "icon": "🏃", "color": COLORS["green"]},
-                  {"id": "work", "name": "Work", "icon": "💼", "color": COLORS["blue"]},
-                  {"id": "chores", "name": "Chores", "icon": "🧹", "color": COLORS["orange"]}]:
+        defaults = [ 
+            {"id": "sport", "name": "Sport", "icon": "🏃", "color": COLORS["green"]}, 
+            {"id": "work", "name": "Work", "icon": "💼", "color": COLORS["blue"]}, 
+            {"id": "chores", "name": "Chores", "icon": "🧹", "color": COLORS["orange"]} 
+        ] 
+        for p in defaults: 
             db.save_project(p)
             self.projects.append(p)
-        for i, t in enumerate([Task(title="Design dashboard", spent_seconds=45, estimated_seconds=120, project_id="work", due_date=date.today(), sort_order=i),
-                  Task(title="Refactor Auth", spent_seconds=10, estimated_seconds=90, project_id=None, due_date=date.today() + timedelta(days=1), sort_order=i),
-                  Task(title="Gym", spent_seconds=0, estimated_seconds=60, project_id="sport", due_date=date.today(), recurrent=True, sort_order=i)]):
+        default_tasks = [
+            Task( 
+                title="Design dashboard", spent_seconds=45, estimated_seconds=120, 
+                project_id="work", due_date=date.today() 
+            ), 
+            Task( 
+                title="Refactor auth", spent_seconds=10, estimated_seconds=90, 
+                project_id=None, due_date=date.today() + timedelta(days=1) 
+            ), 
+            Task( 
+                title="Gym", spent_seconds=0, estimated_seconds=60, 
+                project_id="sport", due_date=date.today(), recurrent=True 
+            ), 
+        ]
+        for i, t in enumerate(default_tasks): 
+            t.sort_order = i 
             t.id = db.save_task(t.to_dict())
             self.tasks.append(t)
 
@@ -130,6 +155,15 @@ class AppState:
         if self.timer_running:
             self.timer_seconds += 1
 
+    def _add_months(self, base: date, months: int) -> date: 
+        """Add months to date, handling edge cases like Feb 29."""
+        total_months = base.year * 12 + base.month - 1 + months 
+        new_year = total_months // 12 
+        new_month = total_months % 12 + 1 
+        last_day_of_month = calendar.monthrange(new_year, new_month)[1] 
+        new_day = min(base.day, last_day_of_month) 
+        return date(new_year, new_month, new_day) 
+
     def _calculate_next_recurrence_date(self, task: Task) -> Optional[date]:
         if not task.recurrent or not task.due_date:
             return None
@@ -144,14 +178,7 @@ class AppState:
                         return next_day
             return base + timedelta(weeks=task.recurrence_interval)
         elif task.recurrence_frequency == "months":
-            new_month = base.month + task.recurrence_interval
-            new_year = base.year + (new_month - 1) // 12
-            new_month = ((new_month - 1) % 12) + 1
-            try:
-                return base.replace(year=new_year, month=new_month)
-            except ValueError:
-                last_day = (date(new_year, new_month % 12 + 1, 1) - timedelta(days=1)).day
-                return base.replace(year=new_year, month=new_month, day=min(base.day, last_day))
+            return self._add_months(base, task.recurrence_interval) 
         return base + timedelta(weeks=1)
 
     def complete_task(self, task: Task) -> Optional[Task]:
@@ -363,3 +390,26 @@ class AppController:
             self.page.drawer.open = False
         self._check_initialized()
         self.update_nav()
+
+    def get_filtered_tasks(self) -> Tuple[List[Task], List[Task]]: 
+        """Returns (pending, done) tasks filtered by current nav selection.""" 
+        s = self.state 
+        if s.selected_nav == NAV_INBOX: 
+            pending = [t for t in s.tasks if t.project_id is None and t.due_date is None] 
+            done = [t for t in s.done_tasks if t.project_id is None and t.due_date is None] 
+            return pending, done 
+        if s.selected_nav == NAV_TODAY: 
+            today = date.today() 
+            pending = [t for t in s.tasks if t.due_date and t.due_date <= today] 
+            done = [t for t in s.done_tasks if t.due_date and t.due_date <= today] 
+            return pending, done 
+        if s.selected_nav == NAV_UPCOMING: 
+            today = date.today() 
+            pending = [t for t in s.tasks if t.due_date and t.due_date > today] 
+            done = [t for t in s.done_tasks if t.due_date and t.due_date > today] 
+            return pending, done 
+        if not s.selected_projects: 
+            return s.tasks[:], s.done_tasks[:] 
+        pending = [t for t in s.tasks if t.project_id in s.selected_projects] 
+        done = [t for t in s.done_tasks if t.project_id in s.selected_projects] 
+        return pending, done 

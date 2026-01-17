@@ -5,16 +5,22 @@ import threading
 import time
 
 from constants import (
-    PROJECT_COLORS, PROJECT_ICONS, BORDER_RADIUS, MOBILE_BREAKPOINT, ANIMATION_DELAY, DATE_PICKER_YEARS,
-    NAV_INBOX, NAV_TODAY, NAV_UPCOMING,  
-    PAGE_TASKS, PAGE_PROFILE, PAGE_PREFERENCES, COLORS
+    NAV_CALENDAR, PROJECT_COLORS, PROJECT_ICONS, BORDER_RADIUS, MOBILE_BREAKPOINT,
+    ANIMATION_DELAY, DATE_PICKER_YEARS, NAV_INBOX, NAV_TODAY, NAV_UPCOMING,  # EDITED
+    PAGE_TASKS, PAGE_PROFILE, PAGE_PREFERENCES, COLORS,  # EDITED
+    DURATION_SLIDER_STEP, DURATION_SLIDER_MIN, DURATION_SLIDER_MAX,  # EDITED
+    DIALOG_WIDTH_SM, DIALOG_WIDTH_MD, DIALOG_WIDTH_LG, DIALOG_WIDTH_XL,  # EDITED
+    CALENDAR_HEADER_HEIGHT, ICON_PICKER_HEIGHT, NOTES_FIELD_HEIGHT  # EDITED
 )
 from models import Task, AppState, AppController
 from helpers import format_duration, seconds_to_time
 from database import db 
+from task_list_view import TaskComponent 
 
 
-def open_custom_dialog(page: ft.Page, title: str, content: ft.Control, actions: List[ft.Control]) -> ft.AlertDialog:
+def open_custom_dialog(
+    page: ft.Page, title: str, content: ft.Control, actions: List[ft.Control]  # EDITED
+) -> ft.AlertDialog:  # EDITED
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text(title),
@@ -26,19 +32,12 @@ def open_custom_dialog(page: ft.Page, title: str, content: ft.Control, actions: 
     return dialog
 
 
-def create_menu_item(icon, text, on_click, color=COLORS["accent"], text_color=None):
-    return ft.PopupMenuItem(
-        content=ft.Container(
-            content=ft.Row([ft.Icon(icon, size=18, color=color), ft.Text(text, size=14, color=text_color)], spacing=12),
-            padding=ft.padding.symmetric(vertical=5, horizontal=10)
-        ),
-        on_click=on_click,
-    )
-
-
-def create_option_row(icon, text, on_click, color=COLORS["accent"], text_color=None):
+def create_option_row(icon, text, on_click, color=COLORS["accent"], text_color=None): 
     return ft.Container(
-        content=ft.Row([ft.Icon(icon, size=18, color=color), ft.Text(text, size=14, expand=True, color=text_color)], spacing=12),
+        content=ft.Row(
+            [ft.Icon(icon, size=18, color=color), ft.Text(text, size=14, expand=True, color=text_color)],  # EDITED
+            spacing=12  # EDITED
+        ),  # EDITED
         padding=ft.padding.symmetric(vertical=10, horizontal=15),
         border_radius=8,
         ink=True,
@@ -47,11 +46,15 @@ def create_option_row(icon, text, on_click, color=COLORS["accent"], text_color=N
 
 
 def accent_btn(text: str, on_click) -> ft.ElevatedButton:
-    return ft.ElevatedButton(text, on_click=on_click, bgcolor=COLORS["accent"], color=COLORS["white"])
+    return ft.ElevatedButton(
+        text, on_click=on_click, bgcolor=COLORS["accent"], color=COLORS["white"]  # EDITED
+    )  # EDITED
 
 
 def danger_btn(text: str, on_click, icon=None) -> ft.ElevatedButton:
-    return ft.ElevatedButton(text, on_click=on_click, bgcolor=COLORS["danger"], color=COLORS["white"], icon=icon)
+    return ft.ElevatedButton(
+        text, on_click=on_click, bgcolor=COLORS["danger"], color=COLORS["white"], icon=icon  # EDITED
+    )  # EDITED
 
 
 class RecurrenceDialog(ft.AlertDialog):
@@ -115,7 +118,7 @@ class RecurrenceDialog(ft.AlertDialog):
             modal=True,
             title=ft.Text("Set Recurrence"),
             content=ft.Container(
-                width=320,
+                width=DIALOG_WIDTH_LG,  # EDITED
                 content=ft.Column([
                     self.enable_switch,
                     ft.Divider(height=15, color=COLORS["border"]),
@@ -150,7 +153,9 @@ class RecurrenceDialog(ft.AlertDialog):
         self.task.recurrent = self.enable_switch.value
         self.task.recurrence_frequency = self.freq_dropdown.value
         self.task.recurrence_interval = int(self.interval_field.value or 1)
-        self.task.recurrence_weekdays = [i for i, cb in enumerate(self.weekday_checkboxes) if cb.value]
+        self.task.recurrence_weekdays = [
+            i for i, cb in enumerate(self.weekday_checkboxes) if cb.value  # EDITED
+        ]  # EDITED
         if self.persist_fn: 
             self.persist_fn(self.task) 
         self.on_save_callback(self.task.recurrent)
@@ -182,197 +187,6 @@ class ProjectButton(ft.Container):
         )
 
 
-class TaskComponent:
-    def __init__(self, task: Task, is_completed: bool, controller: AppController):
-        self.task = task
-        self._is_completed = is_completed
-        self.controller = controller
-    
-    @property
-    def state(self) -> AppState:
-        return self.controller.state
-    
-    @property
-    def is_completed(self):
-        return self._is_completed
-    
-    @is_completed.setter
-    def is_completed(self, value: bool):
-        self._is_completed = value
-    
-    @property
-    def _title_style(self):
-        return ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH) if self.is_completed else None
-    
-    @property
-    def _title_color(self):
-        return COLORS["done_text"] if self.is_completed else None
-    
-    @property
-    def _bg_color(self):
-        return COLORS["done_bg"] if self.is_completed else COLORS["card"]
-    
-    @property
-    def _opacity(self):
-        return 0.6 if self.is_completed else 1.0
-    
-    def _format_title(self):
-        return f"↻ {self.task.title}" if self.task.recurrent else self.task.title
-    
-    def _on_check_change(self, e):
-        if self.is_completed and not e.control.value:
-            self.controller.uncomplete(self.task)
-        elif not self.is_completed and e.control.value:
-            self.controller.complete(self.task)
-    
-    def _create_tags_row(self):
-        project = self.controller.get_project(self.task.project_id)
-        due_str = self.controller.format_due_date(self.task.due_date)
-        
-        if self.is_completed:
-            info_parts = [project["name"] if project else "Unassigned"]
-            if due_str:
-                info_parts.append(due_str)
-            return ft.Container(
-                content=ft.Text(" • ".join(info_parts), size=10, color=COLORS["done_text"]),
-                bgcolor=COLORS["done_tag"],
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                border_radius=5,
-            )
-        
-        tag_items = []
-        if project:
-            project_tag = ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Text(project["icon"], size=10),
-                        ft.Text(project["name"], size=10, color=COLORS["white"])
-                    ],
-                    spacing=4,
-                    tight=True
-                ),
-                bgcolor=project["color"],
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                border_radius=5,
-                on_click=lambda e: self.controller.assign_project(self.task),
-                ink=True,
-            )
-        else:
-            project_tag = ft.Container(
-                content=ft.Text("Unassigned", size=10, color=COLORS["unassigned"]),
-                bgcolor=COLORS["input_bg"],
-                border=ft.border.all(1, COLORS["border"]),
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                border_radius=5,
-                on_click=lambda e: self.controller.assign_project(self.task),
-                ink=True,
-            )
-        tag_items.append(project_tag)
-        
-        if due_str:
-            tag_items.append(ft.Container(
-                content=ft.Text(due_str, size=10, color=COLORS["done_text"]),
-                bgcolor=COLORS["input_bg"],
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                border_radius=5,
-                on_click=lambda e: self.controller.date_picker(self.task),
-                ink=True,
-            ))
-        return ft.Row(tag_items, spacing=8, tight=True, wrap=True)
-    
-    def _create_menu(self):
-        items = []
-        
-        if self.state.is_mobile:
-            items.append(create_menu_item(ft.Icons.TIMER_OUTLINED, "Start timer", lambda e: self.controller.start_timer(self.task)))
-        
-        items.extend([
-            create_menu_item(ft.Icons.EDIT_OUTLINED, "Rename", lambda e: self.controller.rename(self.task)),
-            create_menu_item(ft.Icons.SCHEDULE_OUTLINED, "Reschedule", lambda e: self.controller.date_picker(self.task)),
-            create_menu_item(ft.Icons.NEXT_PLAN_OUTLINED, "Postpone by 1 day", lambda e: self.controller.postpone(self.task)),
-            create_menu_item(ft.Icons.REPEAT, "Set recurrence", lambda e: self.controller.recurrence(self.task)),
-            create_menu_item(ft.Icons.CONTENT_COPY_OUTLINED, "Duplicate task", lambda e: self.controller.duplicate(self.task)),
-            ft.PopupMenuItem(),
-            create_menu_item(ft.Icons.INSIGHTS, "Stats", lambda e: self.controller.stats(self.task)),
-            create_menu_item(ft.Icons.STICKY_NOTE_2_OUTLINED, "Notes", lambda e: self.controller.notes(self.task)),
-            ft.PopupMenuItem(),
-            create_menu_item(ft.Icons.DELETE_OUTLINE, "Delete", lambda e: self.controller.delete(self.task), color=COLORS["danger"], text_color=COLORS["danger"]),
-        ])
-        
-        return ft.PopupMenuButton(
-            icon=ft.Icons.MORE_HORIZ,
-            icon_color="grey",
-            tooltip="Task options",
-            menu_position=ft.PopupMenuPosition.UNDER,
-            items=items
-        )
-    
-    def build(self) -> ft.Container:
-        checkbox = ft.Checkbox(value=self.is_completed, on_change=self._on_check_change)
-        title_text = ft.Text(
-            self._format_title(),
-            weight="bold",
-            color=self._title_color,
-            style=self._title_style
-        )
-        tags_row = self._create_tags_row()
-        time_display = ft.Text(
-            f"{seconds_to_time(self.task.spent_seconds)} / {seconds_to_time(self.task.estimated_seconds)}",
-            font_family="monospace",
-            color=COLORS["done_text"],
-            visible=not self.state.is_mobile
-        )
-        
-        if self.is_completed:
-            return ft.Container(
-                padding=15,
-                bgcolor=self._bg_color,
-                border_radius=BORDER_RADIUS,
-                opacity=self._opacity,
-                content=ft.Row([checkbox, ft.Column([title_text, tags_row], expand=True, spacing=2), time_display])
-            )
-        
-        if self.state.is_mobile:
-            return ft.Container(
-                padding=8,
-                bgcolor=self._bg_color,
-                border_radius=BORDER_RADIUS,
-                data=self.task,
-                content=ft.Column(
-                    [
-                        ft.Row([
-                            checkbox,
-                            ft.Text(self._format_title(), weight="bold", expand=True, size=14),
-                            self._create_menu()
-                        ]),
-                        ft.Row([tags_row], wrap=True)
-                    ],
-                    spacing=2,
-                    tight=True
-                )
-            )
-        
-        return ft.Container(
-            padding=15,
-            bgcolor=self._bg_color,
-            border_radius=BORDER_RADIUS,
-            data=self.task,
-            content=ft.Row([
-                ft.Icon(ft.Icons.DRAG_INDICATOR, color=ft.Colors.GREY),
-                checkbox,
-                ft.Column([title_text, ft.Row([tags_row], tight=True)], expand=True, spacing=2),
-                ft.IconButton(
-                    ft.Icons.PLAY_ARROW,
-                    icon_color=COLORS["accent"],
-                    tooltip="Start timer",
-                    on_click=lambda e: self.controller.start_timer(self.task)
-                ),
-                time_display,
-                self._create_menu()
-            ])
-        )
-
-
 def main(page: ft.Page):
     print("=== APP STARTING ===")
     page.theme_mode = ft.ThemeMode.DARK
@@ -396,20 +210,7 @@ def main(page: ft.Page):
 
     project_buttons = {p["id"]: ProjectButton(p, controller) for p in state.projects}
 
-    def get_filtered(task_list: List[Task]) -> List[Task]:
-        if state.selected_nav == NAV_INBOX:
-            return [t for t in task_list if t.project_id is None and t.due_date is None]
-        if state.selected_nav == NAV_TODAY:
-            today = date.today()
-            return [t for t in task_list if t.due_date is not None and t.due_date <= today]
-        if state.selected_nav == NAV_UPCOMING:
-            today = date.today()
-            return [t for t in task_list if t.due_date is not None and t.due_date > today]
-        if not state.selected_projects:
-            return task_list
-        return [t for t in task_list if t.project_id in state.selected_projects]
-    
-    def navigate_to_page(page_name: str):
+    def navigate_to_page(page_name: str): 
         state.current_page = page_name
         update_main_content()
         page.update()
@@ -417,6 +218,7 @@ def main(page: ft.Page):
     def update_nav_visuals():
         nav_inbox.selected = state.selected_nav == NAV_INBOX
         nav_today.selected = state.selected_nav == NAV_TODAY
+        nav_calendar.selected = state.selected_nav == NAV_CALENDAR
         nav_upcoming.selected = state.selected_nav == NAV_UPCOMING
         nav_projects.selected = len(state.selected_projects) > 0
         
@@ -425,9 +227,11 @@ def main(page: ft.Page):
  
         projects_items.visible = state.projects_expanded
         projects_arrow.name = (
-            ft.Icons.KEYBOARD_ARROW_DOWN if state.projects_expanded else ft.Icons.KEYBOARD_ARROW_RIGHT
-        )
+            ft.Icons.KEYBOARD_ARROW_DOWN if state.projects_expanded
+            else ft.Icons.KEYBOARD_ARROW_RIGHT  # EDITED
+        )  # EDITED
         settings_menu.items = get_settings_items()
+        update_main_content()
         refresh_lists()
         page.update()
 
@@ -527,7 +331,7 @@ def main(page: ft.Page):
         rename_dialog = open_custom_dialog(
             page, "Rename Task",
             ft.Container(
-                width=300,
+                width=DIALOG_WIDTH_MD,  # EDITED
                 content=ft.Column([rename_field, error_text], tight=True, spacing=5)
             ),
             [
@@ -545,25 +349,36 @@ def main(page: ft.Page):
         def on_close():
             page.close(recurrence_dialog)
         
-        recurrence_dialog = RecurrenceDialog(task, on_save, on_close, persist_fn=state.persist_task)
+        recurrence_dialog = RecurrenceDialog(
+            task, on_save, on_close, persist_fn=state.persist_task  # EDITED
+        )  # EDITED
         page.open(recurrence_dialog)
 
     def open_task_stats_dialog(task: Task):
         project = get_project_by_id(task.project_id)
         project_name = project["name"] if project else "Unassigned"
-        spent_pct = (task.spent_seconds / task.estimated_seconds * 100) if task.estimated_seconds > 0 else 0
+        spent_pct = (
+            (task.spent_seconds / task.estimated_seconds * 100)  # EDITED
+            if task.estimated_seconds > 0 else 0  # EDITED
+        )  # EDITED
         remaining = max(0, task.estimated_seconds - task.spent_seconds)
         def close_dialog(e):
             page.close(stats_dialog)
         stats_dialog = open_custom_dialog(
             page, f"Stats: {task.title}",
             ft.Container(
-                width=300,
+                width=DIALOG_WIDTH_MD,  # EDITED
                 content=ft.Column([
                     ft.Container(
                         content=ft.Column([
-                            ft.Row([ft.Icon(ft.Icons.TIMER, color=COLORS["accent"]), ft.Text("Time spent", weight="bold")], spacing=10),
-                            ft.Text(seconds_to_time(task.spent_seconds), size=24, weight="bold", color=COLORS["accent"]),
+                            ft.Row([
+                                ft.Icon(ft.Icons.TIMER, color=COLORS["accent"]),  # EDITED
+                                ft.Text("Time spent", weight="bold")  # EDITED
+                            ], spacing=10),  # EDITED
+                            ft.Text(
+                                seconds_to_time(task.spent_seconds),  # EDITED
+                                size=24, weight="bold", color=COLORS["accent"]  # EDITED
+                            ),  # EDITED
                         ], spacing=5),
                         bgcolor=COLORS["card"],
                         padding=15,
@@ -571,8 +386,14 @@ def main(page: ft.Page):
                     ),
                     ft.Container(
                         content=ft.Column([
-                            ft.Row([ft.Icon(ft.Icons.HOURGLASS_EMPTY, color=COLORS["orange"]), ft.Text("Remaining", weight="bold")], spacing=10),
-                            ft.Text(seconds_to_time(remaining), size=24, weight="bold", color=COLORS["orange"]),
+                            ft.Row([
+                                ft.Icon(ft.Icons.HOURGLASS_EMPTY, color=COLORS["orange"]),  # EDITED
+                                ft.Text("Remaining", weight="bold")  # EDITED
+                            ], spacing=10),  # EDITED
+                            ft.Text(
+                                seconds_to_time(remaining),  # EDITED
+                                size=24, weight="bold", color=COLORS["orange"]  # EDITED
+                            ),  # EDITED
                         ], spacing=5),
                         bgcolor=COLORS["card"],
                         padding=15,
@@ -580,8 +401,14 @@ def main(page: ft.Page):
                     ),
                     ft.Container(
                         content=ft.Column([
-                            ft.Row([ft.Icon(ft.Icons.SCHEDULE, color=COLORS["blue"]), ft.Text("Estimated", weight="bold")], spacing=10),
-                            ft.Text(seconds_to_time(task.estimated_seconds), size=18, color=COLORS["done_text"]),
+                            ft.Row([
+                                ft.Icon(ft.Icons.SCHEDULE, color=COLORS["blue"]),  # EDITED
+                                ft.Text("Estimated", weight="bold")  # EDITED
+                            ], spacing=10),  # EDITED
+                            ft.Text(
+                                seconds_to_time(task.estimated_seconds),  # EDITED
+                                size=18, color=COLORS["done_text"]  # EDITED
+                            ),  # EDITED
                         ], spacing=5),
                         bgcolor=COLORS["card"],
                         padding=15,
@@ -590,8 +417,14 @@ def main(page: ft.Page):
                     ft.Container(
                         content=ft.Column([
                             ft.Text("Progress", weight="bold"),
-                            ft.ProgressBar(value=min(spent_pct / 100, 1.0), color=COLORS["accent"], bgcolor=COLORS["input_bg"]),
-                            ft.Text(f"{spent_pct:.0f}% complete", size=12, color=COLORS["done_text"]),
+                            ft.ProgressBar(
+                                value=min(spent_pct / 100, 1.0),  # EDITED
+                                color=COLORS["accent"], bgcolor=COLORS["input_bg"]  # EDITED
+                            ),  # EDITED
+                            ft.Text(
+                                f"{spent_pct:.0f}% complete",  # EDITED
+                                size=12, color=COLORS["done_text"]  # EDITED
+                            ),  # EDITED
                         ], spacing=8),
                         bgcolor=COLORS["card"],
                         padding=15,
@@ -600,7 +433,10 @@ def main(page: ft.Page):
                     ft.Container(
                         content=ft.Row([
                             ft.Icon(ft.Icons.FOLDER, size=16, color=COLORS["done_text"]),
-                            ft.Text(f"Project: {project_name}", size=12, color=COLORS["done_text"]),
+                            ft.Text(
+                                f"Project: {project_name}",  # EDITED
+                                size=12, color=COLORS["done_text"]  # EDITED
+                            ),  # EDITED
                         ], spacing=8),
                         padding=ft.padding.only(top=10),
                     ),
@@ -613,12 +449,11 @@ def main(page: ft.Page):
         notes_field = ft.TextField(
             value=task.notes,
             multiline=True,
-            min_lines=12,
-            max_lines=12,
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=8,
             hint_text="Write notes here... Markdown supported",
+            height=NOTES_FIELD_HEIGHT,  # EDITED
         )
         markdown_preview = ft.Markdown(
             value=task.notes or "*No notes yet*",
@@ -626,12 +461,14 @@ def main(page: ft.Page):
             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         )
         preview_container = ft.Container(
-            content=ft.Column([markdown_preview], scroll=ft.ScrollMode.AUTO, expand=True),
+            content=ft.Column(
+                [markdown_preview], scroll=ft.ScrollMode.AUTO, expand=True  # EDITED
+            ),  # EDITED
             bgcolor=COLORS["input_bg"],
             border=ft.border.all(1, COLORS["border"]),
             border_radius=8,
             padding=10,
-            height=280,
+            height=NOTES_FIELD_HEIGHT,  # EDITED
             visible=False,
         )
         def toggle_mode(e):
@@ -643,7 +480,9 @@ def main(page: ft.Page):
             toggle_btn.text = "Edit" if is_preview else "Preview"
             toggle_btn.icon = ft.Icons.EDIT if is_preview else ft.Icons.VISIBILITY
             page.update()
-        toggle_btn = ft.TextButton("Preview", icon=ft.Icons.VISIBILITY, on_click=toggle_mode)
+        toggle_btn = ft.TextButton(
+            "Preview", icon=ft.Icons.VISIBILITY, on_click=toggle_mode  # EDITED
+        )  # EDITED
         def save_notes(e):
             task.notes = notes_field.value
             state.persist_task(task) 
@@ -654,12 +493,12 @@ def main(page: ft.Page):
         notes_dialog = open_custom_dialog(
             page, f"Notes: {task.title}",
             ft.Container(
-                width=350,
+                width=DIALOG_WIDTH_XL,  # EDITED
                 content=ft.Column([
                     ft.Row([toggle_btn], alignment=ft.MainAxisAlignment.END),
                     notes_field,
                     preview_container,
-                ], tight=True, spacing=8),
+                ], tight=True, spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), 
             ),
             [
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -679,8 +518,7 @@ def main(page: ft.Page):
     )
 
     def refresh_lists():
-        filtered_tasks = get_filtered(state.tasks)
-        filtered_done = get_filtered(state.done_tasks)
+        filtered_tasks, filtered_done = controller.get_filtered_tasks() 
         task_list.controls.clear()
         for i, task in enumerate(filtered_tasks):
             task_list.controls.append(
@@ -692,7 +530,9 @@ def main(page: ft.Page):
         done_list.controls.clear()
         for task in filtered_done:
             done_list.controls.append(TaskComponent(task, True, controller).build())
-        empty_state.visible = len(filtered_tasks) == 0 and state.selected_nav == NAV_TODAY
+        empty_state.visible = (
+            len(filtered_tasks) == 0 and state.selected_nav == NAV_TODAY  # EDITED
+        )  # EDITED
         page.update()
 
     timer_display_text = ft.Text("00:00", size=20, weight="bold")
@@ -772,11 +612,17 @@ def main(page: ft.Page):
             date_dialog = open_custom_dialog(
                 page, "Select date",
                 ft.Container(
-                    width=280,
+                    width=DIALOG_WIDTH_SM,  # EDITED
                     height=100,
                     content=ft.Column([
-                        ft.Text("Recurrent tasks use their recurrence pattern.", color=COLORS["done_text"]),
-                        ft.Text("Edit recurrence settings to change schedule.", color=COLORS["done_text"], size=12)
+                        ft.Text(
+                            "Recurrent tasks use their recurrence pattern.",  # EDITED
+                            color=COLORS["done_text"]  # EDITED
+                        ),  # EDITED
+                        ft.Text(
+                            "Edit recurrence settings to change schedule.",  # EDITED
+                            color=COLORS["done_text"], size=12  # EDITED
+                        )  # EDITED
                     ], tight=True)
                 ),
                 [ft.TextButton("Close", on_click=close_dialog)],
@@ -790,8 +636,9 @@ def main(page: ft.Page):
                 page.overlay.append(date_picker_ref["picker"])
             
             date_picker_ref["picker"].value = (
-                task.due_date if task.due_date and task.due_date >= date.today() else date.today()
-            )
+                task.due_date if task.due_date and task.due_date >= date.today()
+                else date.today()  # EDITED
+            )  # EDITED
             date_picker_ref["picker"].on_change = handle_date_change
             
             def open_picker(e):
@@ -815,21 +662,26 @@ def main(page: ft.Page):
             date_dialog = open_custom_dialog(
                 page, "Select date",
                 ft.Container(
-                    width=280,
+                    width=DIALOG_WIDTH_SM,  # EDITED
                     content=ft.Column([
                         create_option_row(
-                            ft.Icons.BLOCK,
-                            "🚫 No due date",
-                            clear_date,
-                            color=COLORS["danger"],
-                            text_color=COLORS["done_text"]
-                        ),
+                            ft.Icons.BLOCK, "🚫 No due date", clear_date,  # EDITED
+                            color=COLORS["danger"], text_color=COLORS["done_text"]  # EDITED
+                        ),  # EDITED
                         ft.Divider(height=1, color=COLORS["border"]),
-                        create_option_row(ft.Icons.TODAY, "Today", lambda e: select_preset(0)),
-                        create_option_row(ft.Icons.CALENDAR_TODAY, "Tomorrow", lambda e: select_preset(1)),
-                        create_option_row(ft.Icons.DATE_RANGE, "Next week", lambda e: select_preset(7)),
+                        create_option_row(
+                            ft.Icons.TODAY, "Today", lambda e: select_preset(0)  # EDITED
+                        ),  # EDITED
+                        create_option_row(
+                            ft.Icons.CALENDAR_TODAY, "Tomorrow", lambda e: select_preset(1)  # EDITED
+                        ),  # EDITED
+                        create_option_row(
+                            ft.Icons.DATE_RANGE, "Next week", lambda e: select_preset(7)  # EDITED
+                        ),  # EDITED
                         ft.Divider(height=1, color=COLORS["border"]),
-                        create_option_row(ft.Icons.CALENDAR_MONTH, "Pick a date...", open_picker),
+                        create_option_row(
+                            ft.Icons.CALENDAR_MONTH, "Pick a date...", open_picker  # EDITED
+                        ),  # EDITED
                     ], tight=True, spacing=4),
                 ),
                 [ft.TextButton("Cancel", on_click=close_dialog)],
@@ -848,7 +700,8 @@ def main(page: ft.Page):
                     content=ft.Row([
                         ft.Text(p["icon"], size=18),
                         ft.Text(p["name"], size=14, expand=True),
-                        ft.Icon(ft.Icons.CHECK, color=COLORS["accent"], size=18) if is_selected else ft.Container(width=18),
+                        ft.Icon(ft.Icons.CHECK, color=COLORS["accent"], size=18)
+                        if is_selected else ft.Container(width=18),  # EDITED
                     ], spacing=12),
                     padding=ft.padding.symmetric(vertical=10, horizontal=15),
                     border_radius=8,
@@ -873,14 +726,20 @@ def main(page: ft.Page):
         
         assign_dialog = open_custom_dialog(
             page, "Assign to Project",
-            ft.Container(width=280, content=ft.Column(project_options, tight=True, spacing=4)),
+            ft.Container(
+                width=DIALOG_WIDTH_SM,  # EDITED
+                content=ft.Column(project_options, tight=True, spacing=4)  # EDITED
+            ),  # EDITED
             [ft.TextButton("Cancel", on_click=lambda e: page.close(assign_dialog))],
         )
 
     pending_task_details = {"estimated_minutes": state.default_estimated_minutes}
 
     def add_task(title):
-        project_id = list(state.selected_projects)[0] if len(state.selected_projects) == 1 else None
+        project_id = (
+            list(state.selected_projects)[0]  # EDITED
+            if len(state.selected_projects) == 1 else None  # EDITED
+        )  # EDITED
         
         state.add_task(
             title=title,
@@ -908,7 +767,7 @@ def main(page: ft.Page):
         if old_index < new_index:
             new_index -= 1
             
-        filtered_tasks = get_filtered(state.tasks)
+        filtered_tasks, _ = controller.get_filtered_tasks() 
         if not filtered_tasks or old_index >= len(filtered_tasks):
             return
         
@@ -942,7 +801,9 @@ def main(page: ft.Page):
     selected_color = {"value": PROJECT_COLORS[0]["value"]}
 
     icon_display = ft.Text(selected_icon["value"], size=20)
-    color_display = ft.Container(width=20, height=20, border_radius=10, bgcolor=selected_color["value"])
+    color_display = ft.Container(
+        width=20, height=20, border_radius=10, bgcolor=selected_color["value"]  # EDITED
+    )  # EDITED
 
     def get_create_project_content():
         return ft.Column([
@@ -963,7 +824,10 @@ def main(page: ft.Page):
             ft.TextButton("Cancel", on_click=close_create_dialog),
         ]
         if state.editing_project_id:
-            actions.append(ft.TextButton("Delete", on_click=delete_current_project, style=ft.ButtonStyle(color=COLORS["danger"])))
+            actions.append(ft.TextButton(
+                "Delete", on_click=delete_current_project,  # EDITED
+                style=ft.ButtonStyle(color=COLORS["danger"])  # EDITED
+            ))  # EDITED
         actions.append(accent_btn(action_text, save_project))
         return actions
 
@@ -980,7 +844,10 @@ def main(page: ft.Page):
             state.editing_project_id = None
             page.close(confirm_dialog)
             page.close(create_project_dialog)
-            show_snack(f"Project '{project['name']}' deleted ({deleted_count} tasks removed)", COLORS["danger"])
+            show_snack(
+                f"Project '{project['name']}' deleted ({deleted_count} tasks removed)",  # EDITED
+                COLORS["danger"]  # EDITED
+            )  # EDITED
             rebuild_projects_items()
             update_nav_visuals()
         
@@ -1011,7 +878,9 @@ def main(page: ft.Page):
             temp_icon["value"] = icon
             temp_icon_display.value = icon
             for ctrl in icon_grid.controls:
-                ctrl.bgcolor = COLORS["accent"] if ctrl.data == icon else COLORS["card"]
+                ctrl.bgcolor = (
+                    COLORS["accent"] if ctrl.data == icon else COLORS["card"]  # EDITED
+                )  # EDITED
             page.update()
         
         def confirm_icon(e):
@@ -1024,12 +893,16 @@ def main(page: ft.Page):
             max_extent=45,
             spacing=5,
             run_spacing=5,
+            height=ICON_PICKER_HEIGHT,  # EDITED
             controls=[
                 ft.Container(
                     content=ft.Text(icon, size=20),
                     alignment=ft.alignment.center,
                     border_radius=8,
-                    bgcolor=COLORS["accent"] if icon == selected_icon["value"] else COLORS["card"],
+                    bgcolor=(
+                        COLORS["accent"] if icon == selected_icon["value"]  # EDITED
+                        else COLORS["card"]  # EDITED
+                    ),  # EDITED
                     data=icon,
                     on_click=lambda e, i=icon: on_icon_tap(i),
                     ink=True,
@@ -1040,7 +913,7 @@ def main(page: ft.Page):
         
         create_project_dialog.title = ft.Text("Select icon")
         create_project_dialog.content = ft.Container(
-            width=300,
+            width=DIALOG_WIDTH_MD,  # EDITED
             height=375,
             content=ft.Column([
                 ft.Container(
@@ -1052,7 +925,7 @@ def main(page: ft.Page):
                     margin=ft.margin.only(bottom=10),
                 ),
                 icon_grid,
-            ], tight=True),
+            ], tight=True, scroll=ft.ScrollMode.AUTO),
         )
         create_project_dialog.actions = [
             ft.TextButton("Back", on_click=lambda e: restore_main_dialog()),
@@ -1081,9 +954,14 @@ def main(page: ft.Page):
             color_options.append(
                 ft.Container(
                     content=ft.Row([
-                        ft.Container(width=24, height=24, border_radius=12, bgcolor=c["value"]),
+                        ft.Container(
+                            width=24, height=24, border_radius=12, bgcolor=c["value"]  # EDITED
+                        ),  # EDITED
                         ft.Text(c["name"], size=14, expand=True),
-                        ft.Icon(ft.Icons.CHECK, color=COLORS["accent"], size=18, visible=is_selected),
+                        ft.Icon(
+                            ft.Icons.CHECK, color=COLORS["accent"], size=18,  # EDITED
+                            visible=is_selected  # EDITED
+                        ),  # EDITED
                     ], spacing=12),
                     padding=ft.padding.symmetric(vertical=8, horizontal=12),
                     border_radius=8,
@@ -1096,7 +974,9 @@ def main(page: ft.Page):
         color_list = ft.ListView(controls=color_options, spacing=4, height=250)
         
         create_project_dialog.title = ft.Text("Select Color")
-        create_project_dialog.content = ft.Container(width=280, content=color_list)
+        create_project_dialog.content = ft.Container(
+            width=DIALOG_WIDTH_SM, content=color_list  # EDITED
+        )  # EDITED
         create_project_dialog.actions = [
             ft.TextButton("Back", on_click=lambda e: restore_main_dialog()),
             accent_btn("Select", confirm_color),
@@ -1106,12 +986,16 @@ def main(page: ft.Page):
     def restore_main_dialog():
         title = "Edit Project" if state.editing_project_id else "Create New Project"
         create_project_dialog.title = ft.Text(title)
-        create_project_dialog.content = ft.Container(width=300, content=get_create_project_content())
+        create_project_dialog.content = ft.Container(
+            width=DIALOG_WIDTH_MD, content=get_create_project_content()  # EDITED
+        )  # EDITED
         create_project_dialog.actions = get_create_project_actions()
         page.update()
 
     icon_dropdown_button = ft.Container(
-        content=ft.Row([icon_display, ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=20)], tight=True),
+        content=ft.Row(
+            [icon_display, ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=20)], tight=True  # EDITED
+        ),  # EDITED
         padding=ft.padding.symmetric(horizontal=10, vertical=5),
         border_radius=8,
         bgcolor=COLORS["input_bg"],
@@ -1183,7 +1067,7 @@ def main(page: ft.Page):
         modal=True,
         title=ft.Text("Create new project"),
         content=ft.Container(
-            width=300,
+            width=DIALOG_WIDTH_MD,  # EDITED
             content=get_create_project_content(),
         ),
         actions=get_create_project_actions(),
@@ -1212,7 +1096,9 @@ def main(page: ft.Page):
         open_project_dialog()
 
     def perform_factory_reset():
+        is_mobile = state.is_mobile 
         state.reset()
+        state.is_mobile = is_mobile 
         project_buttons.clear()
         for p in state.projects:
             project_buttons[p["id"]] = ProjectButton(p, controller)
@@ -1224,22 +1110,150 @@ def main(page: ft.Page):
         navigate_to_page(PAGE_TASKS)
         update_nav_visuals()
 
+    def build_calendar_view():
+        today = date.today()
+        start_of_week = today - timedelta(days=today.weekday())
+        days = [start_of_week + timedelta(days=i) for i in range(7)]
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        def get_tasks_for_day(d):
+            pending = [t for t in state.tasks if t.due_date == d]
+            done = [t for t in state.done_tasks if t.due_date == d]
+            return pending, done
+
+        def build_task_chip(task, is_done=False):
+            project = get_project_by_id(task.project_id)
+            color = project["color"] if project else COLORS["card"]
+            if is_done:
+                return ft.Container(
+                    content=ft.Text(
+                        task.title, size=9, max_lines=1,  # EDITED
+                        overflow=ft.TextOverflow.ELLIPSIS,  # EDITED
+                        style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH),  # EDITED
+                        color=COLORS["done_text"]  # EDITED
+                    ),  # EDITED
+                    bgcolor=COLORS["done_bg"],
+                    padding=ft.padding.symmetric(horizontal=4, vertical=2),
+                    border_radius=4,
+                    margin=ft.margin.only(bottom=2),
+                )
+            return ft.Container(
+                content=ft.Text(
+                    task.title, size=9, max_lines=1,  # EDITED
+                    overflow=ft.TextOverflow.ELLIPSIS, color=COLORS["white"]  # EDITED
+                ),  # EDITED
+                bgcolor=color,
+                padding=ft.padding.symmetric(horizontal=4, vertical=2),
+                border_radius=4,
+                margin=ft.margin.only(bottom=2),
+                on_click=lambda e, t=task: start_timer_for_task(t),
+                ink=True,
+            )
+
+        def build_day_column(i, d):
+            pending, done = get_tasks_for_day(d)
+            is_today = d == today
+            is_past = d < today
+            task_items = (
+                [build_task_chip(t) for t in pending] +  # EDITED
+                [build_task_chip(t, is_done=True) for t in done]  # EDITED
+            )  # EDITED
+            header_bg = (
+                COLORS["accent"] if is_today  # EDITED
+                else (COLORS["done_bg"] if is_past else COLORS["card"])  # EDITED
+            )  # EDITED
+            header_color = COLORS["white"] if is_today else COLORS["done_text"]
+
+            header = ft.Container(  # EDITED
+                content=ft.Column(  # EDITED
+                    [  # EDITED
+                        ft.Text(day_names[i], size=9, color=header_color),  # EDITED
+                        ft.Text(str(d.day), size=14, weight="bold", color=header_color)  # EDITED
+                    ],  # EDITED
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,  # EDITED
+                    spacing=0  # EDITED
+                ),  # EDITED
+                bgcolor=header_bg,  # EDITED
+                padding=ft.padding.symmetric(horizontal=4, vertical=6),  # EDITED
+                border_radius=6,  # EDITED
+                height=CALENDAR_HEADER_HEIGHT,  # EDITED
+                alignment=ft.alignment.center,  # EDITED
+            )  # EDITED
+
+            content = ft.Container(  # EDITED
+                content=(  # EDITED
+                    ft.Column(task_items, scroll=ft.ScrollMode.AUTO, spacing=2)  # EDITED
+                    if task_items  # EDITED
+                    else ft.Text(  # EDITED
+                        "—", size=10, color=COLORS["done_text"],  # EDITED
+                        text_align=ft.TextAlign.CENTER  # EDITED
+                    )  # EDITED
+                ),  # EDITED
+                padding=4,  # EDITED
+                expand=True,  # EDITED
+                alignment=ft.alignment.top_center,  # EDITED
+            )  # EDITED
+
+            return ft.Container(
+                content=ft.Column(
+                    [header, content],  # EDITED
+                    spacing=4,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH
+                ),
+                expand=True,
+                border=ft.border.all(
+                    2 if is_today else 1,  # EDITED
+                    COLORS["accent"] if is_today else COLORS["border"]  # EDITED
+                ),  # EDITED
+                border_radius=6,
+            )
+
+        date_range = (
+            f"{days[0].strftime('%b %d')} - {days[6].strftime('%b %d, %Y')}"  # EDITED
+        )  # EDITED
+
+        return ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
+                ft.Text("Weekly Calendar", size=16, weight="bold"),
+                ft.Container(expand=True),
+                ft.Text(date_range, color=COLORS["done_text"], size=11)  # EDITED
+            ], spacing=8),
+            ft.Container(
+                content=ft.Row(
+                    [build_day_column(i, d) for i, d in enumerate(days)],  # EDITED
+                    spacing=4  # EDITED
+                ),  # EDITED
+                expand=True,
+                padding=ft.padding.only(top=10)
+            ),
+        ], expand=True)
+
     def build_profile_page():
         def open_factory_reset_dialog(e):
             def confirm_reset(e):
                 page.close(reset_dialog)
                 perform_factory_reset()
-                show_snack("All data has been reset", COLORS["green"])
+                show_snack("All data has been reset", COLORS["danger"])
             def cancel_reset(e):
                 page.close(reset_dialog)
             reset_dialog = open_custom_dialog(
                 page, "⚠️ Factory Reset",
                 ft.Container(
-                    width=300,
+                    width=DIALOG_WIDTH_MD,  # EDITED
                     content=ft.Column([
-                        ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=48, color=COLORS["danger"]),
-                        ft.Text("This action cannot be undone!", weight="bold", color=COLORS["danger"], text_align=ft.TextAlign.CENTER),
-                        ft.Text("All your tasks, projects, and settings will be permanently deleted and reset to defaults.", text_align=ft.TextAlign.CENTER, color=COLORS["done_text"]),
+                        ft.Icon(
+                            ft.Icons.WARNING_AMBER_ROUNDED, size=48, color=COLORS["danger"]  # EDITED
+                        ),  # EDITED
+                        ft.Text(
+                            "This action cannot be undone!", weight="bold",  # EDITED
+                            color=COLORS["danger"], text_align=ft.TextAlign.CENTER  # EDITED
+                        ),  # EDITED
+                        ft.Text(
+                            "All your tasks, projects, and settings will be "  # EDITED
+                            "permanently deleted and reset to defaults.",  # EDITED
+                            text_align=ft.TextAlign.CENTER, color=COLORS["done_text"]  # EDITED
+                        ),  # EDITED
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
                 ),
                 [
@@ -1247,11 +1261,20 @@ def main(page: ft.Page):
                     danger_btn("Reset everything", confirm_reset),
                 ],
             )
-        most_active_project = max(state.projects, key=lambda p: len([t for t in state.done_tasks if t.project_id == p["id"]]), default=None) if state.projects else None
+        most_active_project = (
+            max(  # EDITED
+                state.projects,  # EDITED
+                key=lambda p: len([t for t in state.done_tasks if t.project_id == p["id"]]),  # EDITED
+                default=None  # EDITED
+            ) if state.projects else None  # EDITED
+        )  # EDITED
         most_active_name = most_active_project["name"] if most_active_project else "None"
         return ft.Column([
             ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: navigate_to_page(PAGE_TASKS), icon_color=COLORS["accent"]),
+                ft.IconButton(
+                    ft.Icons.ARROW_BACK, on_click=lambda e: navigate_to_page(PAGE_TASKS),  # EDITED
+                    icon_color=COLORS["accent"]  # EDITED
+                ),  # EDITED
                 ft.Text("Profile", size=24, weight="bold"),
             ]),
             ft.Container(
@@ -1268,7 +1291,10 @@ def main(page: ft.Page):
                     ft.Icon(ft.Icons.CALENDAR_TODAY, color=COLORS["accent"], size=18),
                     ft.Column([
                         ft.Text("Account Age", weight="bold", size=13),
-                        ft.Text(f"Since {date.today().strftime('%b %d, %Y')}", color=COLORS["done_text"], size=12),
+                        ft.Text(
+                            f"Since {date.today().strftime('%b %d, %Y')}",  # EDITED
+                            color=COLORS["done_text"], size=12  # EDITED
+                        ),  # EDITED
                     ], spacing=2, expand=True),
                 ], spacing=10),
                 bgcolor=COLORS["card"],
@@ -1280,7 +1306,10 @@ def main(page: ft.Page):
                     ft.Icon(ft.Icons.CHECK_CIRCLE, color=COLORS["green"], size=18),
                     ft.Column([
                         ft.Text("Tasks Completed", weight="bold", size=13),
-                        ft.Text(f"{len(state.done_tasks)} total", color=COLORS["done_text"], size=12),
+                        ft.Text(
+                            f"{len(state.done_tasks)} total",  # EDITED
+                            color=COLORS["done_text"], size=12  # EDITED
+                        ),  # EDITED
                     ], spacing=2, expand=True),
                 ], spacing=10),
                 bgcolor=COLORS["card"],
@@ -1301,26 +1330,35 @@ def main(page: ft.Page):
             ),
             ft.Divider(height=15, color="transparent"),
             ft.Container(
-                content=danger_btn("Factory Reset", open_factory_reset_dialog, icon=ft.Icons.RESTORE),
+                content=danger_btn(
+                    "Factory Reset", open_factory_reset_dialog, icon=ft.Icons.RESTORE  # EDITED
+                ),  # EDITED
                 alignment=ft.alignment.center,
             ),
         ], spacing=8)
 
     def build_preferences_page():
-        duration_label = ft.Text(format_duration(state.default_estimated_minutes), size=16, weight="bold")
+        duration_label = ft.Text(
+            format_duration(state.default_estimated_minutes), size=16, weight="bold"  # EDITED
+        )  # EDITED
         def on_slider_change(e):
-            minutes = int(e.control.value) * 5
+            minutes = int(e.control.value) * DURATION_SLIDER_STEP  # EDITED
             duration_label.value = format_duration(minutes)
             page.update()
         time_slider = ft.Slider(
-            min=1, max=100, divisions=99,
-            value=state.default_estimated_minutes // 5,
+            min=DURATION_SLIDER_MIN, max=DURATION_SLIDER_MAX,  # EDITED
+            divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,  # EDITED
+            value=state.default_estimated_minutes // DURATION_SLIDER_STEP,  # EDITED
             label="{value}",
             on_change=on_slider_change,
         )
-        email_checkbox = ft.Checkbox(value=state.email_weekly_stats, label="Email weekly stats")
+        email_checkbox = ft.Checkbox(
+            value=state.email_weekly_stats, label="Email weekly stats"  # EDITED
+        )  # EDITED
         def save_preferences(e):
-            state.default_estimated_minutes = int(time_slider.value) * 5
+            state.default_estimated_minutes = (
+                int(time_slider.value) * DURATION_SLIDER_STEP  # EDITED
+            )  # EDITED
             state.email_weekly_stats = email_checkbox.value
             state.save_settings()
             pending_task_details["estimated_minutes"] = state.default_estimated_minutes
@@ -1329,7 +1367,10 @@ def main(page: ft.Page):
             navigate_to_page(PAGE_TASKS)
         return ft.Column([
             ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda e: navigate_to_page(PAGE_TASKS), icon_color=COLORS["accent"]),
+                ft.IconButton(
+                    ft.Icons.ARROW_BACK, on_click=lambda e: navigate_to_page(PAGE_TASKS),  # EDITED
+                    icon_color=COLORS["accent"]  # EDITED
+                ),  # EDITED
                 ft.Text("Preferences", size=24, weight="bold"),
             ]),
             ft.Divider(height=30, color="transparent"),
@@ -1367,29 +1408,35 @@ def main(page: ft.Page):
             weight="bold"
         )
         def on_slider_change(ev):
-            minutes = int(ev.control.value) * 5
+            minutes = int(ev.control.value) * DURATION_SLIDER_STEP  # EDITED
             duration_label.value = format_duration(minutes)
             page.update()
         time_slider = ft.Slider(
-            min=1,
-            max=100,
-            divisions=99,
-            value=pending_task_details["estimated_minutes"] // 5,
+            min=DURATION_SLIDER_MIN,  # EDITED
+            max=DURATION_SLIDER_MAX,  # EDITED
+            divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,  # EDITED
+            value=pending_task_details["estimated_minutes"] // DURATION_SLIDER_STEP,  # EDITED
             label="{value}",
             on_change=on_slider_change,
         )
         def save_details(ev):
-            pending_task_details["estimated_minutes"] = int(time_slider.value) * 5
-            details_button.content.controls[1].value = f"{format_duration(pending_task_details['estimated_minutes'])}"
+            pending_task_details["estimated_minutes"] = (
+                int(time_slider.value) * DURATION_SLIDER_STEP  # EDITED
+            )  # EDITED
+            details_button.content.controls[1].value = (
+                f"{format_duration(pending_task_details['estimated_minutes'])}"  # EDITED
+            )  # EDITED
             page.close(details_dialog)
             page.update()
         details_dialog = open_custom_dialog(
             page, "Task details",
             ft.Container(
-                width=300,
+                width=DIALOG_WIDTH_MD,  # EDITED
                 content=ft.Column([
                     ft.Text("Estimated time", weight="bold", size=14),
-                    ft.Row([ft.Icon(ft.Icons.TIMER, size=18), duration_label], spacing=8),
+                    ft.Row(
+                        [ft.Icon(ft.Icons.TIMER, size=18), duration_label], spacing=8  # EDITED
+                    ),  # EDITED
                     time_slider,
                     ft.Text("5 min - 8 hrs 20 min", size=11, color=COLORS["done_text"]),
                 ], spacing=12, tight=True),
@@ -1484,6 +1531,8 @@ def main(page: ft.Page):
             page_content.content = build_profile_page()
         elif state.current_page == PAGE_PREFERENCES:
             page_content.content = build_preferences_page()
+        elif state.selected_nav == NAV_CALENDAR: 
+            page_content.content = build_calendar_view() 
         else:
             page_content.content = tasks_content
 
@@ -1501,6 +1550,14 @@ def main(page: ft.Page):
         selected=True,
         selected_color=COLORS["accent"],
         on_click=lambda e: select_main_nav(NAV_TODAY),
+    )
+
+    nav_calendar = ft.ListTile(  
+        leading=ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK), 
+        title=ft.Text("Calendar"), 
+        selected=False, 
+        selected_color=COLORS["accent"], 
+        on_click=lambda e: select_main_nav(NAV_CALENDAR), 
     )
     
     nav_upcoming = ft.ListTile(
@@ -1526,7 +1583,9 @@ def main(page: ft.Page):
         title=ft.Text("Projects"),
         selected=False,
         selected_color=COLORS["accent"],
-        trailing=ft.Row([projects_arrow, add_project_button], spacing=5, tight=True),
+        trailing=ft.Row(
+            [projects_arrow, add_project_button], spacing=5, tight=True  # EDITED
+        ),  # EDITED
         on_click=toggle_projects_menu,
     )
 
@@ -1542,6 +1601,7 @@ def main(page: ft.Page):
             ft.Divider(color="grey"),
             nav_inbox,
             nav_today,
+            nav_calendar,
             nav_upcoming,
             nav_projects,
             projects_items,
@@ -1571,8 +1631,14 @@ def main(page: ft.Page):
 
     def get_settings_items():
         items = [
-            ft.PopupMenuItem(text="Profile", icon=ft.Icons.PERSON, on_click=lambda e: navigate_to_page(PAGE_PROFILE)),
-            ft.PopupMenuItem(text="Preferences", icon=ft.Icons.TUNE, on_click=lambda e: navigate_to_page(PAGE_PREFERENCES)),
+            ft.PopupMenuItem(
+                text="Profile", icon=ft.Icons.PERSON,  # EDITED
+                on_click=lambda e: navigate_to_page(PAGE_PROFILE)  # EDITED
+            ),  # EDITED
+            ft.PopupMenuItem(
+                text="Preferences", icon=ft.Icons.TUNE,  # EDITED
+                on_click=lambda e: navigate_to_page(PAGE_PREFERENCES)  # EDITED
+            ),  # EDITED
         ]
         if len(state.selected_projects) == 1:
             project = get_project_by_id(list(state.selected_projects)[0])
@@ -1653,7 +1719,6 @@ def main(page: ft.Page):
 
     def _startup():
         """Initialize app components in required order. Do not reorder."""
-        # Step 1: Wire controller callbacks (must happen before any UI interaction)
         controller.wire(
             update_nav=update_nav_visuals,
             refresh_ui=refresh_lists,
@@ -1670,14 +1735,10 @@ def main(page: ft.Page):
             stats=open_task_stats_dialog,
             notes=open_task_notes_dialog,
         )
-        # Step 2: Add UI components to page
         page.overlay.append(snack_bar)
         page.add(main_row)
-        # Step 3: Handle initial resize (requires wired controller for refresh_lists)
         handle_resize()
-        # Step 4: Set initial content (requires page.add completed)
         update_main_content()
-        # Step 5: Populate task lists
         refresh_lists()
 
     _startup()

@@ -3,7 +3,8 @@ PROJECT_ICONS = [
     "🚀", "⭐", "🔥", "💎", "🌟", "🎵", "📱", "💻", "🎬", "📷",
     "✈️", "🏋️", "🍕", "☕", "🛒", "💰", "📊", "🔧", "📝", "🎓", 
     "🔔", "👥", "💊", "🌱", "🔒", "⏳", "💬", "⚡", "📍", "📋",
-    "🏆", "📅", "🤝", "📈", "🧘", "🌍", "🧪", "🔑", "🛠️", "📣"
+    "🏆", "📅", "🤝", "📈", "🧘", "🌍", "🧪", "🔑", "🛠️", "📣",
+    "🏥", "📞", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡", 
 ]
 
 PROJECT_COLORS = [
@@ -20,7 +21,10 @@ PROJECT_COLORS = [
     {"name": "Deep Orange", "value": "#ff5722"},
     {"name": "Forest", "value": "#2e7d32"},
     {"name": "Brown", "value": "#795548"},
-    {"name": "Grey", "value": "#9e9e9e"}, 
+    {"name": "Grey", "value": "#9e9e9e"},
+    {"name": "Lime", "value": "#8bc34a"},  
+    {"name": "Yellow", "value": "#eefa47"},  
+    {"name": "Maroon", "value": "#672A0E"},
 ]
 
 BORDER_RADIUS = 10 
@@ -28,8 +32,23 @@ MOBILE_BREAKPOINT = 768
 ANIMATION_DELAY = 0.35 
 DATE_PICKER_YEARS = 2 
 
+DEFAULT_ESTIMATED_SECONDS = 900 
+DURATION_SLIDER_STEP = 5 
+DURATION_SLIDER_MIN = 1 
+DURATION_SLIDER_MAX = 100 
+
+DIALOG_WIDTH_SM = 280 
+DIALOG_WIDTH_MD = 300 
+DIALOG_WIDTH_LG = 320 
+DIALOG_WIDTH_XL = 350 
+
+CALENDAR_HEADER_HEIGHT = 48 
+ICON_PICKER_HEIGHT = 280 
+NOTES_FIELD_HEIGHT = 280 
+
 NAV_INBOX = "inbox"
 NAV_TODAY = "today"
+NAV_CALENDAR = "calendar"
 NAV_UPCOMING = "upcoming"
 NAV_PROJECTS = "projects"
 
