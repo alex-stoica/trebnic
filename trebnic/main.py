@@ -4,7 +4,6 @@ import threading
 
 from config import (COLORS, MOBILE_BREAKPOINT, NAV_INBOX, NAV_TODAY, NAV_CALENDAR, NAV_UPCOMING,
                     PAGE_TASKS, PAGE_PROFILE, PAGE_PREFERENCES, ANIMATION_DELAY)
-from models.entities import AppState
 from services.logic import TaskService
 from services.timer import TimerService
 from ui.controller import UIController

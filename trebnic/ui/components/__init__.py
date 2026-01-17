@@ -1,2 +1,2 @@
-from ui.components.project_sidebar_item import ProjectSidebarItem
-from ui.components.timer_widget import TimerWidget 
+from .project_sidebar_item import ProjectSidebarItem
+from .timer_widget import TimerWidget

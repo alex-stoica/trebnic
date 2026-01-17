@@ -1,1 +1,1 @@
-from models.entities import Task, AppState
+from .entities import Task, AppState

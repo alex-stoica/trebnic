@@ -20,3 +20,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.flet]
 org = "ai.stoica"
 product = "Trebnic"
+
+[tool.flet.app]
+module = "main"
+source_dir = "trebnic" 

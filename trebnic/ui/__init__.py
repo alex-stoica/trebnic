@@ -1,1 +1,1 @@
-from ui.controller import UIController
+from .controller import UIController
