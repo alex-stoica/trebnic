@@ -1,13 +1,13 @@
-PROJECT_ICONS = [
+PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
     "🚀", "⭐", "🔥", "💎", "🌟", "🎵", "📱", "💻", "🎬", "📷",
-    "✈️", "🏋️", "🍕", "☕", "🛒", "💰", "📊", "🔧", "📝", "🎓", 
+    "✈️", "🏋️", "🍕", "☕", "🛒", "💰", "📊", "🔧", "📝", "🎓",
     "🔔", "👥", "💊", "🌱", "🔒", "⏳", "💬", "⚡", "📍", "📋",
     "🏆", "📅", "🤝", "📈", "🧘", "🌍", "🧪", "🔑", "🛠️", "📣",
-    "🏥", "📞", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡", 
+    "🏥", "📞", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡",
 ]
 
-PROJECT_COLORS = [
+PROJECT_COLORS = [ 
     {"name": "Blue", "value": "#2196f3"},
     {"name": "Green", "value": "#4caf50"},
     {"name": "Orange", "value": "#ff9800"},
@@ -22,8 +22,8 @@ PROJECT_COLORS = [
     {"name": "Forest", "value": "#2e7d32"},
     {"name": "Brown", "value": "#795548"},
     {"name": "Grey", "value": "#9e9e9e"},
-    {"name": "Lime", "value": "#8bc34a"},  
-    {"name": "Yellow", "value": "#eefa47"},  
+    {"name": "Lime", "value": "#8bc34a"},
+    {"name": "Yellow", "value": "#eefa47"},
     {"name": "Maroon", "value": "#672A0E"},
 ]
 
@@ -46,17 +46,17 @@ CALENDAR_HEADER_HEIGHT = 48
 ICON_PICKER_HEIGHT = 280 
 NOTES_FIELD_HEIGHT = 280 
 
-NAV_INBOX = "inbox"
-NAV_TODAY = "today"
-NAV_CALENDAR = "calendar"
-NAV_UPCOMING = "upcoming"
-NAV_PROJECTS = "projects"
+NAV_INBOX = "inbox" 
+NAV_TODAY = "today" 
+NAV_CALENDAR = "calendar" 
+NAV_UPCOMING = "upcoming" 
+NAV_PROJECTS = "projects" 
 
-PAGE_TASKS = "tasks"
-PAGE_PROFILE = "profile"
-PAGE_PREFERENCES = "preferences"
- 
-COLORS = {
+PAGE_TASKS = "tasks" 
+PAGE_PROFILE = "profile" 
+PAGE_PREFERENCES = "preferences" 
+
+COLORS = { 
     "bg": "#1e1e1e",
     "sidebar": "#121212",
     "card": "#2d2d2d",
