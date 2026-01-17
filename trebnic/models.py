@@ -8,6 +8,7 @@ from constants import (
     NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS,
     PAGE_TASKS, COLORS
 )
+from database import db
 
 
 @dataclass
@@ -17,11 +18,30 @@ class Task:
     estimated_seconds: int
     project_id: Optional[str]
     due_date: Optional[date]
+    id: Optional[int] = None
     recurrent: bool = False
     recurrence_interval: int = 1
     recurrence_frequency: str = "weeks"
     recurrence_weekdays: List[int] = field(default_factory=list)
     notes: str = ""
+    sort_order: int = 0 
+
+    def to_dict(self, is_done: bool = False) -> dict:
+        return {"id": self.id, "title": self.title, "spent_seconds": self.spent_seconds,
+                "estimated_seconds": self.estimated_seconds, "project_id": self.project_id,
+                "due_date": self.due_date, "is_done": 1 if is_done else 0, "recurrent": 1 if self.recurrent else 0,
+                "recurrence_interval": self.recurrence_interval, "recurrence_frequency": self.recurrence_frequency,
+                "recurrence_weekdays": self.recurrence_weekdays, "notes": self.notes, "sort_order": self.sort_order} 
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Task":
+        return cls(id=d.get("id"), title=d["title"], spent_seconds=d.get("spent_seconds", 0),
+                   estimated_seconds=d.get("estimated_seconds", 900), project_id=d.get("project_id"),
+                   due_date=d.get("due_date"), recurrent=bool(d.get("recurrent", 0)),
+                   recurrence_interval=d.get("recurrence_interval", 1),
+                   recurrence_frequency=d.get("recurrence_frequency", "weeks"),
+                   recurrence_weekdays=d.get("recurrence_weekdays", []), notes=d.get("notes", ""),
+                   sort_order=d.get("sort_order", 0))  
 
 
 @dataclass
@@ -43,20 +63,49 @@ class AppState:
 
     @classmethod
     def get_defaults(cls) -> "AppState":
-        return cls(
-            projects=[
-                {"id": "sport", "name": "Sport", "icon": "🏃", "color": COLORS["green"]},
-                {"id": "work", "name": "Work", "icon": "💼", "color": COLORS["blue"]},
-                {"id": "chores", "name": "Chores", "icon": "🧹", "color": COLORS["orange"]},
-            ],
-            tasks=[
-                Task(title="Design Dashboard", spent_seconds=45, estimated_seconds=120, project_id="work", due_date=date.today()),
-                Task(title="Refactor Auth", spent_seconds=10, estimated_seconds=90, project_id=None, due_date=date.today() + timedelta(days=1)),
-                Task(title="Gym", spent_seconds=0, estimated_seconds=60, project_id="sport", due_date=date.today(), recurrent=True),
-            ],
+        state = cls(
+            default_estimated_minutes=db.get_setting("default_estimated_minutes", 15),
+            email_weekly_stats=db.get_setting("email_weekly_stats", False),
         )
+        if db.is_empty():
+            state._init_default_data()
+        else:
+            state._load_from_db()
+        return state
+
+    def _init_default_data(self):
+        for p in [{"id": "sport", "name": "Sport", "icon": "🏃", "color": COLORS["green"]},
+                  {"id": "work", "name": "Work", "icon": "💼", "color": COLORS["blue"]},
+                  {"id": "chores", "name": "Chores", "icon": "🧹", "color": COLORS["orange"]}]:
+            db.save_project(p)
+            self.projects.append(p)
+        for i, t in enumerate([Task(title="Design dashboard", spent_seconds=45, estimated_seconds=120, project_id="work", due_date=date.today(), sort_order=i),
+                  Task(title="Refactor Auth", spent_seconds=10, estimated_seconds=90, project_id=None, due_date=date.today() + timedelta(days=1), sort_order=i),
+                  Task(title="Gym", spent_seconds=0, estimated_seconds=60, project_id="sport", due_date=date.today(), recurrent=True, sort_order=i)]):
+            t.id = db.save_task(t.to_dict())
+            self.tasks.append(t)
+
+    def _load_from_db(self):
+        self.projects = db.load_projects()
+        for row in db.load_tasks():
+            task = Task.from_dict(row)
+            (self.done_tasks if row["is_done"] else self.tasks).append(task)
+
+    def persist_task(self, task: Task):
+        is_done = task in self.done_tasks
+        task.id = db.save_task(task.to_dict(is_done))
+
+    def persist_task_order(self): 
+        for i, task in enumerate(self.tasks): 
+            task.sort_order = i 
+            self.persist_task(task) 
+
+    def save_settings(self):
+        db.set_setting("default_estimated_minutes", self.default_estimated_minutes)
+        db.set_setting("email_weekly_stats", self.email_weekly_stats)
 
     def reset(self):
+        db.clear_all()
         defaults = AppState.get_defaults()
         for key, value in vars(defaults).items():
             setattr(self, key, value)
@@ -72,6 +121,7 @@ class AppState:
         elapsed = self.timer_seconds
         if task and elapsed > 0:
             task.spent_seconds += elapsed
+            self.persist_task(task)
         self.active_timer_task = None
         self.timer_seconds = 0
         return task, elapsed
@@ -109,6 +159,7 @@ class AppState:
             return None
         self.tasks.remove(task)
         self.done_tasks.append(task)
+        db.save_task(task.to_dict(is_done=True))
         if task.recurrent:
             next_date = self._calculate_next_recurrence_date(task)
             if next_date:
@@ -123,6 +174,7 @@ class AppState:
                     recurrence_frequency=task.recurrence_frequency,
                     recurrence_weekdays=task.recurrence_weekdays.copy(),
                 )
+                new_task.id = db.save_task(new_task.to_dict())
                 self.tasks.append(new_task)
                 return new_task
         return None
@@ -131,15 +183,20 @@ class AppState:
         if task in self.done_tasks:
             self.done_tasks.remove(task)
             self.tasks.append(task)
+            db.save_task(task.to_dict(is_done=False))
             return True
         return False
 
     def delete_task(self, task: Task) -> bool:
         if task in self.tasks:
             self.tasks.remove(task)
+            if task.id:
+                db.delete_task(task.id)
             return True
         if task in self.done_tasks:
             self.done_tasks.remove(task)
+            if task.id:
+                db.delete_task(task.id)
             return True
         return False
 
@@ -148,6 +205,7 @@ class AppState:
             task.due_date = task.due_date + timedelta(days=1)
         else:
             task.due_date = date.today() + timedelta(days=1)
+        self.persist_task(task)
         return task.due_date
 
     def _get_base_task_name(self, title: str) -> str:
@@ -180,6 +238,7 @@ class AppState:
             recurrence_frequency=task.recurrence_frequency,
             recurrence_weekdays=task.recurrence_weekdays.copy() if task.recurrence_weekdays else [],
         )
+        new_task.id = db.save_task(new_task.to_dict())
         self.tasks.append(new_task)
         return new_task
 
@@ -199,10 +258,12 @@ class AppState:
             self.done_tasks.remove(t)
         if project_id in self.selected_projects:
             self.selected_projects.remove(project_id)
+        db.delete_project(project_id)
         return len(tasks_to_remove) + len(done_to_remove)
 
     def assign_project(self, task: Task, project_id: Optional[str]) -> None:
         task.project_id = project_id
+        self.persist_task(task)
 
     def add_task(
             self,
@@ -220,13 +281,16 @@ class AppState:
                 due_date = date.today() + timedelta(days=1)
             else:
                 due_date = date.today()
+        max_order = max((t.sort_order for t in self.tasks), default=-1)  
         new_task = Task(
             title=title,
             spent_seconds=0,
             estimated_seconds=estimated_seconds,
             project_id=project_id,
             due_date=due_date,
+            sort_order=max_order + 1, 
         )
+        new_task.id = db.save_task(new_task.to_dict())
         self.tasks.append(new_task)
         return new_task
 

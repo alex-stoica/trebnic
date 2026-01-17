@@ -11,6 +11,7 @@ from constants import (
 )
 from models import Task, AppState, AppController
 from helpers import format_duration, seconds_to_time
+from database import db 
 
 
 def open_custom_dialog(page: ft.Page, title: str, content: ft.Control, actions: List[ft.Control]) -> ft.AlertDialog:
@@ -54,10 +55,11 @@ def danger_btn(text: str, on_click, icon=None) -> ft.ElevatedButton:
 
 
 class RecurrenceDialog(ft.AlertDialog):
-    def __init__(self, task: Task, on_save, on_close):
+    def __init__(self, task: Task, on_save, on_close, persist_fn=None): 
         self.task = task
         self.on_save_callback = on_save
         self.on_close_callback = on_close
+        self.persist_fn = persist_fn
         
         self.weekday_checkboxes = [
             ft.Checkbox(label=day, value=i in task.recurrence_weekdays, scale=0.85)
@@ -149,6 +151,8 @@ class RecurrenceDialog(ft.AlertDialog):
         self.task.recurrence_frequency = self.freq_dropdown.value
         self.task.recurrence_interval = int(self.interval_field.value or 1)
         self.task.recurrence_weekdays = [i for i, cb in enumerate(self.weekday_checkboxes) if cb.value]
+        if self.persist_fn: 
+            self.persist_fn(self.task) 
         self.on_save_callback(self.task.recurrent)
 
 
@@ -510,6 +514,7 @@ def main(page: ft.Page):
                     page.update()
                     return
                 task.title = new_name
+                state.persist_task(task)
                 show_snack(f"Renamed to '{new_name}'")
                 page.close(rename_dialog)
                 refresh_lists()
@@ -540,7 +545,7 @@ def main(page: ft.Page):
         def on_close():
             page.close(recurrence_dialog)
         
-        recurrence_dialog = RecurrenceDialog(task, on_save, on_close)
+        recurrence_dialog = RecurrenceDialog(task, on_save, on_close, persist_fn=state.persist_task)
         page.open(recurrence_dialog)
 
     def open_task_stats_dialog(task: Task):
@@ -641,6 +646,7 @@ def main(page: ft.Page):
         toggle_btn = ft.TextButton("Preview", icon=ft.Icons.VISIBILITY, on_click=toggle_mode)
         def save_notes(e):
             task.notes = notes_field.value
+            state.persist_task(task) 
             page.close(notes_dialog)
             show_snack("Notes saved")
         def close_dialog(e):
@@ -755,6 +761,7 @@ def main(page: ft.Page):
         def handle_date_change(e):
             if e.control.value:
                 task.due_date = e.control.value.date()
+                state.persist_task(task) 
                 show_snack(f"Date set to {task.due_date.strftime('%b %d')}")
                 refresh_lists()
         
@@ -793,12 +800,14 @@ def main(page: ft.Page):
             
             def select_preset(days):
                 task.due_date = date.today() + timedelta(days=days)
+                state.persist_task(task) 
                 show_snack(f"Date set to {task.due_date.strftime('%b %d')}")
                 page.close(date_dialog)
                 refresh_lists()
             
             def clear_date(e):
                 task.due_date = None
+                state.persist_task(task) 
                 show_snack("Date cleared")
                 page.close(date_dialog)
                 refresh_lists()
@@ -918,6 +927,7 @@ def main(page: ft.Page):
             master_anchor_idx = state.tasks.index(anchor_task)
             state.tasks.insert(master_anchor_idx + 1, task_to_move)
 
+        state.persist_task_order()
         refresh_lists()
 
     new_project_name = ft.TextField(
@@ -1139,6 +1149,7 @@ def main(page: ft.Page):
                         p["name"] = name
                         p["icon"] = icon
                         p["color"] = color
+                        db.save_project(p)
                         break
                 old_btn = project_buttons[state.editing_project_id]
                 project = get_project_by_id(state.editing_project_id)
@@ -1153,6 +1164,7 @@ def main(page: ft.Page):
                     "color": color,
                 }
                 state.projects.append(new_project)
+                db.save_project(new_project)
                 project_buttons[new_id] = ProjectButton(new_project, controller)
                 projects_items.controls.append(project_buttons[new_id])
                 msg = f"Project '{name}' created"
@@ -1310,6 +1322,7 @@ def main(page: ft.Page):
         def save_preferences(e):
             state.default_estimated_minutes = int(time_slider.value) * 5
             state.email_weekly_stats = email_checkbox.value
+            state.save_settings()
             pending_task_details["estimated_minutes"] = state.default_estimated_minutes
             details_button.content.controls[1].value = "Add details"
             show_snack("Preferences saved")
