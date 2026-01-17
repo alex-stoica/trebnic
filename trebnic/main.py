@@ -527,15 +527,14 @@ class TaskComponent:
         items = []    
         
         if self.state.is_mobile:    
-            items.append(create_menu_item(ft.Icons.TIMER_OUTLINED, "Start Timer", lambda e: self.callbacks["start_timer"](self.task)))  
+            items.append(create_menu_item(ft.Icons.TIMER_OUTLINED, "Start timer", lambda e: self.callbacks["start_timer"](self.task))) 
         
         items.extend([    
             create_menu_item(ft.Icons.EDIT_OUTLINED, "Rename", lambda e: self.callbacks["rename"](self.task)),  
-            create_menu_item(ft.Icons.DRIVE_FILE_MOVE_OUTLINE, "Assign to project", lambda e: self.callbacks["assign_project"](self.task)),  
-            create_menu_item(ft.Icons.SCHEDULE_OUTLINED, "Reschedule", lambda e: self.callbacks["date_picker"](self.task)),  
+            create_menu_item(ft.Icons.SCHEDULE_OUTLINED, "Reschedule", lambda e: self.callbacks["date_picker"](self.task)), 
             create_menu_item(ft.Icons.NEXT_PLAN_OUTLINED, "Postpone by 1 day", lambda e: self.callbacks["postpone"](self.task)),  
-            create_menu_item(ft.Icons.REPEAT, "Set Recurrence", lambda e: self.callbacks["recurrence"](self.task)),  
-            create_menu_item(ft.Icons.CONTENT_COPY_OUTLINED, "Duplicate Task", lambda e: self.callbacks["duplicate"](self.task)),  
+            create_menu_item(ft.Icons.REPEAT, "Set recurrence", lambda e: self.callbacks["recurrence"](self.task)), 
+            create_menu_item(ft.Icons.CONTENT_COPY_OUTLINED, "Duplicate task", lambda e: self.callbacks["duplicate"](self.task)), 
             ft.PopupMenuItem(),    
             create_menu_item(ft.Icons.INSIGHTS, "Stats", lambda e: self.callbacks["stats"](self.task)), 
             create_menu_item(ft.Icons.STICKY_NOTE_2_OUTLINED, "Notes", lambda e: self.callbacks["notes"](self.task)), 
@@ -549,7 +548,7 @@ class TaskComponent:
             tooltip="Task options",    
             menu_position=ft.PopupMenuPosition.UNDER,    
             items=items    
-        )    
+        )
     
     def build(self) -> ft.Container: 
         checkbox = ft.Checkbox(value=self.is_completed, on_change=self._on_check_change) 
@@ -1216,26 +1215,32 @@ def main(page: ft.Page):
         page.update()
 
     def on_reorder(e: ft.OnReorderEvent):
-        filtered_tasks = get_filtered(state.tasks)   
-        
-        if len(task_list.controls) != len(filtered_tasks):
-            refresh_lists()
+        old_index = e.old_index
+        new_index = e.new_index
+        if old_index < new_index:
+            new_index -= 1
+            
+        filtered_tasks = get_filtered(state.tasks)
+        if not filtered_tasks or old_index >= len(filtered_tasks):
             return
-
-        if state.selected_projects:   
-            task_to_move = filtered_tasks[e.old_index]
-            old_real_index = state.tasks.index(task_to_move)   
-            target_task = filtered_tasks[e.new_index] if e.new_index < len(filtered_tasks) else None
-            state.tasks.pop(old_real_index)   
-            if target_task:
-                new_real_index = (
-                    state.tasks.index(target_task) if target_task in state.tasks else len(state.tasks)    
-                )    
-                state.tasks.insert(new_real_index, task_to_move)   
-            else:
-                state.tasks.append(task_to_move)   
+        
+        task_to_move = filtered_tasks[old_index]
+        
+        state.tasks.remove(task_to_move)
+        
+        if new_index == 0:
+            state.tasks.insert(0, task_to_move)
         else:
-            state.tasks.insert(e.new_index, state.tasks.pop(e.old_index))   
+            # Find the task that should now be immediately before our moved task
+            # to determine the correct insertion point in the master list
+            temp_filtered = list(filtered_tasks)
+            temp_filtered.pop(old_index)
+            temp_filtered.insert(new_index, task_to_move)
+            
+            anchor_task = temp_filtered[new_index - 1]
+            master_anchor_idx = state.tasks.index(anchor_task)
+            state.tasks.insert(master_anchor_idx + 1, task_to_move)
+
         refresh_lists()
 
     new_project_name = ft.TextField(
