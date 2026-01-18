@@ -59,7 +59,7 @@ class Database:
     def _init_schema(self) -> None:
         default_freq = RecurrenceFrequency.WEEKS.value
         try:
-            self.conn.executescript(f"""
+            self.conn.executescript(f"""  
                 CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL,
                     icon TEXT NOT NULL, color TEXT NOT NULL
@@ -87,7 +87,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
-            """) 
+            """)
             self._migrate_schema()
             self.conn.commit()
         except sqlite3.Error as e:
@@ -109,12 +109,12 @@ class Database:
             if "recurrence_end_date" not in cols:
                 self.conn.execute(
                     "ALTER TABLE tasks ADD COLUMN recurrence_end_date DATE"
-                ) 
+                )
             tables = [r[0] for r in self.conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )]
             if "time_entries" not in tables:
-                self.conn.execute("""
+                self.conn.execute("""  
                     CREATE TABLE time_entries (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         task_id INTEGER NOT NULL,
@@ -128,10 +128,44 @@ class Database:
                 )
                 self.conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time)"
-                )  
+                )
         except sqlite3.Error as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
+
+    def seed_default_data(self) -> None:  # EDITED
+        """Insert default seed data after factory reset."""  # EDITED
+        try:  # EDITED
+            # Create default projects  # EDITED
+            default_projects = [  # EDITED
+                {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},  # EDITED
+                {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},  # EDITED
+            ]  # EDITED
+            for project in default_projects:  # EDITED
+                self.save_project(project)  # EDITED
+            # EDITED
+            # Create welcome task  # EDITED
+            welcome_task = {  # EDITED
+                "id": None,  # EDITED
+                "title": "Welcome to Trebnic!",  # EDITED
+                "spent_seconds": 0,  # EDITED
+                "estimated_seconds": 300,  # EDITED
+                "project_id": "personal",  # EDITED
+                "due_date": date.today(),  # EDITED
+                "is_done": 0,  # EDITED
+                "recurrent": 0,  # EDITED
+                "recurrence_interval": 1,  # EDITED
+                "recurrence_frequency": RecurrenceFrequency.WEEKS.value,  # EDITED
+                "recurrence_weekdays": [],  # EDITED
+                "notes": "This is your first task. Start the timer to track your work!",  # EDITED
+                "sort_order": 0,  # EDITED
+                "recurrence_end_type": "never",  # EDITED
+                "recurrence_end_date": None,  # EDITED
+            }  # EDITED
+            self.save_task(welcome_task)  # EDITED
+        except sqlite3.Error as e:  # EDITED
+            logger.error(f"Error seeding default data: {e}")  # EDITED
+            raise DatabaseError(f"Failed to seed default data: {e}") from e  # EDITED
 
     def save_task(self, t: Dict[str, Any]) -> int:
         weekdays = json.dumps(t.get("recurrence_weekdays", []))
@@ -178,7 +212,7 @@ class Database:
 
     def delete_task(self, task_id: int) -> None:
         try:
-            self.conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,)) 
+            self.conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
             self.conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
             self.conn.commit()
         except sqlite3.Error as e:
@@ -208,7 +242,7 @@ class Database:
             logger.error(f"Error loading tasks: {e}")
             raise DatabaseError(f"Failed to load tasks: {e}") from e
 
-    def save_project(self, p: Dict[str, str]) -> None:   
+    def save_project(self, p: Dict[str, str]) -> None:
         try:
             self.conn.execute(
                 "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
@@ -224,7 +258,7 @@ class Database:
             count = self.conn.execute(
                 "SELECT COUNT(*) FROM tasks WHERE project_id=?",
                 (project_id,)
-            ).fetchone()[0] 
+            ).fetchone()[0]
             self.conn.execute(
                 "DELETE FROM time_entries WHERE task_id IN "
                 "(SELECT id FROM tasks WHERE project_id=?)",
@@ -238,14 +272,14 @@ class Database:
             logger.error(f"Error deleting project {project_id}: {e}")
             raise DatabaseError(f"Failed to delete project: {e}") from e
 
-    def load_projects(self) -> List[Dict[str, str]]: 
+    def load_projects(self) -> List[Dict[str, str]]:
         try:
             return [dict(r) for r in self.conn.execute("SELECT * FROM projects")]
         except sqlite3.Error as e:
             logger.error(f"Error loading projects: {e}")
             raise DatabaseError(f"Failed to load projects: {e}") from e
 
-    def save_time_entry(self, entry: Dict[str, Any]) -> int: 
+    def save_time_entry(self, entry: Dict[str, Any]) -> int:
         """Save a time entry to the database."""
         try:
             if entry.get("id") is None:
@@ -267,18 +301,24 @@ class Database:
             logger.error(f"Error saving time entry: {e}")
             raise DatabaseError(f"Failed to save time entry: {e}") from e
 
-    def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]: 
+    def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Load time entries from the database, ordered by start time descending."""
         try:
-            query = "SELECT * FROM time_entries ORDER BY start_time DESC"
-            if limit:
-                query += f" LIMIT {limit}"
-            return [dict(r) for r in self.conn.execute(query)]
+            if limit is not None:
+                rows = self.conn.execute(
+                    "SELECT * FROM time_entries ORDER BY start_time DESC LIMIT ?",
+                    (limit,)
+                )
+            else:
+                rows = self.conn.execute(
+                    "SELECT * FROM time_entries ORDER BY start_time DESC"
+                )
+            return [dict(r) for r in rows]
         except sqlite3.Error as e:
             logger.error(f"Error loading time entries: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def load_time_entries_for_task(self, task_id: int) -> List[Dict[str, Any]]: 
+    def load_time_entries_for_task(self, task_id: int) -> List[Dict[str, Any]]:
         """Load time entries for a specific task."""
         try:
             return [
@@ -291,7 +331,7 @@ class Database:
             logger.error(f"Error loading time entries for task {task_id}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]: 
+    def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]:
         """Load time entries for a specific date."""
         try:
             date_str = target_date.isoformat()
@@ -307,7 +347,7 @@ class Database:
             logger.error(f"Error loading time entries for date {target_date}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def delete_time_entry(self, entry_id: int) -> None: 
+    def delete_time_entry(self, entry_id: int) -> None:
         """Delete a time entry."""
         try:
             self.conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
@@ -316,7 +356,7 @@ class Database:
             logger.error(f"Error deleting time entry {entry_id}: {e}")
             raise DatabaseError(f"Failed to delete time entry: {e}") from e
 
-    def get_total_tracked_today(self) -> int:  
+    def get_total_tracked_today(self) -> int:
         """Get total tracked seconds for today."""
         try:
             today = date.today().isoformat()
@@ -331,9 +371,10 @@ class Database:
             return int(result[0] or 0)
         except sqlite3.Error as e:
             logger.error(f"Error getting total tracked today: {e}")
-            return 0
+            raise DatabaseError(f"Failed to get total tracked today: {e}") from e
 
     def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get a setting value. Returns default if not found or on error."""
         try:
             row = self.conn.execute(
                 "SELECT value FROM settings WHERE key=?",
@@ -342,7 +383,7 @@ class Database:
             return json.loads(row["value"]) if row else default
         except sqlite3.Error as e:
             logger.warning(f"Error getting setting {key}: {e}")
-            return default
+            return default 
 
     def set_setting(self, key: str, value: Any) -> None:
         try:
@@ -358,7 +399,7 @@ class Database:
     def clear_all(self) -> None:
         try:
             self.conn.executescript(
-                "DELETE FROM time_entries; DELETE FROM tasks; "  
+                "DELETE FROM time_entries; DELETE FROM tasks; "
                 "DELETE FROM projects; DELETE FROM settings;"
             )
             self.conn.commit()
@@ -373,7 +414,7 @@ class Database:
             ).fetchone()[0] == 0
         except sqlite3.Error as e:
             logger.error(f"Error checking if database is empty: {e}")
-            return True
+            raise DatabaseError(f"Failed to check database: {e}") from e
 
 
 db = Database()

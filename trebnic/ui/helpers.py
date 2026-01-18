@@ -2,28 +2,23 @@ import flet as ft
 from datetime import date
 from typing import Optional
 
-from config import COLORS, SNACK_DURATION_MS 
+from config import COLORS, SNACK_DURATION_MS
+from ui.formatters import TimeFormatter
 
 
 def format_duration(minutes: int) -> str:
-    if minutes < 60:
-        return f"{minutes} min"
-    h, m = divmod(minutes, 60)
-    if m == 0:
-        return f"{h} hr" if h == 1 else f"{h} hrs"
-    return f"{h} hr {m} min" if h == 1 else f"{h} hrs {m} min"
+    """Format duration - delegates to TimeFormatter."""
+    return TimeFormatter.minutes_to_display(minutes)
 
 
 def seconds_to_time(seconds: int) -> str:
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes} min"
-    h, m = divmod(minutes, 60)
-    return f"{h}h" if m == 0 else f"{h}h {m}m"
+    """Format seconds - delegates to TimeFormatter."""
+    return TimeFormatter.seconds_to_display(seconds)
 
 
 def format_timer_display(seconds: int) -> str:
-    return f"{seconds // 60:02d}:{seconds % 60:02d}"
+    """Format timer display - delegates to TimeFormatter."""
+    return TimeFormatter.seconds_to_timer(seconds)
 
 
 def format_due_date(due_date: Optional[date]) -> Optional[str]:
@@ -44,43 +39,43 @@ def format_due_date(due_date: Optional[date]) -> Optional[str]:
 
 def accent_btn(text: str, on_click) -> ft.ElevatedButton:
     return ft.ElevatedButton(
-        text, 
-        on_click=on_click, 
-        bgcolor=COLORS["accent"], 
-        color=COLORS["white"], 
-    ) 
+        text,
+        on_click=on_click,
+        bgcolor=COLORS["accent"],
+        color=COLORS["white"],
+    )
 
 
 def danger_btn(
-    text: str, 
-    on_click, 
-    icon: Optional[str] = None, 
-) -> ft.ElevatedButton: 
+    text: str,
+    on_click,
+    icon: Optional[str] = None,
+) -> ft.ElevatedButton:
     return ft.ElevatedButton(
-        text, 
-        on_click=on_click, 
-        bgcolor=COLORS["danger"], 
-        color=COLORS["white"], 
-        icon=icon, 
-    ) 
+        text,
+        on_click=on_click,
+        bgcolor=COLORS["danger"],
+        color=COLORS["white"],
+        icon=icon,
+    )
 
 
 class SnackService:
-    def __init__(self, page: ft.Page) -> None: 
+    def __init__(self, page: ft.Page) -> None:
         self.page = page
         self.snack = ft.SnackBar(
-            content=ft.Text(""), 
-            bgcolor=COLORS["card"], 
-            duration=SNACK_DURATION_MS, 
-        ) 
+            content=ft.Text(""),
+            bgcolor=COLORS["card"],
+            duration=SNACK_DURATION_MS,
+        )
         page.overlay.append(self.snack)
 
     def show(
-        self, 
-        message: str, 
-        color: Optional[str] = None, 
-        update: bool = True, 
-    ) -> None: 
+        self,
+        message: str,
+        color: Optional[str] = None,
+        update: bool = True,
+    ) -> None:
         self.snack.content = ft.Text(message, color=COLORS["white"])
         self.snack.bgcolor = color or COLORS["card"]
         self.snack.open = True

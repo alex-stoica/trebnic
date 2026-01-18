@@ -2,7 +2,7 @@ import uuid
 from datetime import date, timedelta
 from typing import List, Tuple, Optional
 
-from config import NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS, RecurrenceFrequency
+from config import NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS 
 from database import db
 from models.entities import AppState, Task, Project, TimeEntry
 from services.recurrence import calculate_next_recurrence
@@ -34,6 +34,11 @@ class TaskService:
         state.email_weekly_stats = db.get_setting("email_weekly_stats", False)
         
         return state
+
+    @staticmethod
+    def create_empty_state() -> AppState:
+        """Create an empty state without loading from database."""
+        return AppState()
 
     def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
         task = Task(
@@ -162,9 +167,18 @@ class TaskService:
 
     def reset(self) -> None:
         db.clear_all()
+        db.seed_default_data()
         self.state.tasks.clear()
         self.state.done_tasks.clear()
-        self.state.projects.clear()
+        self.state.projects.clear() 
+        for p_dict in db.load_projects():
+            self.state.projects.append(Project.from_dict(p_dict))
+        for t_dict in db.load_tasks():
+            task = Task.from_dict(t_dict)
+            if t_dict.get("is_done"):
+                self.state.done_tasks.append(task)
+            else:
+                self.state.tasks.append(task)
 
     def save_settings(self) -> None:
         db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)

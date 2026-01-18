@@ -15,35 +15,30 @@ from models.entities import AppState
 from services.logic import TaskService
 from ui.helpers import format_duration, accent_btn, danger_btn, SnackService
 from ui.dialogs.base import open_dialog
+from events import event_bus, AppEvent
 
 
 class ProfilePage:
     def __init__(
-        self, 
-        page: ft.Page, 
-        state: AppState, 
-        service: TaskService, 
-        snack: SnackService, 
-        navigate: Callable[[str], None], 
-        refresh: Callable[[], None], 
-        rebuild_sidebar: Callable[[], None], 
-    ) -> None: 
+        self,
+        page: ft.Page,
+        state: AppState,
+        service: TaskService,
+        snack: SnackService,
+        navigate: Callable[[str], None],
+    ) -> None:
         self.page = page
         self.state = state
         self.service = service
         self.snack = snack
         self.navigate = navigate
-        self.refresh = refresh
-        self.rebuild_sidebar = rebuild_sidebar
 
     def _open_reset_dialog(self, e: ft.ControlEvent) -> None: 
-        def confirm(e: ft.ControlEvent) -> None: 
+        def confirm(e: ft.ControlEvent) -> None:
             self.service.reset()
             close()
-            self.rebuild_sidebar()
-            self.navigate(PAGE_TASKS)
+            event_bus.emit(AppEvent.DATA_RESET)
             self.snack.show("All data has been reset", COLORS["danger"])
-            self.refresh()
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,

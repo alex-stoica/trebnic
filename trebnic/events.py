@@ -58,12 +58,21 @@ class EventBus:
                     print(f"Error in event handler for {event}: {e}")
 
     def clear(self) -> None:
-        """Clear all event subscriptions."""
+        """Clear all event subscriptions.
+        
+        Note: This method is primarily used for testing to reset state
+        between test cases. Not typically called in production code.
+        """
         self._listeners.clear()
 
     @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton instance (useful for testing)."""
+        """Reset the singleton instance.
+        
+        Note: This method is primarily used for testing to ensure
+        a fresh EventBus instance between test cases. Not typically
+        called in production code.
+        """
         if cls._instance is not None:
             cls._instance._listeners.clear()
             cls._instance = None
