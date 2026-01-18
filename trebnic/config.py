@@ -1,3 +1,13 @@
+from enum import Enum 
+
+
+class RecurrenceFrequency(Enum): 
+    """Enum for task recurrence frequency types.""" 
+    DAYS = "days" 
+    WEEKS = "weeks" 
+    MONTHS = "months" 
+
+
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
     "🚀", "⭐", "🔥", "💎", "🌟", "🎵", "📱", "💻", "🎬", "📷",
@@ -7,7 +17,7 @@ PROJECT_ICONS = [
     "🏥", "📞", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡",
 ]
 
-PROJECT_COLORS = [ 
+PROJECT_COLORS = [
     {"name": "Blue", "value": "#2196f3"},
     {"name": "Green", "value": "#4caf50"},
     {"name": "Orange", "value": "#ff9800"},
@@ -27,36 +37,36 @@ PROJECT_COLORS = [
     {"name": "Maroon", "value": "#672A0E"},
 ]
 
-BORDER_RADIUS = 10 
-MOBILE_BREAKPOINT = 768 
-ANIMATION_DELAY = 0.35 
-DATE_PICKER_YEARS = 2 
+BORDER_RADIUS = 10
+MOBILE_BREAKPOINT = 768
+ANIMATION_DELAY = 0.35
+DATE_PICKER_YEARS = 2
 
-DEFAULT_ESTIMATED_SECONDS = 900 
-DURATION_SLIDER_STEP = 5 
-DURATION_SLIDER_MIN = 1 
-DURATION_SLIDER_MAX = 100 
+DEFAULT_ESTIMATED_SECONDS = 900
+DURATION_SLIDER_STEP = 5
+DURATION_SLIDER_MIN = 1
+DURATION_SLIDER_MAX = 100
 
-DIALOG_WIDTH_SM = 280 
-DIALOG_WIDTH_MD = 300 
-DIALOG_WIDTH_LG = 320 
-DIALOG_WIDTH_XL = 350 
+DIALOG_WIDTH_SM = 280
+DIALOG_WIDTH_MD = 300
+DIALOG_WIDTH_LG = 320
+DIALOG_WIDTH_XL = 350
 
-CALENDAR_HEADER_HEIGHT = 48 
-ICON_PICKER_HEIGHT = 280 
-NOTES_FIELD_HEIGHT = 280 
+CALENDAR_HEADER_HEIGHT = 48
+ICON_PICKER_HEIGHT = 280
+NOTES_FIELD_HEIGHT = 280
 
-NAV_INBOX = "inbox" 
-NAV_TODAY = "today" 
-NAV_CALENDAR = "calendar" 
-NAV_UPCOMING = "upcoming" 
-NAV_PROJECTS = "projects" 
+NAV_INBOX = "inbox"
+NAV_TODAY = "today"
+NAV_CALENDAR = "calendar"
+NAV_UPCOMING = "upcoming"
+NAV_PROJECTS = "projects"
 
-PAGE_TASKS = "tasks" 
-PAGE_PROFILE = "profile" 
-PAGE_PREFERENCES = "preferences" 
+PAGE_TASKS = "tasks"
+PAGE_PROFILE = "profile"
+PAGE_PREFERENCES = "preferences"
 
-COLORS = { 
+COLORS = {
     "bg": "#1e1e1e",
     "sidebar": "#121212",
     "card": "#2d2d2d",
