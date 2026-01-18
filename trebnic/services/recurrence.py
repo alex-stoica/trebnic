@@ -17,15 +17,26 @@ def calculate_next_recurrence(task: Task) -> Optional[date]:
     if not task.recurrent or not task.due_date: 
         return None 
     base = task.due_date 
+    next_date = None
+    
     if task.recurrence_frequency == "days": 
-        return base + timedelta(days=task.recurrence_interval) 
+        next_date = base + timedelta(days=task.recurrence_interval)
     elif task.recurrence_frequency == "weeks": 
         if task.recurrence_weekdays: 
             for offset in range(1, 8): 
                 next_day = base + timedelta(days=offset) 
                 if next_day.weekday() in task.recurrence_weekdays: 
-                    return next_day 
-        return base + timedelta(weeks=task.recurrence_interval) 
+                    next_date = next_day
+                    break
+        if next_date is None:
+            next_date = base + timedelta(weeks=task.recurrence_interval)
     elif task.recurrence_frequency == "months": 
-        return _add_months(base, task.recurrence_interval) 
-    return base + timedelta(weeks=1) 
+        next_date = _add_months(base, task.recurrence_interval)
+    else:
+        next_date = base + timedelta(weeks=1)
+        
+    if task.recurrence_end_type == "on_date" and task.recurrence_end_date:
+        if next_date and next_date > task.recurrence_end_date:
+            return None 
+        
+    return next_date 

@@ -19,6 +19,8 @@ class Task:
     recurrence_weekdays: List[int] = field(default_factory=list) 
     notes: str = "" 
     sort_order: int = 0 
+    recurrence_end_type: str = "never"  
+    recurrence_end_date: Optional[date] = None 
 
     def to_dict(self, is_done: bool = False) -> dict: 
         return {"id": self.id, "title": self.title, "spent_seconds": self.spent_seconds, 
@@ -27,7 +29,9 @@ class Task:
                 "recurrent": 1 if self.recurrent else 0, "recurrence_interval": self.recurrence_interval, 
                 "recurrence_frequency": self.recurrence_frequency, 
                 "recurrence_weekdays": self.recurrence_weekdays, "notes": self.notes, 
-                "sort_order": self.sort_order} 
+                "sort_order": self.sort_order,
+                "recurrence_end_type": self.recurrence_end_type,  
+                "recurrence_end_date": self.recurrence_end_date} 
 
     @classmethod
     def from_dict(cls, d: dict) -> "Task": 
@@ -37,7 +41,9 @@ class Task:
                    recurrent=bool(d.get("recurrent", 0)), recurrence_interval=d.get("recurrence_interval", 1), 
                    recurrence_frequency=d.get("recurrence_frequency", "weeks"), 
                    recurrence_weekdays=d.get("recurrence_weekdays", []), notes=d.get("notes", ""), 
-                   sort_order=d.get("sort_order", 0)) 
+                   sort_order=d.get("sort_order", 0),
+                   recurrence_end_type=d.get("recurrence_end_type", "never"),  
+                   recurrence_end_date=d.get("recurrence_end_date")) 
 
 
 @dataclass
@@ -58,4 +64,4 @@ class AppState:
         for p in self.projects: 
             if p["id"] == project_id: 
                 return p 
-        return None 
+        return None

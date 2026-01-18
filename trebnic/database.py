@@ -48,14 +48,20 @@ class Database:
                 recurrent INTEGER DEFAULT 0, recurrence_interval INTEGER DEFAULT 1,
                 recurrence_frequency TEXT DEFAULT 'weeks',
                 recurrence_weekdays TEXT DEFAULT '[]', notes TEXT DEFAULT '',
-                sort_order INTEGER DEFAULT 0
+                sort_order INTEGER DEFAULT 0,
+                recurrence_end_type TEXT DEFAULT 'never',
+                recurrence_end_date DATE
             );
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
-        """) 
+        """)  
         cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tasks)")] 
         if "sort_order" not in cols: 
             self.conn.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0") 
+        if "recurrence_end_type" not in cols: 
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_end_type TEXT DEFAULT 'never'")  
+        if "recurrence_end_date" not in cols:  
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN recurrence_end_date DATE")  
         self.conn.commit() 
 
     def save_task(self, t: Dict) -> int: 
@@ -63,18 +69,19 @@ class Database:
         params = (t["title"], t["spent_seconds"], t["estimated_seconds"], t["project_id"], 
                   t["due_date"], t.get("is_done", 0), t.get("recurrent", 0), 
                   t.get("recurrence_interval", 1), t.get("recurrence_frequency", "weeks"), 
-                  weekdays, t.get("notes", ""), t.get("sort_order", 0)) 
+                  weekdays, t.get("notes", ""), t.get("sort_order", 0),
+                  t.get("recurrence_end_type", "never"), t.get("recurrence_end_date"))  
         if t.get("id") is None: 
             cur = self.conn.execute( 
                 "INSERT INTO tasks (title,spent_seconds,estimated_seconds,project_id," 
                 "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency," 
-                "recurrence_weekdays,notes,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", params) 
+                "recurrence_weekdays,notes,sort_order,recurrence_end_type,recurrence_end_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", params) 
             self.conn.commit() 
             return cur.lastrowid 
         self.conn.execute( 
             "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,project_id=?," 
             "due_date=?,is_done=?,recurrent=?,recurrence_interval=?,recurrence_frequency=?," 
-            "recurrence_weekdays=?,notes=?,sort_order=? WHERE id=?", params + (t["id"],)) 
+            "recurrence_weekdays=?,notes=?,sort_order=?,recurrence_end_type=?,recurrence_end_date=? WHERE id=?", params + (t["id"],)) 
         self.conn.commit() 
         return t["id"] 
 
@@ -84,7 +91,9 @@ class Database:
 
     def load_tasks(self) -> List[Dict]: 
         rows = self.conn.execute("SELECT * FROM tasks ORDER BY sort_order, id") 
-        return [{**dict(r), "recurrence_weekdays": json.loads(r["recurrence_weekdays"])} for r in rows] 
+        return [{**dict(r), "recurrence_weekdays": json.loads(r["recurrence_weekdays"]),
+                 "recurrence_end_type": r["recurrence_end_type"] if "recurrence_end_type" in r.keys() else "never", 
+                 "recurrence_end_date": r["recurrence_end_date"] if "recurrence_end_date" in r.keys() else None} for r in rows]  
 
     def save_project(self, p: Dict): 
         self.conn.execute("INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)", 
@@ -117,4 +126,4 @@ class Database:
         return self.conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0 
 
 
-db = Database() 
+db = Database()

@@ -1,6 +1,12 @@
-import flet as ft
-import time
-import threading
+import sys  
+import os 
+_app_dir = os.path.dirname(os.path.abspath(__file__))  
+if _app_dir not in sys.path:  
+    sys.path.insert(0, _app_dir)
+
+import flet as ft 
+import time 
+import threading 
 
 from config import (COLORS, MOBILE_BREAKPOINT, NAV_INBOX, NAV_TODAY, NAV_CALENDAR, NAV_UPCOMING,
                     PAGE_TASKS, PAGE_PROFILE, PAGE_PREFERENCES, ANIMATION_DELAY)
