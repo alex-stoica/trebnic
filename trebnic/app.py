@@ -10,21 +10,21 @@ from config import (
     NAV_TODAY, 
     NAV_CALENDAR, 
     NAV_UPCOMING, 
-    NAV_PROJECTS, 
     PAGE_TASKS, 
     PAGE_PROFILE, 
     PAGE_PREFERENCES, 
+    PAGE_TIME_ENTRIES,
     ANIMATION_DELAY, 
 ) 
-from events import EventBus, AppEvent, event_bus 
+from events import event_bus, AppEvent 
 from services.logic import TaskService 
 from services.timer import TimerService 
-from models.entities import Task, AppState 
+from models.entities import Task, TimeEntry
 from ui.controller import UIController 
 from ui.helpers import SnackService, format_timer_display 
 from ui.components import ProjectSidebarItem, TimerWidget 
 from ui.dialogs import TaskDialogs, ProjectDialogs 
-from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage 
+from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView
 
 
 class NavigationHandler: 
@@ -79,7 +79,7 @@ class TrebnicApp:
     def _init_ui_components(self) -> None: 
         """Initialize UI components.""" 
         self.project_btns: Dict[str, ProjectSidebarItem] = { 
-            p["id"]: ProjectSidebarItem(p, self.ctrl) 
+            p.id: ProjectSidebarItem(p, self.ctrl) 
             for p in self.state.projects 
         } 
 
@@ -87,6 +87,14 @@ class TrebnicApp:
             self.page, self.state, self.service, self.ctrl, self.snack 
         ) 
         self.calendar_view = CalendarView(self.state) 
+
+        self.time_entries_view = TimeEntriesView(
+            self.page,
+            self.state,
+            self.service,
+            self.snack,
+            self.navigate_to,
+        )
 
         self.profile_page = ProfilePage( 
             self.page, 
@@ -113,6 +121,7 @@ class TrebnicApp:
             self.service, 
             self.snack, 
             self.tasks_view.refresh, 
+            self.navigate_to,  
         ) 
 
         self.project_dialogs = ProjectDialogs( 
@@ -158,14 +167,18 @@ class TrebnicApp:
             update_content=self.update_content, 
         ) 
 
-    def rebuild_sidebar(self) -> None: 
-        """Rebuild the sidebar with updated project list.""" 
-        self.project_btns.clear() 
-        self.projects_items.controls.clear() 
-        for p in self.state.projects: 
-            self.project_btns[p["id"]] = ProjectSidebarItem(p, self.ctrl) 
-            self.projects_items.controls.append(self.project_btns[p["id"]]) 
-        self.event_bus.emit(AppEvent.PROJECT_UPDATED) 
+    def rebuild_sidebar(self) -> None:
+        """Rebuild the sidebar with updated project list."""
+        self.project_btns.clear()
+        self.projects_items.controls.clear()
+        for p in self.state.projects:
+            self.project_btns[p.id] = ProjectSidebarItem(p, self.ctrl) 
+            self.projects_items.controls.append(self.project_btns[p.id]) 
+        self.event_bus.emit(AppEvent.PROJECT_UPDATED)
+
+    def _save_time_entry(self, entry: TimeEntry) -> int:
+        """Save a time entry to the database."""
+        return self.service.save_time_entry(entry)
 
     def _start_timer(self, task: Task) -> None: 
         """Start the timer for a task.""" 
@@ -173,7 +186,7 @@ class TrebnicApp:
             self.snack.show("Stop current timer first", COLORS["danger"]) 
             return 
 
-        self.timer_svc.start(task, self.service.persist_task) 
+        self.timer_svc.start(task, self.service.persist_task, self._save_time_entry)
         self.timer_widget.start(task.title) 
         self.event_bus.emit(AppEvent.TIMER_STARTED, task) 
 
@@ -266,6 +279,8 @@ class TrebnicApp:
             self.page_content.content = self.profile_page.build() 
         elif self.state.current_page == PAGE_PREFERENCES: 
             self.page_content.content = self.prefs_page.build() 
+        elif self.state.current_page == PAGE_TIME_ENTRIES:
+            self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NAV_CALENDAR: 
             self.page_content.content = self.calendar_view.build() 
         else: 
@@ -279,8 +294,8 @@ class TrebnicApp:
         self.nav_upcoming.selected = self.state.selected_nav == NAV_UPCOMING 
         self.nav_projects.selected = len(self.state.selected_projects) > 0 
 
-        for pid, btn in self.project_btns.items(): 
-            btn.set_selected(pid in self.state.selected_projects) 
+        for pid, btn in self.project_btns.items():
+            btn.set_selected(pid in self.state.selected_projects)
 
         self.projects_items.visible = self.state.projects_expanded 
         self.projects_arrow.name = ( 
@@ -340,15 +355,15 @@ class TrebnicApp:
             project = self.state.get_project_by_id( 
                 list(self.state.selected_projects)[0] 
             ) 
-            if project: 
-                items.extend([ 
-                    ft.PopupMenuItem(), 
-                    ft.PopupMenuItem( 
-                        text=f"Edit '{project['name']}'", 
-                        icon=ft.Icons.EDIT, 
-                        on_click=lambda e, p=project: self.project_dialogs.open(p), 
-                    ), 
-                ]) 
+            if project:
+                items.extend([
+                    ft.PopupMenuItem(),
+                    ft.PopupMenuItem(
+                        text=f"Edit '{project.name}'",
+                        icon=ft.Icons.EDIT,
+                        on_click=lambda e, p=project: self.project_dialogs.open(p),
+                    ),
+                ])
 
         items.extend([ 
             ft.PopupMenuItem(), 
@@ -417,11 +432,11 @@ class TrebnicApp:
             on_click=self.nav_handler.on_projects_toggle, 
         ) 
 
-        self.projects_items = ft.Column( 
-            visible=False, 
-            spacing=0, 
-            controls=[self.project_btns[p["id"]] for p in self.state.projects], 
-        ) 
+        self.projects_items = ft.Column(
+            visible=False,
+            spacing=0,
+            controls=[self.project_btns[p.id] for p in self.state.projects], 
+        )
 
         self.nav_content = ft.Column( 
             controls=[ 
@@ -431,12 +446,12 @@ class TrebnicApp:
                 self.nav_today, 
                 self.nav_calendar, 
                 self.nav_upcoming, 
+                ft.Divider(color="grey"), 
                 self.nav_projects, 
                 self.projects_items, 
             ] 
         ) 
-
-        # Drawer and sidebar 
+ 
         self.drawer = ft.NavigationDrawer( 
             bgcolor=COLORS["sidebar"], controls=[] 
         ) 
@@ -456,13 +471,11 @@ class TrebnicApp:
             on_click=self._on_menu_click, 
             visible=True, 
         ) 
-
-        # Settings menu 
+ 
         self.settings_menu = ft.PopupMenuButton( 
             icon=ft.Icons.SETTINGS, items=self._get_settings_items() 
         ) 
-
-        # Header 
+ 
         header = ft.Row( 
             controls=[ 
                 self.menu_btn, 
@@ -471,11 +484,9 @@ class TrebnicApp:
                 self.settings_menu, 
             ] 
         ) 
-
-        # Page content 
+ 
         self.page_content = ft.Container(expand=True) 
-
-        # Main area 
+ 
         main_area = ft.Container( 
             expand=True, 
             bgcolor=COLORS["bg"], 
@@ -492,22 +503,18 @@ class TrebnicApp:
                 expand=True, 
             ), 
         ) 
-
-        # Main row 
+ 
         main_row = ft.Row( 
             expand=True, 
             vertical_alignment=ft.CrossAxisAlignment.STRETCH, 
             spacing=0, 
             controls=[self.sidebar, main_area], 
         ) 
-
-        # Set up resize handler 
+ 
         self.page.on_resized = self._handle_resize 
-
-        # Add main layout to page 
+ 
         self.page.add(main_row) 
-
-        # Initial setup 
+ 
         self._handle_resize() 
         self.update_content() 
         self.tasks_view.refresh() 
@@ -536,4 +543,4 @@ class TrebnicApp:
 
 def create_app(page: ft.Page) -> TrebnicApp: 
     """Factory function to create the application.""" 
-    return TrebnicApp(page) 
+    return TrebnicApp(page)

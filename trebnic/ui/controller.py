@@ -2,9 +2,9 @@ import flet as ft
 from typing import Optional, Dict, Any, Callable
 
 from config import NAV_PROJECTS
-from models.entities import Task, AppState
+from models.entities import Task, AppState, Project 
 from services.logic import TaskService
-from ui.helpers import format_due_date
+from ui.presenters.task_presenter import TaskPresenter 
 
 
 class UIController:
@@ -27,11 +27,11 @@ class UIController:
             return self._callbacks[name](*args, **kwargs)
         return None
 
-    def get_project(self, project_id: Optional[str]) -> Optional[Dict[str, str]]:
+    def get_project(self, project_id: Optional[str]) -> Optional[Project]: 
         return self.state.get_project_by_id(project_id)
 
     def get_due_date_str(self, task: Task) -> Optional[str]:
-        return format_due_date(task.due_date)
+        return TaskPresenter.format_due_date(task.due_date) 
 
     def toggle_project(self, project_id: str) -> None:
         if project_id in self.state.selected_projects:

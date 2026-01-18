@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime  
 from typing import Optional, List, Set, Dict, Any
 from datetime import date
 
@@ -8,6 +9,34 @@ from config import (
     PAGE_TASKS,
     RecurrenceFrequency,
 )
+
+
+@dataclass 
+class Project: 
+    """Project entity representing a task category.""" 
+    id: str 
+    name: str 
+    icon: str 
+    color: str 
+
+    def to_dict(self) -> Dict[str, str]: 
+        """Convert to dictionary for database storage.""" 
+        return { 
+            "id": self.id, 
+            "name": self.name, 
+            "icon": self.icon, 
+            "color": self.color, 
+        } 
+
+    @classmethod 
+    def from_dict(cls, d: Dict[str, str]) -> "Project": 
+        """Create Project from dictionary.""" 
+        return cls( 
+            id=d["id"], 
+            name=d["name"], 
+            icon=d["icon"], 
+            color=d["color"], 
+        ) 
 
 
 @dataclass
@@ -76,11 +105,53 @@ class Task:
         )
 
 
+@dataclass  
+class TimeEntry:
+    """Time entry entity representing a tracked time period for a task."""
+    task_id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    id: Optional[int] = None
+
+    @property
+    def duration_seconds(self) -> int:
+        """Calculate duration in seconds."""
+        if self.end_time is None:
+            return int((datetime.now() - self.start_time).total_seconds())
+        return int((self.end_time - self.start_time).total_seconds())
+
+    @property
+    def is_running(self) -> bool:
+        """Check if this entry is still running."""
+        return self.end_time is None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for database storage."""
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "TimeEntry":
+        """Create TimeEntry from dictionary."""
+        start = d.get("start_time")
+        end = d.get("end_time")
+        return cls(
+            id=d.get("id"),
+            task_id=d["task_id"],
+            start_time=datetime.fromisoformat(start) if start else datetime.now(),
+            end_time=datetime.fromisoformat(end) if end else None,
+        )
+
+
 @dataclass
 class AppState:
     tasks: List[Task] = field(default_factory=list)
     done_tasks: List[Task] = field(default_factory=list)
-    projects: List[Dict[str, str]] = field(default_factory=list)
+    projects: List[Project] = field(default_factory=list) 
     selected_nav: str = NAV_TODAY
     selected_projects: Set[str] = field(default_factory=set)
     projects_expanded: bool = False
@@ -89,11 +160,21 @@ class AppState:
     default_estimated_minutes: int = 15
     email_weekly_stats: bool = False
     current_page: str = PAGE_TASKS
+    viewing_task_id: Optional[int] = None 
 
-    def get_project_by_id(self, project_id: Optional[str]) -> Optional[Dict[str, str]]:
+    def get_project_by_id(self, project_id: Optional[str]) -> Optional[Project]: 
         if project_id is None:
             return None
         for p in self.projects:
-            if p["id"] == project_id:
+            if p.id == project_id: 
                 return p
+        return None
+
+    def get_task_by_id(self, task_id: Optional[int]) -> Optional[Task]:
+        """Get a task by its ID from either tasks or done_tasks."""
+        if task_id is None:
+            return None
+        for t in self.tasks + self.done_tasks:
+            if t.id == task_id:
+                return t
         return None

@@ -88,7 +88,7 @@ class ProfilePage:
             most_active = max(
                 self.state.projects, 
                 key=lambda p: len([ 
-                    t for t in self.state.done_tasks if t.project_id == p["id"] 
+                    t for t in self.state.done_tasks if t.project_id == p.id
                 ]), 
                 default=None, 
             ) 
@@ -162,7 +162,7 @@ class ProfilePage:
             border_radius=BORDER_RADIUS,
         ) 
 
-        most_active_name = most_active["name"] if most_active else "None"
+        most_active_name = most_active.name if most_active else "None" 
         most_active_card = ft.Container(
             content=ft.Row(
                 [ 
@@ -321,4 +321,4 @@ class PreferencesPage:
                 save_btn_container, 
             ], 
             spacing=15,
-        ) 
+        )

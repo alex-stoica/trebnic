@@ -17,7 +17,7 @@ class CalendarView:
 
     def _create_chip(self, task: Task, is_done: bool = False) -> ft.Container: 
         project = self.state.get_project_by_id(task.project_id)
-        color = project["color"] if project else COLORS["card"]
+        color = project.color if project else COLORS["card"] 
 
         if is_done:
             return ft.Container(

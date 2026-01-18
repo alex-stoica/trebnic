@@ -11,6 +11,7 @@ from config import (
     NOTES_FIELD_HEIGHT,
     DATE_PICKER_YEARS,
     BORDER_RADIUS,
+    PAGE_TIME_ENTRIES,
     RecurrenceFrequency, 
 ) 
 from models.entities import Task, AppState
@@ -27,12 +28,14 @@ class TaskDialogs:
         service: TaskService, 
         snack: SnackService, 
         refresh: Callable[[], None], 
+        navigate: Callable[[str], None] = None,
     ) -> None: 
         self.page = page
         self.state = state
         self.service = service
         self.snack = snack
         self.refresh = refresh
+        self.navigate = navigate
         self._date_picker: Optional[ft.DatePicker] = None 
 
     def rename(self, task: Task) -> None: 
@@ -76,21 +79,21 @@ class TaskDialogs:
         def select(pid: Optional[str]) -> None: 
             self.service.assign_project(task, pid)
             p = self.state.get_project_by_id(pid)
-            self.snack.show(f"Task assigned to {p['name'] if p else 'Unassigned'}")
+            self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
             close()
             self.refresh()
 
         opts: List[ft.Control] = [] 
         for p in self.state.projects:
-            is_sel = task.project_id == p["id"]
+            is_sel = task.project_id == p.id
             check_icon = (
                 ft.Icon(ft.Icons.CHECK, color=COLORS["accent"], size=18) 
                 if is_sel else ft.Container(width=18) 
             ) 
             row = ft.Row(
                 [ 
-                    ft.Text(p["icon"], size=18), 
-                    ft.Text(p["name"], size=14, expand=True), 
+                    ft.Text(p.icon, size=18),
+                    ft.Text(p.name, size=14, expand=True),
                     check_icon, 
                 ], 
                 spacing=12, 
@@ -100,7 +103,7 @@ class TaskDialogs:
                 padding=ft.padding.symmetric(vertical=10, horizontal=15), 
                 border_radius=8, 
                 ink=True, 
-                on_click=lambda e, pid=p["id"]: select(pid), 
+                on_click=lambda e, pid=p.id: select(pid),
             ) 
             opts.append(container)
 
@@ -364,6 +367,9 @@ class TaskDialogs:
         ) 
         remaining = max(0, task.estimated_seconds - task.spent_seconds)
 
+        # Load time entries for this task
+        time_entries = self.service.load_time_entries_for_task(task.id) if task.id else []
+
         def stat_card(
             icon: str, 
             label: str, 
@@ -436,7 +442,7 @@ class TaskDialogs:
                 [ 
                     ft.Icon(ft.Icons.FOLDER, size=16, color=COLORS["done_text"]), 
                     ft.Text( 
-                        f"Project: {project['name'] if project else 'Unassigned'}", 
+                        f"Project: {project.name if project else 'Unassigned'}",
                         size=12, 
                         color=COLORS["done_text"], 
                     ), 
@@ -445,6 +451,44 @@ class TaskDialogs:
             ), 
             padding=ft.padding.only(top=10),
         ) 
+
+        # Time entries summary
+        entries_count = len(time_entries)
+        entries_text = f"{entries_count} time {'entry' if entries_count == 1 else 'entries'}"
+        
+        def view_entries(e: ft.ControlEvent) -> None:
+            close(e)
+            self.state.viewing_task_id = task.id
+            if self.navigate:
+                self.navigate(PAGE_TIME_ENTRIES)
+
+        entries_card = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.HISTORY, color=COLORS["accent"], size=18),
+                    ft.Column(
+                        [
+                            ft.Text("Time Entries", weight="bold", size=13),
+                            ft.Text(entries_text, color=COLORS["done_text"], size=12),
+                        ],
+                        spacing=2,
+                        expand=True,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.ARROW_FORWARD,
+                        icon_color=COLORS["accent"],
+                        tooltip="View all time entries",
+                        on_click=view_entries,
+                    ),
+                ],
+                spacing=10,
+            ),
+            bgcolor=COLORS["card"],
+            padding=12,
+            border_radius=BORDER_RADIUS,
+            on_click=view_entries,
+            ink=True,
+        )
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
@@ -464,6 +508,7 @@ class TaskDialogs:
                     ), 
                     estimated_card, 
                     progress_card, 
+                    entries_card, 
                     project_row, 
                 ], 
                 spacing=10,
@@ -471,7 +516,7 @@ class TaskDialogs:
             ), 
         ) 
 
-        open_dialog(
+        _, close = open_dialog( 
             self.page, 
             f"Stats: {task.title}", 
             content, 
@@ -544,4 +589,4 @@ class TaskDialogs:
             f"Notes: {task.title}", 
             content, 
             lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)], 
-        ) 
+        )

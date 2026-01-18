@@ -3,7 +3,7 @@ import flet as ft
 from config import COLORS, BORDER_RADIUS
 from models.entities import Task
 from ui.controller import UIController
-from ui.helpers import seconds_to_time
+from ui.presenters.task_presenter import TaskPresenter, TaskDisplayData 
 from ui.dialogs.base import create_option_item
 
 
@@ -17,6 +17,8 @@ class TaskTile:
         self.task = task
         self.is_done = is_done
         self.ctrl = ctrl
+        project = ctrl.get_project(task.project_id) 
+        self.display = TaskPresenter.create_display_data(task, project) 
 
     def _on_check(self, e: ft.ControlEvent) -> None: 
         if self.is_done and not e.control.value:
@@ -24,17 +26,11 @@ class TaskTile:
         elif not self.is_done and e.control.value:
             self.ctrl.complete(self.task)
 
-    def _title(self) -> str:
-        return f"↻ {self.task.title}" if self.task.recurrent else self.task.title
-
     def _tags(self) -> ft.Control:
-        project = self.ctrl.get_project(self.task.project_id)
-        due = self.ctrl.get_due_date_str(self.task)
-
         if self.is_done:
-            parts = [project["name"] if project else "Unassigned"]
-            if due:
-                parts.append(due)
+            parts = [self.display.project_name or "Unassigned"] 
+            if self.display.due_date_display: 
+                parts.append(self.display.due_date_display) 
             return ft.Container(
                 content=ft.Text( 
                     " • ".join(parts), 
@@ -47,17 +43,17 @@ class TaskTile:
             ) 
 
         tags = []
-        if project:
+        if self.display.project_name: 
             project_tag = ft.Container(
                 content=ft.Row(
                     [ 
-                        ft.Text(project["icon"], size=10), 
-                        ft.Text(project["name"], size=10, color=COLORS["white"]), 
+                        ft.Text(self.display.project_icon, size=10), 
+                        ft.Text(self.display.project_name, size=10, color=COLORS["white"]), 
                     ], 
                     spacing=4, 
                     tight=True, 
                 ), 
-                bgcolor=project["color"],
+                bgcolor=self.display.project_color, 
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
                 on_click=lambda e: self.ctrl.assign_project(self.task),
@@ -80,10 +76,10 @@ class TaskTile:
             ) 
             tags.append(unassigned_tag)
 
-        if due:
+        if self.display.due_date_display: 
             due_tag = ft.Container(
                 content=ft.Text( 
-                    due, 
+                    self.display.due_date_display, 
                     size=10, 
                     color=COLORS["done_text"], 
                 ), 
@@ -180,8 +176,7 @@ class TaskTile:
         bg = COLORS["done_bg"] if self.is_done else COLORS["card"]
 
         time_txt = ft.Text(
-            f"{seconds_to_time(self.task.spent_seconds)} / " 
-            f"{seconds_to_time(self.task.estimated_seconds)}", 
+            f"{self.display.spent_display} / {self.display.estimated_display}", 
             font_family="monospace",
             color=COLORS["done_text"],
             visible=not self.ctrl.state.is_mobile,
@@ -198,7 +193,7 @@ class TaskTile:
                     ft.Column(
                         [ 
                             ft.Text( 
-                                self._title(), 
+                                self.display.title, 
                                 weight="bold", 
                                 color=title_color, 
                                 style=title_style, 
@@ -223,7 +218,7 @@ class TaskTile:
                         ft.Row([ 
                             cb, 
                             ft.Text( 
-                                self._title(), 
+                                self.display.title, 
                                 weight="bold", 
                                 expand=True, 
                                 size=14, 
@@ -256,7 +251,7 @@ class TaskTile:
                 ft.Column(
                     [ 
                         ft.Text( 
-                            self._title(), 
+                            self.display.title,  
                             weight="bold", 
                             color=title_color, 
                             style=title_style, 
@@ -270,4 +265,4 @@ class TaskTile:
                 time_txt,
                 self._menu(),
             ]), 
-        ) 
+        )

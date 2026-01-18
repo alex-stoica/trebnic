@@ -76,9 +76,18 @@ class Database:
                     recurrence_end_type TEXT DEFAULT 'never',
                     recurrence_end_date DATE
                 );
+                CREATE TABLE IF NOT EXISTS time_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
-            """)
+                CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
+                CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
+            """) 
             self._migrate_schema()
             self.conn.commit()
         except sqlite3.Error as e:
@@ -100,7 +109,26 @@ class Database:
             if "recurrence_end_date" not in cols:
                 self.conn.execute(
                     "ALTER TABLE tasks ADD COLUMN recurrence_end_date DATE"
+                ) 
+            tables = [r[0] for r in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )]
+            if "time_entries" not in tables:
+                self.conn.execute("""
+                    CREATE TABLE time_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        task_id INTEGER NOT NULL,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT,
+                        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                    )
+                """)
+                self.conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id)"
                 )
+                self.conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time)"
+                )  
         except sqlite3.Error as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
@@ -150,6 +178,7 @@ class Database:
 
     def delete_task(self, task_id: int) -> None:
         try:
+            self.conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,)) 
             self.conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
             self.conn.commit()
         except sqlite3.Error as e:
@@ -179,7 +208,7 @@ class Database:
             logger.error(f"Error loading tasks: {e}")
             raise DatabaseError(f"Failed to load tasks: {e}") from e
 
-    def save_project(self, p: Dict[str, str]) -> None:
+    def save_project(self, p: Dict[str, str]) -> None:   
         try:
             self.conn.execute(
                 "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
@@ -195,7 +224,12 @@ class Database:
             count = self.conn.execute(
                 "SELECT COUNT(*) FROM tasks WHERE project_id=?",
                 (project_id,)
-            ).fetchone()[0]
+            ).fetchone()[0] 
+            self.conn.execute(
+                "DELETE FROM time_entries WHERE task_id IN "
+                "(SELECT id FROM tasks WHERE project_id=?)",
+                (project_id,)
+            )
             self.conn.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
             self.conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
             self.conn.commit()
@@ -204,12 +238,100 @@ class Database:
             logger.error(f"Error deleting project {project_id}: {e}")
             raise DatabaseError(f"Failed to delete project: {e}") from e
 
-    def load_projects(self) -> List[Dict[str, str]]:
+    def load_projects(self) -> List[Dict[str, str]]: 
         try:
             return [dict(r) for r in self.conn.execute("SELECT * FROM projects")]
         except sqlite3.Error as e:
             logger.error(f"Error loading projects: {e}")
             raise DatabaseError(f"Failed to load projects: {e}") from e
+
+    def save_time_entry(self, entry: Dict[str, Any]) -> int: 
+        """Save a time entry to the database."""
+        try:
+            if entry.get("id") is None:
+                cur = self.conn.execute(
+                    "INSERT INTO time_entries (task_id, start_time, end_time) "
+                    "VALUES (?, ?, ?)",
+                    (entry["task_id"], entry["start_time"], entry["end_time"])
+                )
+                self.conn.commit()
+                return cur.lastrowid
+            self.conn.execute(
+                "UPDATE time_entries SET task_id=?, start_time=?, end_time=? "
+                "WHERE id=?",
+                (entry["task_id"], entry["start_time"], entry["end_time"], entry["id"])
+            )
+            self.conn.commit()
+            return entry["id"]
+        except sqlite3.Error as e:
+            logger.error(f"Error saving time entry: {e}")
+            raise DatabaseError(f"Failed to save time entry: {e}") from e
+
+    def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]: 
+        """Load time entries from the database, ordered by start time descending."""
+        try:
+            query = "SELECT * FROM time_entries ORDER BY start_time DESC"
+            if limit:
+                query += f" LIMIT {limit}"
+            return [dict(r) for r in self.conn.execute(query)]
+        except sqlite3.Error as e:
+            logger.error(f"Error loading time entries: {e}")
+            raise DatabaseError(f"Failed to load time entries: {e}") from e
+
+    def load_time_entries_for_task(self, task_id: int) -> List[Dict[str, Any]]: 
+        """Load time entries for a specific task."""
+        try:
+            return [
+                dict(r) for r in self.conn.execute(
+                    "SELECT * FROM time_entries WHERE task_id=? ORDER BY start_time DESC",
+                    (task_id,)
+                )
+            ]
+        except sqlite3.Error as e:
+            logger.error(f"Error loading time entries for task {task_id}: {e}")
+            raise DatabaseError(f"Failed to load time entries: {e}") from e
+
+    def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]: 
+        """Load time entries for a specific date."""
+        try:
+            date_str = target_date.isoformat()
+            return [
+                dict(r) for r in self.conn.execute(
+                    "SELECT * FROM time_entries "
+                    "WHERE date(start_time) = ? "
+                    "ORDER BY start_time ASC",
+                    (date_str,)
+                )
+            ]
+        except sqlite3.Error as e:
+            logger.error(f"Error loading time entries for date {target_date}: {e}")
+            raise DatabaseError(f"Failed to load time entries: {e}") from e
+
+    def delete_time_entry(self, entry_id: int) -> None: 
+        """Delete a time entry."""
+        try:
+            self.conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting time entry {entry_id}: {e}")
+            raise DatabaseError(f"Failed to delete time entry: {e}") from e
+
+    def get_total_tracked_today(self) -> int:  
+        """Get total tracked seconds for today."""
+        try:
+            today = date.today().isoformat()
+            result = self.conn.execute(
+                "SELECT SUM("
+                "  CASE WHEN end_time IS NOT NULL THEN "
+                "    (julianday(end_time) - julianday(start_time)) * 86400 "
+                "  ELSE 0 END"
+                ") as total FROM time_entries WHERE date(start_time) = ?",
+                (today,)
+            ).fetchone()
+            return int(result[0] or 0)
+        except sqlite3.Error as e:
+            logger.error(f"Error getting total tracked today: {e}")
+            return 0
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         try:
@@ -236,7 +358,8 @@ class Database:
     def clear_all(self) -> None:
         try:
             self.conn.executescript(
-                "DELETE FROM tasks; DELETE FROM projects; DELETE FROM settings;"
+                "DELETE FROM time_entries; DELETE FROM tasks; "  
+                "DELETE FROM projects; DELETE FROM settings;"
             )
             self.conn.commit()
         except sqlite3.Error as e:

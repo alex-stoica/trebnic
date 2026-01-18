@@ -2,7 +2,7 @@ import flet as ft
 from datetime import date
 from typing import Optional
 
-from config import COLORS
+from config import COLORS, SNACK_DURATION_MS 
 
 
 def format_duration(minutes: int) -> str:
@@ -71,7 +71,7 @@ class SnackService:
         self.snack = ft.SnackBar(
             content=ft.Text(""), 
             bgcolor=COLORS["card"], 
-            duration=2000, 
+            duration=SNACK_DURATION_MS, 
         ) 
         page.overlay.append(self.snack)
 
