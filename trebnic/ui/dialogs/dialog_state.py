@@ -16,13 +16,14 @@ class RecurrenceState:
     weekdays: List[bool] = field(default_factory=lambda: [False] * 7)
     end_type: str = "never"
     end_date: Optional[date] = None
+    from_completion: bool = False
 
     @classmethod
     def from_task(cls, task: Task) -> "RecurrenceState":
         """Create state from an existing task."""
         weekdays = [i in task.recurrence_weekdays for i in range(7)]
         freq = (
-            task.recurrence_frequency 
+            task.recurrence_frequency
             if isinstance(task.recurrence_frequency, RecurrenceFrequency)
             else RecurrenceFrequency.WEEKS
         )
@@ -34,6 +35,7 @@ class RecurrenceState:
             weekdays=weekdays,
             end_type=task.recurrence_end_type,
             end_date=task.recurrence_end_date,
+            from_completion=task.recurrence_from_completion,
         )
 
     def apply_to_task(self) -> None:
@@ -44,6 +46,7 @@ class RecurrenceState:
         self.task.recurrence_weekdays = [i for i, v in enumerate(self.weekdays) if v]
         self.task.recurrence_end_type = self.end_type
         self.task.recurrence_end_date = self.end_date
+        self.task.recurrence_from_completion = self.from_completion
 
 
 @dataclass

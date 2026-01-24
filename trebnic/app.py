@@ -1,6 +1,5 @@
 import flet as ft
-import time
-import threading
+import asyncio
 from typing import Optional, Any, List
 
 from config import (
@@ -33,12 +32,18 @@ class TrebnicApp:
         # Wire page to service for proper async scheduling
         self.service.set_page(page)
 
+        # Wire calendar update callback
+        self.calendar_view.on_update = self._on_calendar_update
+
         self.timer_widget = TimerWidget(self._on_timer_stop)
         self.timer_ctrl.timer_widget = self.timer_widget
 
         self._subscribe_to_events()
         self._wire_controller()
         self._build_layout()
+
+        # Recover any running timer from before app restart
+        self.timer_ctrl.recover_timer(self.state)
 
         # Register cleanup on page close
         self.page.on_close = self._on_page_close
@@ -99,6 +104,11 @@ class TrebnicApp:
         """Handle UI refresh events."""
         self.tasks_view.refresh()
 
+    def _on_calendar_update(self) -> None:
+        """Handle calendar week navigation."""
+        self.update_content()
+        self.page.update()
+
     def _on_sidebar_rebuild(self, data: Any) -> None:
         """Handle sidebar rebuild events."""
         self.rebuild_sidebar()
@@ -152,13 +162,14 @@ class TrebnicApp:
             self.snack.show(f"Failed to delete task: {e}", COLORS["danger"])
             return
 
-        def delayed() -> None:
-            time.sleep(ANIMATION_DELAY)
+        async def delayed() -> None:
+            await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(f"'{title}' deleted", COLORS["danger"], update=False)
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_DELETED, task)
+            self.page.update()
 
-        threading.Thread(target=delayed, daemon=True).start()
+        self.page.run_task(delayed)
 
     def _duplicate_task(self, task: Task) -> None:
         """Duplicate a task with error handling."""
@@ -168,15 +179,16 @@ class TrebnicApp:
             self.snack.show(f"Failed to duplicate task: {e}", COLORS["danger"])
             return
 
-        def delayed() -> None:
-            time.sleep(ANIMATION_DELAY)
+        async def delayed() -> None:
+            await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(
                 f"Task duplicated as '{new_task.title}'", update=False
             )
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_DUPLICATED, new_task)
+            self.page.update()
 
-        threading.Thread(target=delayed, daemon=True).start()
+        self.page.run_task(delayed)
 
     def _postpone_task(self, task: Task) -> None:
         """Postpone a task by one day with error handling."""
@@ -186,16 +198,17 @@ class TrebnicApp:
             self.snack.show(f"Failed to postpone task: {e}", COLORS["danger"])
             return
 
-        def delayed() -> None:
-            time.sleep(ANIMATION_DELAY)
+        async def delayed() -> None:
+            await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(
                 f"'{task.title}' postponed to {new_date.strftime('%b %d')}",
                 update=False,
             )
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_POSTPONED, task)
+            self.page.update()
 
-        threading.Thread(target=delayed, daemon=True).start()
+        self.page.run_task(delayed)
 
     def update_content(self) -> None:
         """Update the main content area based on current state.""" 

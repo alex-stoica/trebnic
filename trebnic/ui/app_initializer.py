@@ -119,7 +119,7 @@ class AppInitializer:
         self.components.tasks_view = TasksView(
             self.page, state, service, ctrl, snack
         )
-        self.components.calendar_view = CalendarView(state)
+        self.components.calendar_view = CalendarView(state, on_update=None)
 
         self.components.time_entries_view = TimeEntriesView(
             self.page, state, service, snack, nav_manager.navigate_to,

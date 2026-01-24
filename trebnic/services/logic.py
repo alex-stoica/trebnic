@@ -8,7 +8,7 @@ import flet as ft
 from config import NavItem
 from database import db
 from models.entities import AppState, Task, Project, TimeEntry
-from services.recurrence import calculate_next_recurrence
+from services.recurrence import calculate_next_recurrence, calculate_next_recurrence_from_date
 
 if TYPE_CHECKING:
     pass
@@ -23,20 +23,29 @@ class TaskService:
         """Set the Flet page for async task scheduling."""
         self._page = page
 
-    def _schedule_async(self, coro):
+    def _schedule_async(self, coro, need_result: bool = True):
         """Schedule an async coroutine properly based on context.
 
-        - If page is set, use page.run_task() to run on Flet's event loop
+        Args:
+            coro: The coroutine to schedule
+            need_result: If True, block and return result. If False, fire-and-forget.
+
+        - If page is set and need_result=False, use page.run_task() (non-blocking)
+        - If page is set and need_result=True, use run_coroutine_threadsafe with timeout
         - If no running loop, use asyncio.run()
-        - Returns the result for sync callers
         """
         if self._page is not None:
-            # In Flet context - schedule on Flet's event loop
-            future = asyncio.run_coroutine_threadsafe(
-                coro,
-                self._page.loop
-            )
-            return future.result()
+            if not need_result:
+                # Fire-and-forget - use page.run_task for non-blocking execution
+                self._page.run_task(lambda: coro)
+                return None
+            # Need result - schedule and wait with timeout to avoid indefinite blocking
+            future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
+            try:
+                return future.result(timeout=30.0)
+            except TimeoutError:
+                future.cancel()
+                raise RuntimeError("Database operation timed out")
 
         try:
             loop = asyncio.get_running_loop()
@@ -77,6 +86,11 @@ class TaskService:
         state.default_estimated_minutes = await db.get_setting("default_estimated_minutes", 15)
         state.email_weekly_stats = await db.get_setting("email_weekly_stats", False)
 
+        # Check for incomplete time entry (timer was running when app closed)
+        incomplete_entry = await db.load_incomplete_time_entry()
+        if incomplete_entry:
+            state.recovered_timer_entry = TimeEntry.from_dict(incomplete_entry)
+
         return state
 
     @staticmethod
@@ -112,7 +126,7 @@ class TaskService:
         await db.save_task(task.to_dict(is_done=is_done))
 
     def persist_task(self, task: Task) -> None:
-        self._schedule_async(self.persist_task_async(task))
+        self._schedule_async(self.persist_task_async(task), need_result=False)
 
     def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task."""
@@ -166,7 +180,14 @@ class TaskService:
         self.state.done_tasks.append(task)
 
         if task.recurrent:
-            next_date = calculate_next_recurrence(task)
+            if task.recurrence_from_completion:
+                # Calculate next date from today (completion date)
+                next_date = calculate_next_recurrence_from_date(
+                    task, date.today()
+                )
+            else:
+                # Calculate next date from the original due date
+                next_date = calculate_next_recurrence(task)
             if next_date:
                 new_task = Task(
                     title=task.title,
@@ -179,7 +200,10 @@ class TaskService:
                     recurrence_frequency=task.recurrence_frequency,
                     recurrence_weekdays=task.recurrence_weekdays,
                     notes=task.notes,
-                    sort_order=task.sort_order
+                    sort_order=task.sort_order,
+                    recurrence_end_type=task.recurrence_end_type,
+                    recurrence_end_date=task.recurrence_end_date,
+                    recurrence_from_completion=task.recurrence_from_completion,
                 )
                 # Save new task to DB first
                 new_task.id = await db.save_task(new_task.to_dict())
@@ -218,7 +242,7 @@ class TaskService:
             self.state.done_tasks.remove(task)
 
     def delete_task(self, task: Task) -> None:
-        self._schedule_async(self.delete_task_async(task))
+        self._schedule_async(self.delete_task_async(task), need_result=False)
 
     async def duplicate_task_async(self, task: Task) -> Task:
         new_task = Task.from_dict(task.to_dict())
@@ -276,7 +300,7 @@ class TaskService:
         await db.delete_time_entry(entry_id)
 
     def delete_time_entry(self, entry_id: int) -> None:
-        self._schedule_async(self.delete_time_entry_async(entry_id))
+        self._schedule_async(self.delete_time_entry_async(entry_id), need_result=False)
 
     async def update_time_entry_async(self, entry: TimeEntry) -> int:
         """Update an existing time entry."""
@@ -303,7 +327,7 @@ class TaskService:
 
     def recalculate_task_time_from_entries(self, task: Task) -> None:
         """Recalculate task spent_seconds from its time entries."""
-        self._schedule_async(self.recalculate_task_time_from_entries_async(task))
+        self._schedule_async(self.recalculate_task_time_from_entries_async(task), need_result=False)
 
     def validate_project_name(self, name: str, editing_id: Optional[str] = None) -> Optional[str]:
         if not name:
@@ -320,7 +344,7 @@ class TaskService:
         await db.save_project(project.to_dict())
 
     def save_project(self, project: Project) -> None:
-        self._schedule_async(self.save_project_async(project))
+        self._schedule_async(self.save_project_async(project), need_result=False)
 
     async def delete_project_async(self, project_id: str) -> int:
         # Delete from DB first
@@ -351,14 +375,14 @@ class TaskService:
                 self.state.tasks.append(task)
 
     def reset(self) -> None:
-        self._schedule_async(self.reset_async())
+        self._schedule_async(self.reset_async(), need_result=False)
 
     async def save_settings_async(self) -> None:
         await db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
         await db.set_setting("email_weekly_stats", self.state.email_weekly_stats)
 
     def save_settings(self) -> None:
-        self._schedule_async(self.save_settings_async())
+        self._schedule_async(self.save_settings_async(), need_result=False)
 
     def task_name_exists(self, name: str, exclude_task: Task) -> bool:
         all_active = [t.title.lower() for t in self.state.tasks if t != exclude_task]
@@ -379,4 +403,4 @@ class TaskService:
             await self.persist_task_async(task)
 
     def persist_task_order(self) -> None:
-        self._schedule_async(self.persist_task_order_async())
+        self._schedule_async(self.persist_task_order_async(), need_result=False)

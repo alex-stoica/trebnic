@@ -66,14 +66,36 @@ def calculate_next_recurrence(task: Task) -> Optional[date]:
         return None
     if not task.due_date:
         return None
- 
+
     next_date = _calculate_by_frequency(
         base=task.due_date,
         frequency=task.recurrence_frequency,
         interval=task.recurrence_interval,
         weekdays=task.recurrence_weekdays,
     )
- 
+
+    if _has_recurrence_ended(next_date, task):
+        return None
+
+    return next_date
+
+
+def calculate_next_recurrence_from_date(task: Task, base_date: date) -> Optional[date]:
+    """Calculate the next recurrence date from a specific base date.
+
+    Used for "recur from completion" mode where the next occurrence
+    is calculated from the completion date rather than the original due date.
+    """
+    if not task.recurrent:
+        return None
+
+    next_date = _calculate_by_frequency(
+        base=base_date,
+        frequency=task.recurrence_frequency,
+        interval=task.recurrence_interval,
+        weekdays=task.recurrence_weekdays,
+    )
+
     if _has_recurrence_ended(next_date, task):
         return None
 

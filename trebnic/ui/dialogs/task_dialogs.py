@@ -126,6 +126,12 @@ class RecurrenceDialogController:
             ),
         )
 
+        self.from_completion_switch = ft.Switch(
+            value=self.state.from_completion,
+            label="Recur from completion date",
+            on_change=self._on_from_completion_change,
+        )
+
     def _on_weekday_change(self, e: ft.ControlEvent, idx: int) -> None:
         """Handle weekday checkbox change."""
         self.state.weekdays[idx] = e.control.value
@@ -157,6 +163,10 @@ class RecurrenceDialogController:
         self.state.end_type = e.control.value
         if self.state.end_type == "on_date" and self.state.end_date is None:
             self.state.end_date = date.today() + timedelta(days=90)
+
+    def _on_from_completion_change(self, e: ft.ControlEvent) -> None:
+        """Handle from completion switch change."""
+        self.state.from_completion = e.control.value
 
     def _open_end_date_picker(self, e: ft.ControlEvent) -> None:
         """Open the end date picker."""
@@ -207,6 +217,15 @@ class RecurrenceDialogController:
                     ),
                     ft.Divider(height=10, color="transparent"),
                     self.weekdays_section,
+                    ft.Divider(height=15, color=COLORS["border"]),
+                    ft.Text("Behavior", weight="bold", size=13),
+                    self.from_completion_switch,
+                    ft.Text(
+                        "When enabled, the next occurrence is calculated from the completion date "
+                        "instead of the original due date. Useful for habits like 'Every 30 days'.",
+                        size=11,
+                        color=COLORS["done_text"],
+                    ),
                     ft.Divider(height=15, color=COLORS["border"]),
                     ft.Text("Ends", weight="bold", size=13),
                     self.end_type_group,

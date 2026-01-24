@@ -55,6 +55,7 @@ class Task:
     sort_order: int = 0
     recurrence_end_type: str = "never"
     recurrence_end_date: Optional[date] = None
+    recurrence_from_completion: bool = False
 
     def to_dict(self, is_done: bool = False) -> Dict[str, Any]:
         freq_value = (
@@ -78,6 +79,7 @@ class Task:
             "sort_order": self.sort_order,
             "recurrence_end_type": self.recurrence_end_type,
             "recurrence_end_date": self.recurrence_end_date,
+            "recurrence_from_completion": 1 if self.recurrence_from_completion else 0,
         }
 
     @classmethod
@@ -102,6 +104,7 @@ class Task:
             sort_order=d.get("sort_order", 0),
             recurrence_end_type=d.get("recurrence_end_type", "never"),
             recurrence_end_date=d.get("recurrence_end_date"),
+            recurrence_from_completion=bool(d.get("recurrence_from_completion", 0)),
         )
 
 
@@ -151,16 +154,18 @@ class TimeEntry:
 class AppState:
     tasks: List[Task] = field(default_factory=list)
     done_tasks: List[Task] = field(default_factory=list)
-    projects: List[Project] = field(default_factory=list) 
-    selected_nav: NavItem = NavItem.TODAY 
+    projects: List[Project] = field(default_factory=list)
+    selected_nav: NavItem = NavItem.TODAY
     selected_projects: Set[str] = field(default_factory=set)
     projects_expanded: bool = False
     is_mobile: bool = False
     editing_project_id: Optional[str] = None
     default_estimated_minutes: int = 15
     email_weekly_stats: bool = False
-    current_page: PageType = PageType.TASKS  
-    viewing_task_id: Optional[int] = None 
+    current_page: PageType = PageType.TASKS
+    viewing_task_id: Optional[int] = None
+    calendar_week_offset: int = 0
+    recovered_timer_entry: Optional["TimeEntry"] = None 
 
     def get_project_by_id(self, project_id: Optional[str]) -> Optional[Project]: 
         if project_id is None:

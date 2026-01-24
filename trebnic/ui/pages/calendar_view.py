@@ -7,8 +7,9 @@ from models.entities import AppState, Task
 
 
 class CalendarView:
-    def __init__(self, state: AppState) -> None: 
+    def __init__(self, state: AppState, on_update: callable = None) -> None:
         self.state = state
+        self.on_update = on_update
 
     def _get_tasks_for_date(self, d: date) -> Tuple[List[Task], List[Task]]: 
         pending = [t for t in self.state.tasks if t.due_date == d] 
@@ -112,35 +113,68 @@ class CalendarView:
             border_radius=6,
         ) 
 
+    def _navigate_week(self, delta: int) -> None:
+        """Navigate forward or backward by delta weeks."""
+        self.state.calendar_week_offset += delta
+        if self.on_update:
+            self.on_update()
+
+    def _go_to_today(self) -> None:
+        """Reset to current week."""
+        self.state.calendar_week_offset = 0
+        if self.on_update:
+            self.on_update()
+
     def build(self) -> ft.Column:
         today = date.today()
-        start = today - timedelta(days=today.weekday())
+        week_start = today - timedelta(days=today.weekday())
+        start = week_start + timedelta(weeks=self.state.calendar_week_offset)
         days = [start + timedelta(days=i) for i in range(7)]
 
         date_range = f"{days[0].strftime('%b %d')} - {days[6].strftime('%b %d, %Y')}"
 
-        header_row = ft.Row(
-            [ 
-                ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20), 
-                ft.Text("Weekly Calendar", size=16, weight="bold"), 
-                ft.Container(expand=True), 
-                ft.Text(date_range, color=COLORS["done_text"], size=11), 
-            ], 
-            spacing=8,
-        ) 
+        # Show "Today" button only when not viewing current week
+        today_btn = ft.TextButton(
+            "Today",
+            on_click=lambda e: self._go_to_today(),
+            visible=self.state.calendar_week_offset != 0,
+        )
 
-        day_columns = [self._create_day_column(i, d, today) for i, d in enumerate(days)] 
+        header_row = ft.Row(
+            [
+                ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
+                ft.Text("Weekly Calendar", size=16, weight="bold"),
+                ft.Container(expand=True),
+                today_btn,
+                ft.IconButton(
+                    icon=ft.Icons.CHEVRON_LEFT,
+                    icon_color=COLORS["accent"],
+                    tooltip="Previous week",
+                    on_click=lambda e: self._navigate_week(-1),
+                ),
+                ft.Text(date_range, color=COLORS["done_text"], size=11),
+                ft.IconButton(
+                    icon=ft.Icons.CHEVRON_RIGHT,
+                    icon_color=COLORS["accent"],
+                    tooltip="Next week",
+                    on_click=lambda e: self._navigate_week(1),
+                ),
+            ],
+            spacing=4,
+        )
+
+        day_columns = [self._create_day_column(i, d, today) for i, d in enumerate(days)]
 
         calendar_row = ft.Row(
-            day_columns, 
-            spacing=4, 
-            vertical_alignment=ft.CrossAxisAlignment.START, 
-        ) 
+            day_columns,
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
 
         calendar_container = ft.Container(
-            content=calendar_row, 
-            expand=True, 
-            padding=ft.padding.only(top=10), 
-        ) 
+            content=calendar_row,
+            expand=True,
+            padding=ft.padding.only(top=10),
+        )
 
         return ft.Column([header_row, calendar_container], expand=True)

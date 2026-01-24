@@ -105,6 +105,10 @@ class Database:
                 await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN recurrence_end_date TEXT"
                 )
+            if "recurrence_from_completion" not in cols:
+                await conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN recurrence_from_completion INTEGER DEFAULT 0"
+                )
 
             async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -209,6 +213,7 @@ class Database:
             t.get("sort_order", 0),
             t.get("recurrence_end_type", "never"),
             recurrence_end_date,
+            t.get("recurrence_from_completion", 0),
         )
         try:
             async with self._get_connection() as conn:
@@ -218,7 +223,7 @@ class Database:
                         "(title,spent_seconds,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "recurrence_end_date,recurrence_from_completion) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         params
                     )
                     await conn.commit()
@@ -227,7 +232,7 @@ class Database:
                     "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,"
                     "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
                     "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
-                    "recurrence_end_type=?,recurrence_end_date=? WHERE id=?",
+                    "recurrence_end_type=?,recurrence_end_date=?,recurrence_from_completion=? WHERE id=?",
                     params + (t["id"],)
                 )
                 await conn.commit()
@@ -258,6 +263,9 @@ class Database:
                         )
                         task_dict["recurrence_end_type"] = task_dict.get(
                             "recurrence_end_type", "never"
+                        )
+                        task_dict["recurrence_from_completion"] = task_dict.get(
+                            "recurrence_from_completion", 0
                         )
                         # Convert date strings back to date objects
                         if task_dict.get("due_date"):
@@ -393,6 +401,23 @@ class Database:
         except Exception as e:
             logger.error(f"Error deleting time entry {entry_id}: {e}")
             raise DatabaseError(f"Failed to delete time entry: {e}") from e
+
+    async def load_incomplete_time_entry(self) -> Optional[Dict[str, Any]]:
+        """Load the first incomplete time entry (end_time is NULL).
+
+        Returns the entry if found, or None if no incomplete entries exist.
+        """
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute(
+                    "SELECT * FROM time_entries WHERE end_time IS NULL "
+                    "ORDER BY start_time DESC LIMIT 1"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error loading incomplete time entry: {e}")
+            return None
 
     async def get_total_tracked_today(self) -> int:
         """Get total tracked seconds for today."""

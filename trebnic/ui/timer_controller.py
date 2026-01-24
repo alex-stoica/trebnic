@@ -1,9 +1,10 @@
 import flet as ft
 import asyncio
+from datetime import datetime
 from typing import Optional
 
 from config import COLORS
-from models.entities import Task, TimeEntry
+from models.entities import Task, TimeEntry, AppState
 from services.timer import TimerService
 from services.logic import TaskService
 from ui.helpers import format_timer_display, SnackService
@@ -114,11 +115,101 @@ class TimerController:
         self.timer_widget.stop()
         self.page.update()
 
+    def recover_timer(self, state: AppState) -> None:
+        """Recover a running timer from app restart.
+
+        Checks if there's a recovered timer entry in the state and resumes it.
+        """
+        if state.recovered_timer_entry is None:
+            return
+
+        entry = state.recovered_timer_entry
+        task = state.get_task_by_id(entry.task_id)
+
+        if task is None:
+            # Task was deleted, complete the orphaned entry
+            entry.end_time = datetime.now()
+            self.service.save_time_entry(entry)
+            state.recovered_timer_entry = None
+            return
+
+        # Calculate elapsed seconds since the timer started
+        elapsed = int((datetime.now() - entry.start_time).total_seconds())
+
+        # Resume the timer with the existing entry
+        self.timer_svc.active_task = task
+        self.timer_svc.seconds = elapsed
+        self.timer_svc.running = True
+        self.timer_svc._persist_fn = self.service.persist_task
+        self.timer_svc._save_entry_fn = self._save_time_entry
+        self.timer_svc.current_entry = entry
+        self.timer_svc.start_time = entry.start_time
+
+        # Update widget
+        self.timer_widget.start(task.title)
+        self.timer_widget.update_time(elapsed)
+
+        # Get/create stop event and reset for timer session
+        stop_event = self._get_stop_event()
+        stop_event.clear()
+
+        # Schedule async timer tick on Flet's event loop
+        async def tick_loop():
+            try:
+                while self.timer_svc.running:
+                    try:
+                        await asyncio.wait_for(
+                            stop_event.wait(),
+                            timeout=1.0
+                        )
+                        break
+                    except asyncio.TimeoutError:
+                        pass
+
+                    if self.timer_svc.running:
+                        self.timer_svc.tick()
+                        self.timer_widget.update_time(self.timer_svc.seconds)
+                        try:
+                            self.page.update()
+                        except Exception:
+                            break
+            except asyncio.CancelledError:
+                pass
+
+        self._timer_task = self.page.run_task(tick_loop)
+        self.snack.show(f"Timer recovered for '{task.title}' ({format_timer_display(elapsed)} elapsed)")
+
+        # Clear the recovered entry from state
+        state.recovered_timer_entry = None
+
     def cleanup(self) -> None:
-        """Clean up timer resources."""
+        """Clean up timer resources and save running entry to prevent data loss."""
+        # Signal the async loop to stop first
         if self._stop_event is not None:
             self._stop_event.set()
+
+        # Cancel the timer task
         if self._timer_task and not self._timer_task.done():
             self._timer_task.cancel()
+
+        # Save running time entry before cleanup to prevent data loss
+        if self.timer_svc.running and self.timer_svc.current_entry is not None:
+            # Complete the entry with current time
+            self.timer_svc.current_entry.end_time = datetime.now()
+            try:
+                self.service.save_time_entry(self.timer_svc.current_entry)
+                # Also update task's spent time
+                if self.timer_svc.active_task and self.timer_svc.seconds > 0:
+                    self.timer_svc.active_task.spent_seconds += self.timer_svc.seconds
+                    self.service.persist_task(self.timer_svc.active_task)
+            except Exception:
+                pass  # Best effort save on cleanup
+
+        # Reset timer service state
+        self.timer_svc.running = False
+        self.timer_svc.active_task = None
+        self.timer_svc.current_entry = None
+        self.timer_svc.seconds = 0
+
         self._timer_task = None
         self._stop_event = None
