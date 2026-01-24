@@ -107,6 +107,29 @@ class Task:
             recurrence_from_completion=bool(d.get("recurrence_from_completion", 0)),
         )
 
+    def create_next_occurrence(self, next_due_date: date) -> "Task":
+        """Create the next occurrence of a recurring task.
+
+        Creates a new Task with the same recurrence settings but reset spent_seconds
+        and the provided next due date.
+        """
+        return Task(
+            title=self.title,
+            spent_seconds=0,
+            estimated_seconds=self.estimated_seconds,
+            project_id=self.project_id,
+            due_date=next_due_date,
+            recurrent=True,
+            recurrence_interval=self.recurrence_interval,
+            recurrence_frequency=self.recurrence_frequency,
+            recurrence_weekdays=list(self.recurrence_weekdays),
+            notes=self.notes,
+            sort_order=self.sort_order,
+            recurrence_end_type=self.recurrence_end_type,
+            recurrence_end_date=self.recurrence_end_date,
+            recurrence_from_completion=self.recurrence_from_completion,
+        )
+
 
 @dataclass  
 class TimeEntry:

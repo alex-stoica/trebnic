@@ -179,38 +179,31 @@ class TaskService:
         self.state.tasks.remove(task)
         self.state.done_tasks.append(task)
 
-        if task.recurrent:
-            if task.recurrence_from_completion:
-                # Calculate next date from today (completion date)
-                next_date = calculate_next_recurrence_from_date(
-                    task, date.today()
-                )
-            else:
-                # Calculate next date from the original due date
-                next_date = calculate_next_recurrence(task)
-            if next_date:
-                new_task = Task(
-                    title=task.title,
-                    spent_seconds=0,
-                    estimated_seconds=task.estimated_seconds,
-                    project_id=task.project_id,
-                    due_date=next_date,
-                    recurrent=True,
-                    recurrence_interval=task.recurrence_interval,
-                    recurrence_frequency=task.recurrence_frequency,
-                    recurrence_weekdays=task.recurrence_weekdays,
-                    notes=task.notes,
-                    sort_order=task.sort_order,
-                    recurrence_end_type=task.recurrence_end_type,
-                    recurrence_end_date=task.recurrence_end_date,
-                    recurrence_from_completion=task.recurrence_from_completion,
-                )
-                # Save new task to DB first
-                new_task.id = await db.save_task(new_task.to_dict())
-                # Then add to state
-                self.state.tasks.append(new_task)
-                return new_task
+        # Handle recurrence - create next occurrence if applicable
+        new_task = self._create_next_recurrence(task)
+        if new_task:
+            new_task.id = await db.save_task(new_task.to_dict())
+            self.state.tasks.append(new_task)
+            return new_task
         return None
+
+    def _create_next_recurrence(self, task: Task) -> Optional[Task]:
+        """Create the next occurrence of a recurring task.
+
+        Returns None if task is not recurring or recurrence has ended.
+        """
+        if not task.recurrent:
+            return None
+
+        if task.recurrence_from_completion:
+            next_date = calculate_next_recurrence_from_date(task, date.today())
+        else:
+            next_date = calculate_next_recurrence(task)
+
+        if not next_date:
+            return None
+
+        return task.create_next_occurrence(next_date)
 
     def complete_task(self, task: Task) -> Optional[Task]:
         return self._schedule_async(self.complete_task_async(task))
