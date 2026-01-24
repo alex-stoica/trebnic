@@ -8,6 +8,24 @@ class RecurrenceFrequency(Enum):
     MONTHS = "months" 
 
 
+class NavItem(Enum): 
+    """Enum for navigation items."""
+    INBOX = "inbox"
+    TODAY = "today"
+    CALENDAR = "calendar"
+    UPCOMING = "upcoming"
+    PROJECTS = "projects"
+    TIMESHEET = "timesheet"
+
+
+class PageType(Enum): 
+    """Enum for page types."""
+    TASKS = "tasks"
+    PROFILE = "profile"
+    PREFERENCES = "preferences"
+    TIME_ENTRIES = "time_entries"
+
+
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
     "🚀", "⭐", "🔥", "💎", "🌟", "🎵", "📱", "💻", "🎬", "📷",
@@ -50,6 +68,8 @@ DEFAULT_ESTIMATED_SECONDS = 900
 DURATION_SLIDER_STEP = 5
 DURATION_SLIDER_MIN = 1
 DURATION_SLIDER_MAX = 100
+DURATION_KNOB_MIN_MINUTES = 5  
+DURATION_KNOB_MAX_MINUTES = 500  
 SNACK_DURATION_MS = 2000 
  
 DIALOG_WIDTH_SM = 280
@@ -110,18 +130,18 @@ PROJECT_NAME_MAX_LENGTH = 50
 
 GAP_THRESHOLD_SECONDS = 60  
 TIME_ENTRY_ROW_HEIGHT = 60   
-
-NAV_INBOX = "inbox"
-NAV_TODAY = "today"
-NAV_CALENDAR = "calendar"
-NAV_UPCOMING = "upcoming"
-NAV_PROJECTS = "projects"
-NAV_TIMESHEET = "timesheet"  
  
-PAGE_TASKS = "tasks"
-PAGE_PROFILE = "profile"
-PAGE_PREFERENCES = "preferences"
-PAGE_TIME_ENTRIES = "time_entries" 
+NAV_INBOX = NavItem.INBOX
+NAV_TODAY = NavItem.TODAY
+NAV_CALENDAR = NavItem.CALENDAR
+NAV_UPCOMING = NavItem.UPCOMING
+NAV_PROJECTS = NavItem.PROJECTS
+NAV_TIMESHEET = NavItem.TIMESHEET
+
+PAGE_TASKS = PageType.TASKS
+PAGE_PROFILE = PageType.PROFILE
+PAGE_PREFERENCES = PageType.PREFERENCES
+PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
 
 COLORS = {
     "bg": "#1e1e1e",

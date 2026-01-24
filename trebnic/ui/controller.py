@@ -1,7 +1,7 @@
 import flet as ft
 from typing import Optional, Dict, Any, Callable
 
-from config import NAV_PROJECTS
+from config import NavItem
 from models.entities import Task, AppState, Project
 from services.logic import TaskService
 from ui.presenters.task_presenter import TaskPresenter
@@ -48,7 +48,7 @@ class UIController:
                 self.state.selected_projects.remove(project_id)
             else:
                 self.state.selected_projects.add(project_id)
-                self.state.selected_nav = NAV_PROJECTS
+                self.state.selected_nav = NavItem.PROJECTS 
             if self.state.is_mobile:
                 self.page.drawer.open = False
             self._call("update_nav")

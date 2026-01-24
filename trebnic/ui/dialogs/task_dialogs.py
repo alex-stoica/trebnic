@@ -11,7 +11,7 @@ from config import (
     NOTES_FIELD_HEIGHT,
     DATE_PICKER_YEARS,
     BORDER_RADIUS,
-    PAGE_TIME_ENTRIES,
+    PageType,  
     RecurrenceFrequency,
 )
 from models.entities import Task, AppState
@@ -224,7 +224,7 @@ class TaskDialogs:
         state: AppState,
         service: TaskService,
         snack: SnackService,
-        navigate: Callable[[str], None] = None,
+        navigate: Callable[[PageType], None] = None,  
     ) -> None:
         self.page = page
         self.state = state
@@ -251,9 +251,8 @@ class TaskDialogs:
                 error.value = "A task with this name already exists"
                 error.visible = True
                 self.page.update()
-                return
-            task.title = name
-            self.service.persist_task(task)
+                return 
+            self.service.rename_task(task, name)
             self.snack.show(f"Renamed to '{name}'")
             close(e)
             event_bus.emit(AppEvent.REFRESH_UI)
@@ -375,24 +374,21 @@ class TaskDialogs:
         self._date_picker.value = picker_value
 
         def handle_change(e: ft.ControlEvent) -> None:
-            if e.control.value:
-                task.due_date = e.control.value.date()
-                self.service.persist_task(task)
+            if e.control.value: 
+                self.service.set_task_due_date(task, e.control.value.date())
                 self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
                 event_bus.emit(AppEvent.REFRESH_UI)
 
         self._date_picker.on_change = handle_change
 
-        def preset(days: int) -> None:
-            task.due_date = date.today() + timedelta(days=days)
-            self.service.persist_task(task)
+        def preset(days: int) -> None: 
+            self.service.set_task_due_date(task, date.today() + timedelta(days=days))
             self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
             close()
             event_bus.emit(AppEvent.REFRESH_UI)
 
-        def clear(e: ft.ControlEvent) -> None:
-            task.due_date = None
-            self.service.persist_task(task)
+        def clear(e: ft.ControlEvent) -> None: 
+            self.service.set_task_due_date(task, None)
             self.snack.show("Date cleared")
             close()
             event_bus.emit(AppEvent.REFRESH_UI)
@@ -580,7 +576,7 @@ class TaskDialogs:
             close(e)
             self.state.viewing_task_id = task.id
             if self.navigate:
-                self.navigate(PAGE_TIME_ENTRIES)
+                self.navigate(PageType.TIME_ENTRIES)   
 
         entries_card = ft.Container(
             content=ft.Row(
@@ -684,9 +680,8 @@ class TaskDialogs:
 
         toggle_btn.on_click = toggle
 
-        def save(e: ft.ControlEvent) -> None:
-            task.notes = field.value
-            self.service.persist_task(task)
+        def save(e: ft.ControlEvent) -> None: 
+            self.service.set_task_notes(task, field.value)
             close(e)
             self.snack.show("Notes saved")
 

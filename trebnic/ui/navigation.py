@@ -1,13 +1,9 @@
 import flet as ft
 from typing import Callable, Dict, Optional, Any 
 
-from config import ( 
-    NAV_INBOX,
-    NAV_TODAY,
-    NAV_CALENDAR,
-    NAV_UPCOMING,
-    NAV_PROJECTS,
-    PAGE_TASKS,
+from config import (
+    NavItem,  
+    PageType, 
 )
 from models.entities import AppState
 
@@ -22,7 +18,7 @@ class NavigationManager:
     ) -> None:
         self.page = page
         self.state = state
-        self._nav_items: Dict[str, ft.ListTile] = {}
+        self._nav_items: Dict[NavItem, ft.ListTile] = {} 
         self._project_btns: Dict[str, Any] = {}
         self._projects_items: Optional[ft.Column] = None
         self._projects_arrow: Optional[ft.Icon] = None
@@ -37,7 +33,7 @@ class NavigationManager:
 
     def wire(
         self,
-        nav_items: Dict[str, ft.ListTile],
+        nav_items: Dict[NavItem, ft.ListTile], 
         project_btns: Dict[str, Any],
         projects_items: ft.Column,
         projects_arrow: ft.Icon,
@@ -64,11 +60,11 @@ class NavigationManager:
         self._on_refresh = on_refresh
         self._get_settings_items = get_settings_items
 
-    def select_nav(self, name: str) -> None:
+    def select_nav(self, name: NavItem) -> None: 
         """Select a navigation item."""
         self.state.selected_nav = name
         self.state.selected_projects.clear()
-        self.state.current_page = PAGE_TASKS
+        self.state.current_page = PageType.TASKS  
         if self.state.is_mobile and self._drawer:
             self._drawer.open = False
         self.update_nav()
@@ -84,12 +80,12 @@ class NavigationManager:
             self.state.selected_projects.remove(project_id)
         else:
             self.state.selected_projects.add(project_id)
-            self.state.selected_nav = NAV_PROJECTS
+            self.state.selected_nav = NavItem.PROJECTS 
         if self.state.is_mobile and self._drawer:
             self._drawer.open = False
         self.update_nav()
 
-    def navigate_to(self, page_name: str) -> None:
+    def navigate_to(self, page_name: PageType) -> None:  
         """Navigate to a specific page."""
         self.state.current_page = page_name
         if self._on_content_update:
@@ -97,17 +93,17 @@ class NavigationManager:
         self.page.update()
 
     def update_nav(self) -> None:
-        """Update navigation state and UI.""" 
-        if NAV_INBOX in self._nav_items:
-            self._nav_items[NAV_INBOX].selected = self.state.selected_nav == NAV_INBOX
-        if NAV_TODAY in self._nav_items:
-            self._nav_items[NAV_TODAY].selected = self.state.selected_nav == NAV_TODAY
-        if NAV_CALENDAR in self._nav_items:
-            self._nav_items[NAV_CALENDAR].selected = self.state.selected_nav == NAV_CALENDAR
-        if NAV_UPCOMING in self._nav_items:
-            self._nav_items[NAV_UPCOMING].selected = self.state.selected_nav == NAV_UPCOMING
-        if NAV_PROJECTS in self._nav_items:
-            self._nav_items[NAV_PROJECTS].selected = len(self.state.selected_projects) > 0
+        """Update navigation state and UI."""  
+        if NavItem.INBOX in self._nav_items:
+            self._nav_items[NavItem.INBOX].selected = self.state.selected_nav == NavItem.INBOX
+        if NavItem.TODAY in self._nav_items:
+            self._nav_items[NavItem.TODAY].selected = self.state.selected_nav == NavItem.TODAY
+        if NavItem.CALENDAR in self._nav_items:
+            self._nav_items[NavItem.CALENDAR].selected = self.state.selected_nav == NavItem.CALENDAR
+        if NavItem.UPCOMING in self._nav_items:
+            self._nav_items[NavItem.UPCOMING].selected = self.state.selected_nav == NavItem.UPCOMING
+        if NavItem.PROJECTS in self._nav_items:
+            self._nav_items[NavItem.PROJECTS].selected = len(self.state.selected_projects) > 0
  
         for pid, btn in self._project_btns.items():
             btn.set_selected(pid in self.state.selected_projects)
@@ -175,16 +171,16 @@ class NavigationHandler:
         self.nav_manager = nav_manager
 
     def on_inbox_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NAV_INBOX)
+        self.nav_manager.select_nav(NavItem.INBOX) 
 
     def on_today_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NAV_TODAY)
+        self.nav_manager.select_nav(NavItem.TODAY)  
 
     def on_calendar_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NAV_CALENDAR)
+        self.nav_manager.select_nav(NavItem.CALENDAR)  
 
     def on_upcoming_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NAV_UPCOMING)
+        self.nav_manager.select_nav(NavItem.UPCOMING)  
 
     def on_projects_toggle(self, e: ft.ControlEvent) -> None:
         self.nav_manager.toggle_projects()

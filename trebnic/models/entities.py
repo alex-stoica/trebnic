@@ -5,8 +5,8 @@ from datetime import date
 
 from config import (
     DEFAULT_ESTIMATED_SECONDS,
-    NAV_TODAY,
-    PAGE_TASKS,
+    NavItem,  
+    PageType, 
     RecurrenceFrequency,
 )
 
@@ -152,14 +152,14 @@ class AppState:
     tasks: List[Task] = field(default_factory=list)
     done_tasks: List[Task] = field(default_factory=list)
     projects: List[Project] = field(default_factory=list) 
-    selected_nav: str = NAV_TODAY
+    selected_nav: NavItem = NavItem.TODAY 
     selected_projects: Set[str] = field(default_factory=set)
     projects_expanded: bool = False
     is_mobile: bool = False
     editing_project_id: Optional[str] = None
     default_estimated_minutes: int = 15
     email_weekly_stats: bool = False
-    current_page: str = PAGE_TASKS
+    current_page: PageType = PageType.TASKS  
     viewing_task_id: Optional[int] = None 
 
     def get_project_by_id(self, project_id: Optional[str]) -> Optional[Project]: 

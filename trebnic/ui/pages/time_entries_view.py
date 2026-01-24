@@ -1,12 +1,13 @@
 import flet as ft
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timedelta
 from typing import List, Tuple, Optional, Callable
 
 from config import (
     COLORS,
     BORDER_RADIUS,
+    PADDING_MD,
     PADDING_SM,
-    PAGE_TASKS,
+    PageType, 
     GAP_THRESHOLD_SECONDS,
     FONT_SIZE_SM,
     FONT_SIZE_MD,
@@ -17,15 +18,17 @@ from config import (
     SPACING_SM,
     SPACING_MD,
     SPACING_LG,
-    SPACING_XL,
-    PADDING_MD,
+    SPACING_XL, 
     PADDING_LG,
     PADDING_XL,
+    DIALOG_WIDTH_MD, 
 )
 from models.entities import AppState, TimeEntry, Task
 from services.logic import TaskService
+from trebnic.ui.components import DurationKnob
 from ui.formatters import TimeFormatter
-from ui.helpers import SnackService
+from ui.helpers import SnackService, accent_btn  
+from ui.dialogs.base import open_dialog 
 
 
 class TimelineColors:
@@ -34,6 +37,7 @@ class TimelineColors:
     GAP = COLORS["gap_text"]
     RUNNING = COLORS["green"]
     CONNECTOR = COLORS["border"]
+    EDIT_HOVER = "#3d3d3d" 
 
 
 class TimeEntriesView:
@@ -61,6 +65,10 @@ class TimeEntriesView:
         """Format datetime to display time string."""
         return dt.strftime("%H:%M")
 
+    def _format_time_with_seconds(self, dt: datetime) -> str: 
+        """Format datetime with seconds for editing precision."""
+        return dt.strftime("%H:%M:%S")
+
     def _format_date(self, dt: datetime) -> str:
         """Format datetime to display date string."""
         return dt.strftime("%b %d, %Y")
@@ -71,7 +79,8 @@ class TimeEntriesView:
         entry_date = dt.date()
         if entry_date == today:
             return "Today"
-        elif entry_date == today.replace(day=today.day - 1) if today.day > 1 else today:
+        yesterday = today - timedelta(days=1) 
+        if entry_date == yesterday:
             return "Yesterday"
         return dt.strftime("%A, %b %d")
 
@@ -108,13 +117,22 @@ class TimeEntriesView:
     def _build_timeline_dot(self, color: str, is_running: bool = False) -> ft.Container:
         """Build a timeline dot indicator."""
         size = 12 if not is_running else 14
+        inner_content = None 
+        if is_running:
+            inner_content = ft.Container(
+                width=6,
+                height=6,
+                border_radius=3,
+                bgcolor=COLORS["white"],
+            )
         return ft.Container(
             width=size,
             height=size,
             border_radius=size // 2,
             bgcolor=color,
             border=ft.border.all(2, COLORS["bg"]) if is_running else None,
-            animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT) if is_running else None,
+            content=inner_content,
+            alignment=ft.alignment.center,
         )
 
     def _build_timeline_line(
@@ -157,17 +175,140 @@ class TimeEntriesView:
         """Build a horizontal progress bar for duration visualization."""
         progress = min(1.0, duration_seconds / max_seconds) if max_seconds > 0 else 0
         return ft.Container(
-            content=ft.Container(
-                width=max(4, progress * 150),
-                height=6,
-                bgcolor=color,
-                border_radius=3,
+            content=ft.Stack( 
+                [
+                    ft.Container(
+                        width=150,
+                        height=8, 
+                        bgcolor=COLORS["input_bg"],
+                        border_radius=4,
+                    ),
+                    ft.Container(
+                        width=max(4, progress * 150),
+                        height=8,
+                        bgcolor=color,
+                        border_radius=4,
+                    ),
+                ],
             ),
             width=150,
-            height=6,
-            bgcolor=COLORS["input_bg"],
-            border_radius=3,
-            alignment=ft.alignment.center_left,
+            height=8,
+        )
+
+    def _edit_entry(self, entry: TimeEntry) -> None:  
+        """Open dialog to edit a time entry using DurationKnob.""" 
+        
+        if entry.is_running:
+            self.snack.show("Cannot edit a running timer", COLORS["danger"])
+            return
+ 
+        current_duration_minutes = entry.duration_seconds // 60
+        current_duration_minutes = max(5, min(500, current_duration_minutes))
+         
+        start_time_display = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Start Time (fixed)", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ft.Text(
+                        self._format_time_with_seconds(entry.start_time),
+                        size=FONT_SIZE_XL,
+                        weight="bold",
+                    ),
+                    ft.Text(
+                        self._format_date(entry.start_time),
+                        size=FONT_SIZE_SM,
+                        color=COLORS["done_text"],
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=SPACING_XS,
+            ),
+            bgcolor=COLORS["card"],
+            padding=PADDING_LG,
+            border_radius=BORDER_RADIUS,
+            alignment=ft.alignment.center,
+        )
+         
+        knob = DurationKnob(
+            initial_minutes=current_duration_minutes,
+            size=180,
+        )
+         
+        end_time_text = ft.Text(
+            self._format_time(
+                entry.start_time + timedelta(minutes=current_duration_minutes)
+            ),
+            size=FONT_SIZE_XL,
+            weight="bold",
+            color=COLORS["accent"],
+        )
+        
+        def on_knob_change(minutes: int) -> None:
+            new_end = entry.start_time + timedelta(minutes=minutes)
+            end_time_text.value = self._format_time(new_end)
+            self.page.update()
+        
+        knob._on_change = on_knob_change
+        
+        end_time_display = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("End Time", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    end_time_text,
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=SPACING_XS,
+            ),
+            bgcolor=COLORS["card"],
+            padding=PADDING_LG,
+            border_radius=BORDER_RADIUS,
+            alignment=ft.alignment.center,
+        )
+        
+        error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
+
+        def save(e: ft.ControlEvent) -> None:
+            duration_minutes = knob.value
+            new_end = entry.start_time + timedelta(minutes=duration_minutes)
+             
+            entry.end_time = new_end
+             
+            task = self._get_task_for_entry(entry)
+            if task:
+                self.service.save_time_entry(entry)
+                self.service.recalculate_task_time_from_entries(task)
+            else:
+                self.service.save_time_entry(entry)
+            
+            close(e)
+            self.snack.show("Time entry updated")
+            self.refresh()
+
+        content = ft.Container(
+            width=DIALOG_WIDTH_MD + 50,
+            content=ft.Column(
+                [
+                    start_time_display,
+                    ft.Divider(height=SPACING_LG, color="transparent"),
+                    ft.Container(
+                        content=knob,
+                        alignment=ft.alignment.center,
+                    ),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
+                    end_time_display,
+                    error_text,
+                ],
+                spacing=SPACING_MD,
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        )
+
+        _, close = open_dialog(
+            self.page,
+            "Edit Time Entry",
+            content,
+            lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
         )
 
     def _build_entry_row(
@@ -227,36 +368,51 @@ class TimeEntriesView:
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0,
         )
-
-        # Time display
-        time_col = ft.Column(
-            [
-                ft.Text(start_str, size=FONT_SIZE_LG, weight="bold"),
-                ft.Text(end_str, size=FONT_SIZE_SM, color=COLORS["done_text"]),
-            ],
-            spacing=SPACING_XS,
-            horizontal_alignment=ft.CrossAxisAlignment.END,
-            width=50,
+ 
+        time_col = ft.Container(  
+            content=ft.Column(
+                [
+                    ft.Text(start_str, size=FONT_SIZE_LG, weight="bold"),
+                    ft.Text(end_str, size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ],
+                spacing=SPACING_XS,
+                horizontal_alignment=ft.CrossAxisAlignment.END,
+            ),
+            width=55, 
+            on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
+            ink=not is_running,
+            border_radius=4,
+            padding=PADDING_SM,
+            tooltip="Click to edit" if not is_running else None,
         )
-
-        # Project indicator bar
+ 
         project_bar = ft.Container(
             width=4,
             height=50,
             bgcolor=project_color,
             border_radius=2,
         )
-
-        # Task info with progress bar
+ 
         task_info = ft.Column(
             [
                 ft.Row(
                     [
-                        ft.Text(project_icon, size=FONT_SIZE_SM),
-                        ft.Text(
-                            project_name,
-                            size=FONT_SIZE_SM,
-                            color=COLORS["done_text"],
+                        ft.Container( 
+                            content=ft.Row(
+                                [
+                                    ft.Text(project_icon, size=FONT_SIZE_SM),
+                                    ft.Text(
+                                        project_name,
+                                        size=FONT_SIZE_SM,
+                                        color=COLORS["white"],
+                                    ),
+                                ],
+                                spacing=SPACING_XS,
+                                tight=True,
+                            ),
+                            bgcolor=project_color,
+                            padding=ft.padding.symmetric(horizontal=PADDING_MD, vertical=2),
+                            border_radius=10,
                         ),
                     ],
                     spacing=SPACING_SM,
@@ -270,8 +426,7 @@ class TimeEntriesView:
             spacing=SPACING_SM,
             expand=True,
         )
-
-        # Duration badge
+ 
         duration_badge = ft.Container(
             content=ft.Row(
                 [
@@ -284,36 +439,50 @@ class TimeEntriesView:
                         duration_str,
                         size=FONT_SIZE_MD,
                         weight="bold",
-                        color=COLORS["white"] if is_running else COLORS["accent"],
+                        color=COLORS["white"] if is_running else None,
                     ),
                 ],
                 spacing=SPACING_XS,
                 tight=True,
             ),
-            bgcolor=COLORS["accent"] if is_running else COLORS["input_bg"],
+            bgcolor=COLORS["green"] if is_running else COLORS["card"], 
             padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
+            border=None if is_running else ft.border.all(1, COLORS["border"]), 
         )
-
-        # Delete button
-        delete_btn = ft.IconButton(
-            icon=ft.Icons.DELETE_OUTLINE,
-            icon_color=COLORS["danger"],
-            icon_size=18,
-            tooltip="Delete entry",
-            on_click=lambda e, eid=entry.id: self._delete_entry(eid),
-            visible=not is_running,
+ 
+        action_btns = ft.Row(
+            [
+                ft.IconButton(  
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    icon_color=COLORS["accent"],
+                    icon_size=18,
+                    tooltip="Edit entry",
+                    on_click=lambda e, ent=entry: self._edit_entry(ent),
+                    visible=not is_running,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    icon_color=COLORS["danger"],
+                    icon_size=18,
+                    tooltip="Delete entry",
+                    on_click=lambda e, eid=entry.id: self._delete_entry(eid),
+                    visible=not is_running,
+                ),
+            ],
+            spacing=0,
+            tight=True,
         )
 
         row_content = ft.Container(
             content=ft.Row(
                 [
                     timeline_col,
-                    time_col,
+                    time_col, 
                     project_bar,
                     task_info,
                     duration_badge,
-                    delete_btn,
+                    action_btns, 
                 ],
                 spacing=SPACING_XL,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -322,6 +491,7 @@ class TimeEntriesView:
             padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
             animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+            border=ft.border.all(1, COLORS["border"]),  
         )
 
         if date_header:
@@ -364,14 +534,17 @@ class TimeEntriesView:
         )
 
         # Time range for gap
-        time_col = ft.Column(
-            [
-                ft.Text(start_str, size=FONT_SIZE_SM, color=TimelineColors.GAP),
-                ft.Text(end_str, size=FONT_SIZE_SM, color=TimelineColors.GAP),
-            ],
-            spacing=0,
-            horizontal_alignment=ft.CrossAxisAlignment.END,
-            width=50,
+        time_col = ft.Container( 
+            content=ft.Column(
+                [
+                    ft.Text(start_str, size=FONT_SIZE_SM, color=TimelineColors.GAP),
+                    ft.Text(end_str, size=FONT_SIZE_SM, color=TimelineColors.GAP),
+                ],
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.END,
+            ),
+            width=55, 
+            padding=PADDING_SM,
         )
 
         # Gap info
@@ -420,20 +593,25 @@ class TimeEntriesView:
         total_gaps = sum(g[1] for g in gaps)
         total_time = total_work + total_gaps
         efficiency = (total_work / total_time * 100) if total_time > 0 else 100
+        entry_count = len(entries) 
 
-        def stat_item(icon: str, label: str, value: str, color: str) -> ft.Container:
+        def stat_item(icon: str, label: str, value: str, color: str, sublabel: str = None) -> ft.Container:
+            content_col = [
+                ft.Row(
+                    [
+                        ft.Icon(icon, size=16, color=color), 
+                        ft.Text(label, size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ],
+                    spacing=SPACING_SM,
+                ),
+                ft.Text(value, size=FONT_SIZE_XL, weight="bold", color=color), 
+            ]
+            if sublabel:
+                content_col.append(ft.Text(sublabel, size=FONT_SIZE_SM, color=COLORS["done_text"]))
+            
             return ft.Container(
                 content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Icon(icon, size=14, color=color),
-                                ft.Text(label, size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                            ],
-                            spacing=SPACING_XS,
-                        ),
-                        ft.Text(value, size=FONT_SIZE_LG, weight="bold", color=color),
-                    ],
+                    content_col,
                     spacing=SPACING_XS,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -441,6 +619,7 @@ class TimeEntriesView:
                 padding=PADDING_LG,
                 border_radius=BORDER_RADIUS,
                 expand=True,
+                border=ft.border.all(1, COLORS["border"]), 
             )
 
         return ft.Container(
@@ -451,12 +630,14 @@ class TimeEntriesView:
                         "Work Time",
                         TimeFormatter.seconds_to_short(total_work),
                         COLORS["accent"],
+                        f"{entry_count} {'entry' if entry_count == 1 else 'entries'}",
                     ),
                     stat_item(
                         ft.Icons.COFFEE,
                         "Break Time",
                         TimeFormatter.seconds_to_short(total_gaps),
                         TimelineColors.GAP,
+                        f"{len(gaps)} {'break' if len(gaps) == 1 else 'breaks'}",
                     ),
                     stat_item(
                         ft.Icons.SPEED,
@@ -471,15 +652,28 @@ class TimeEntriesView:
         )
 
     def _delete_entry(self, entry_id: int) -> None:
-        """Delete a time entry."""
+        """Delete a time entry.""" 
+        entries = [] 
+        task_id = self.state.viewing_task_id 
+        if task_id: 
+            entries = self.service.load_time_entries_for_task(task_id) 
+        
         self.service.delete_time_entry(entry_id)
+         
+        if task_id: 
+            task = self.state.get_task_by_id(task_id)
+            if task:
+                remaining_entries = [e for e in entries if e.id != entry_id]
+                task.spent_seconds = sum(e.duration_seconds for e in remaining_entries if e.end_time)
+                self.service.persist_task(task)
+        
         self.snack.show("Time entry deleted", COLORS["danger"])
         self.refresh()
 
     def _go_back(self, e: ft.ControlEvent) -> None:
         """Navigate back to tasks."""
         self.state.viewing_task_id = None
-        self.navigate(PAGE_TASKS)
+        self.navigate(PageType.TASKS)
 
     def refresh(self) -> None:
         """Refresh the time entries display."""
@@ -614,18 +808,28 @@ class TimeEntriesView:
         project_name = project.name if project else "No Project"
         project_color = project.color if project else COLORS["unassigned"]
 
-        subheader = ft.Row(
-            [
-                ft.Container(
-                    width=8,
-                    height=8,
-                    border_radius=4,
-                    bgcolor=project_color,
-                ),
-                ft.Text(project_icon, size=FONT_SIZE_LG),
-                ft.Text(project_name, size=FONT_SIZE_MD, color=COLORS["done_text"]),
-            ],
-            spacing=SPACING_MD,
+        subheader = ft.Container( 
+            content=ft.Row(
+                [
+                    ft.Container(
+                        width=8,
+                        height=8,
+                        border_radius=4,
+                        bgcolor=project_color,
+                    ),
+                    ft.Text(project_icon, size=FONT_SIZE_LG),
+                    ft.Text(project_name, size=FONT_SIZE_MD, color=COLORS["done_text"]),
+                    ft.Container(expand=True), 
+                    ft.Text(  
+                        "💡 Click time to edit", 
+                        size=FONT_SIZE_SM, 
+                        color=COLORS["done_text"], 
+                        italic=True, 
+                    ), 
+                ],
+                spacing=SPACING_MD,
+            ),
+            padding=ft.padding.symmetric(vertical=SPACING_SM),  
         )
 
         self._entries_container = ft.Column(
@@ -639,7 +843,7 @@ class TimeEntriesView:
             [
                 header,
                 subheader,
-                ft.Divider(height=20, color="transparent"),
+                ft.Divider(height=15, color="transparent"), 
                 self._entries_container,
             ],
             spacing=SPACING_LG,

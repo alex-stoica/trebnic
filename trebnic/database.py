@@ -133,39 +133,59 @@ class Database:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
 
-    def seed_default_data(self) -> None:  # EDITED
-        """Insert default seed data after factory reset."""  # EDITED
-        try:  # EDITED
-            # Create default projects  # EDITED
-            default_projects = [  # EDITED
-                {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},  # EDITED
-                {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},  # EDITED
-            ]  # EDITED
-            for project in default_projects:  # EDITED
-                self.save_project(project)  # EDITED
-            # EDITED
-            # Create welcome task  # EDITED
-            welcome_task = {  # EDITED
-                "id": None,  # EDITED
-                "title": "Welcome to Trebnic!",  # EDITED
-                "spent_seconds": 0,  # EDITED
-                "estimated_seconds": 300,  # EDITED
-                "project_id": "personal",  # EDITED
-                "due_date": date.today(),  # EDITED
-                "is_done": 0,  # EDITED
-                "recurrent": 0,  # EDITED
-                "recurrence_interval": 1,  # EDITED
-                "recurrence_frequency": RecurrenceFrequency.WEEKS.value,  # EDITED
-                "recurrence_weekdays": [],  # EDITED
-                "notes": "This is your first task. Start the timer to track your work!",  # EDITED
-                "sort_order": 0,  # EDITED
-                "recurrence_end_type": "never",  # EDITED
-                "recurrence_end_date": None,  # EDITED
-            }  # EDITED
-            self.save_task(welcome_task)  # EDITED
-        except sqlite3.Error as e:  # EDITED
-            logger.error(f"Error seeding default data: {e}")  # EDITED
-            raise DatabaseError(f"Failed to seed default data: {e}") from e  # EDITED
+    def seed_default_data(self) -> None:
+        """Insert default seed data after factory reset."""
+        try: 
+            default_projects = [
+                {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},
+                {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},
+            ]
+            for project in default_projects:
+                self.save_project(project)
+ 
+            from datetime import datetime, timedelta  
+            now = datetime.now() 
+            
+            welcome_task = {
+                "id": None,
+                "title": "Welcome to Trebnic!",
+                "spent_seconds": 1800, 
+                "estimated_seconds": 3600,  
+                "project_id": "personal",
+                "due_date": date.today(),
+                "is_done": 0,
+                "recurrent": 0,
+                "recurrence_interval": 1,
+                "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
+                "recurrence_weekdays": [],
+                "notes": "This is your first task. Check out the Stats to see your time entries!",
+                "sort_order": 0,
+                "recurrence_end_type": "never",
+                "recurrence_end_date": None,
+            }
+            task_id = self.save_task(welcome_task)
+             
+            entry1_start = now - timedelta(hours=2, minutes=30) 
+            entry1_end = entry1_start + timedelta(minutes=20)  
+            self.save_time_entry({
+                "id": None,
+                "task_id": task_id,
+                "start_time": entry1_start.isoformat(),
+                "end_time": entry1_end.isoformat(),
+            })
+             
+            entry2_start = now - timedelta(minutes=45)
+            entry2_end = entry2_start + timedelta(minutes=10)
+            self.save_time_entry({
+                "id": None,
+                "task_id": task_id,
+                "start_time": entry2_start.isoformat(),
+                "end_time": entry2_end.isoformat(),
+            })
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error seeding default data: {e}")
+            raise DatabaseError(f"Failed to seed default data: {e}") from e
 
     def save_task(self, t: Dict[str, Any]) -> int:
         weekdays = json.dumps(t.get("recurrence_weekdays", []))

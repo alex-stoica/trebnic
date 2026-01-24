@@ -2,7 +2,7 @@ import uuid
 from datetime import date, timedelta
 from typing import List, Tuple, Optional
 
-from config import NAV_INBOX, NAV_TODAY, NAV_UPCOMING, NAV_PROJECTS 
+from config import NavItem  
 from database import db
 from models.entities import AppState, Task, Project, TimeEntry
 from services.recurrence import calculate_next_recurrence
@@ -16,11 +16,9 @@ class TaskService:
     def load_state() -> AppState:
         state = AppState()
         
-        # Load projects
         for p_dict in db.load_projects():
             state.projects.append(Project.from_dict(p_dict))
             
-        # Load tasks
         all_tasks = db.load_tasks()
         for t_dict in all_tasks:
             task = Task.from_dict(t_dict)
@@ -29,7 +27,6 @@ class TaskService:
             else:
                 state.tasks.append(task)
                 
-        # Load settings
         state.default_estimated_minutes = db.get_setting("default_estimated_minutes", 15)
         state.email_weekly_stats = db.get_setting("email_weekly_stats", False)
         
@@ -46,7 +43,7 @@ class TaskService:
             project_id=project_id,
             estimated_seconds=estimated_seconds,
             spent_seconds=0,
-            due_date=date.today() if self.state.selected_nav == NAV_TODAY else None,
+            due_date=date.today() if self.state.selected_nav == NavItem.TODAY else None, 
             sort_order=len(self.state.tasks)
         )
         task.id = db.save_task(task.to_dict())
@@ -56,6 +53,26 @@ class TaskService:
     def persist_task(self, task: Task) -> None:
         is_done = task in self.state.done_tasks
         db.save_task(task.to_dict(is_done=is_done))
+
+    def rename_task(self, task: Task, new_title: str) -> None: 
+        """Rename a task."""
+        task.title = new_title
+        self.persist_task(task)
+
+    def set_task_due_date(self, task: Task, due_date: Optional[date]) -> None: 
+        """Set or clear a task's due date."""
+        task.due_date = due_date
+        self.persist_task(task)
+
+    def set_task_notes(self, task: Task, notes: str) -> None:  
+        """Update task notes."""
+        task.notes = notes
+        self.persist_task(task)
+
+    def update_task_time(self, task: Task, spent_seconds: int) -> None: 
+        """Update task's spent time."""
+        task.spent_seconds = spent_seconds
+        self.persist_task(task)
 
     def complete_task(self, task: Task) -> Optional[Task]:
         if task in self.state.tasks:
@@ -120,17 +137,17 @@ class TaskService:
         
         pending = self.state.tasks
         done = self.state.done_tasks
-
-        if nav == NAV_TODAY:
+ 
+        if nav == NavItem.TODAY:
             pending = [t for t in pending if t.due_date and t.due_date <= today]
             done = [t for t in done if t.due_date == today]
-        elif nav == NAV_UPCOMING:
+        elif nav == NavItem.UPCOMING:
             pending = [t for t in pending if t.due_date and t.due_date > today]
             done = []
-        elif nav == NAV_INBOX:
+        elif nav == NavItem.INBOX:
             pending = [t for t in pending if not t.due_date]
             done = []
-        elif nav == NAV_PROJECTS:
+        elif nav == NavItem.PROJECTS:
             pending = [t for t in pending if t.project_id in self.state.selected_projects]
             done = [t for t in done if t.project_id in self.state.selected_projects]
 
@@ -142,8 +159,21 @@ class TaskService:
     def delete_time_entry(self, entry_id: int) -> None:
         db.delete_time_entry(entry_id)
 
+    def update_time_entry(self, entry: TimeEntry) -> int: 
+        """Update an existing time entry.""" 
+        return db.save_time_entry(entry.to_dict())
+
     def load_time_entries_for_task(self, task_id: int) -> List[TimeEntry]:
         return [TimeEntry.from_dict(d) for d in db.load_time_entries_for_task(task_id)]
+
+    def recalculate_task_time_from_entries(self, task: Task) -> None:  # EDITED - New method
+        """Recalculate task spent_seconds from its time entries."""
+        if task.id is None:
+            return
+        entries = self.load_time_entries_for_task(task.id)
+        total = sum(e.duration_seconds for e in entries if e.end_time)
+        task.spent_seconds = total
+        self.persist_task(task)
 
     def validate_project_name(self, name: str, editing_id: Optional[str] = None) -> Optional[str]:
         if not name: return "Name required"

@@ -5,7 +5,7 @@ from typing import Callable
 from config import (
     COLORS,
     BORDER_RADIUS,
-    PAGE_TASKS,
+    PageType,
     DURATION_SLIDER_STEP,
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
@@ -90,10 +90,9 @@ class ProfilePage:
 
         back_btn = ft.IconButton(
             ft.Icons.ARROW_BACK, 
-            on_click=lambda e: self.navigate(PAGE_TASKS), 
+            on_click=lambda e: self.navigate(PageType.TASKS),
             icon_color=COLORS["accent"], 
         ) 
-
         header = ft.Row([back_btn, ft.Text("Profile", size=24, weight="bold")])
 
         avatar_section = ft.Container(
@@ -259,11 +258,11 @@ class PreferencesPage:
             ) 
             self.tasks_view.details_btn.content.controls[1].value = "Add details"
             self.snack.show("Preferences saved")
-            self.navigate(PAGE_TASKS)
+            self.navigate(PageType.TASKS)
 
         back_btn = ft.IconButton(
             ft.Icons.ARROW_BACK, 
-            on_click=lambda e: self.navigate(PAGE_TASKS), 
+            on_click=lambda e: self.navigate(PageType.TASKS), 
             icon_color=COLORS["accent"], 
         ) 
 

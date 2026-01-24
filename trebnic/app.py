@@ -1,34 +1,20 @@
 import flet as ft
 import time
 import threading
-from typing import Dict, Optional, Any
+from typing import Optional, Any
 
 from config import (
     COLORS,
     MOBILE_BREAKPOINT,
-    NAV_INBOX,
-    NAV_TODAY,
-    NAV_CALENDAR,
-    NAV_UPCOMING,
-    NAV_PROJECTS,
-    PAGE_TASKS,
-    PAGE_PROFILE,
-    PAGE_PREFERENCES,
-    PAGE_TIME_ENTRIES,
+    NavItem, 
+    PageType, 
     ANIMATION_DELAY,
 )
 from database import DatabaseError
-from events import event_bus, AppEvent
-from services.logic import TaskService
-from services.timer import TimerService
-from models.entities import Task
-from ui.controller import UIController
-from ui.navigation import NavigationManager, NavigationHandler
-from ui.helpers import SnackService
-from ui.components import ProjectSidebarItem, TimerWidget
-from ui.dialogs import TaskDialogs, ProjectDialogs
-from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView
-from ui.timer_controller import TimerController
+from events import event_bus, AppEvent 
+from models.entities import Task 
+from ui.components import ProjectSidebarItem, TimerWidget 
+from ui.app_initializer import AppInitializer 
 
 
 class TrebnicApp:
@@ -37,107 +23,39 @@ class TrebnicApp:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
         self.event_bus = event_bus
-        self._setup_page()
-        self._init_services()
-        self._init_navigation()
-        self._init_ui_components()
-        self._init_timer_controller()
+         
+        initializer = AppInitializer(page)
+        self._components = initializer.initialize()
+         
+        self._extract_components()
+         
+        self.timer_widget = TimerWidget(self._on_timer_stop)
+        self.timer_ctrl.timer_widget = self.timer_widget
+        
         self._subscribe_to_events()
         self._wire_controller()
-        self._wire_navigation()
         self._build_layout()
 
-    def _setup_page(self) -> None:
-        """Configure the Flet page settings."""
-        self.page.theme_mode = ft.ThemeMode.DARK
-        self.page.padding = 0
-
-    def _init_services(self) -> None:
-        """Initialize application services."""
-        try:
-            self.state = TaskService.load_state()
-        except DatabaseError as e:
-            self.state = TaskService.create_empty_state()
-            self._pending_error = f"Failed to load data: {e}"
-
-        self.service = TaskService(self.state)
-        self.snack = SnackService(self.page)
-        self.timer_svc = TimerService()
-        self.ctrl = UIController(self.page, self.state, self.service)
-
-    def _init_navigation(self) -> None:
-        """Initialize navigation manager and handler."""
-        self.nav_manager = NavigationManager(self.page, self.state)
-        self.nav_handler = NavigationHandler(self.nav_manager)
-        self.ctrl.set_nav_manager(self.nav_manager)
-
-    def _show_db_error(self, message: str) -> None:
-        """Show database error to user after snack service is ready."""
-        self._pending_error = message
-
-    def _init_ui_components(self) -> None:
-        """Initialize UI components."""
-        self.project_btns: Dict[str, ProjectSidebarItem] = {
-            p.id: ProjectSidebarItem(p, self.ctrl)
-            for p in self.state.projects
-        }
-
-        self.tasks_view = TasksView(
-            self.page, self.state, self.service, self.ctrl, self.snack
-        )
-        self.calendar_view = CalendarView(self.state)
-
-        self.time_entries_view = TimeEntriesView(
-            self.page,
-            self.state,
-            self.service,
-            self.snack,
-            self.nav_manager.navigate_to,
-        )
-
-        self.profile_page = ProfilePage(
-            self.page,
-            self.state,
-            self.service,
-            self.snack,
-            self.nav_manager.navigate_to,
-        )
-
-        self.prefs_page = PreferencesPage(
-            self.page,
-            self.state,
-            self.service,
-            self.snack,
-            self.nav_manager.navigate_to,
-            self.tasks_view,
-        )
-
-        self.task_dialogs = TaskDialogs(
-            self.page,
-            self.state,
-            self.service,
-            self.snack,
-            self.nav_manager.navigate_to,
-        )
-
-        self.project_dialogs = ProjectDialogs(
-            self.page,
-            self.state,
-            self.service,
-            self.snack,
-        )
-
-        self.timer_widget = TimerWidget(self._on_timer_stop)
-
-    def _init_timer_controller(self) -> None:
-        """Initialize the timer controller."""
-        self.timer_ctrl = TimerController(
-            page=self.page,
-            timer_svc=self.timer_svc,
-            service=self.service,
-            snack=self.snack,
-            timer_widget=self.timer_widget,
-        )
+    def _extract_components(self) -> None:  
+        """Extract components from initializer for class-level access."""
+        c = self._components
+        self.state = c.state
+        self.service = c.service
+        self.snack = c.snack
+        self.timer_svc = c.timer_svc
+        self.ctrl = c.ctrl
+        self.nav_manager = c.nav_manager
+        self.nav_handler = c.nav_handler
+        self.timer_ctrl = c.timer_ctrl
+        self.project_btns = c.project_btns
+        self.tasks_view = c.tasks_view
+        self.calendar_view = c.calendar_view
+        self.time_entries_view = c.time_entries_view
+        self.profile_page = c.profile_page
+        self.prefs_page = c.prefs_page
+        self.task_dialogs = c.task_dialogs
+        self.project_dialogs = c.project_dialogs
+        self._pending_error = c.pending_error
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to application events."""
@@ -156,7 +74,7 @@ class TrebnicApp:
     def _on_data_reset(self, data: Any) -> None:
         """Handle data reset events."""
         self.rebuild_sidebar()
-        self.nav_manager.navigate_to(PAGE_TASKS)
+        self.nav_manager.navigate_to(PageType.TASKS)  # EDITED - Use enum
         self.tasks_view.refresh()
 
     def _wire_controller(self) -> None:
@@ -177,11 +95,6 @@ class TrebnicApp:
             notes=self.task_dialogs.notes,
             update_content=self.update_content,
         )
-
-    def _wire_navigation(self) -> None:
-        """Wire navigation manager after UI components are built."""
-        # This will be called after layout is built
-        pass
 
     def rebuild_sidebar(self) -> None:
         """Rebuild the sidebar with updated project list."""
@@ -253,25 +166,25 @@ class TrebnicApp:
         threading.Thread(target=delayed, daemon=True).start()
 
     def update_content(self) -> None:
-        """Update the main content area based on current state."""
-        if self.state.current_page == PAGE_PROFILE:
+        """Update the main content area based on current state.""" 
+        if self.state.current_page == PageType.PROFILE:
             self.page_content.content = self.profile_page.build()
-        elif self.state.current_page == PAGE_PREFERENCES:
+        elif self.state.current_page == PageType.PREFERENCES:
             self.page_content.content = self.prefs_page.build()
-        elif self.state.current_page == PAGE_TIME_ENTRIES:
+        elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
-        elif self.state.selected_nav == NAV_CALENDAR:
+        elif self.state.selected_nav == NavItem.CALENDAR:
             self.page_content.content = self.calendar_view.build()
         else:
             self.page_content.content = self.tasks_view.build()
 
     def _on_profile_click(self, e: ft.ControlEvent) -> None:
         """Handle profile menu item click."""
-        self.nav_manager.navigate_to(PAGE_PROFILE)
+        self.nav_manager.navigate_to(PageType.PROFILE) 
 
     def _on_preferences_click(self, e: ft.ControlEvent) -> None:
         """Handle preferences menu item click."""
-        self.nav_manager.navigate_to(PAGE_PREFERENCES)
+        self.nav_manager.navigate_to(PageType.PREFERENCES) 
 
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""
@@ -463,13 +376,13 @@ class TrebnicApp:
         )
 
     def _finalize_navigation_wiring(self) -> None:
-        """Wire navigation manager with all built components."""
+        """Wire navigation manager with all built components.""" 
         nav_items = {
-            NAV_INBOX: self.nav_inbox,
-            NAV_TODAY: self.nav_today,
-            NAV_CALENDAR: self.nav_calendar,
-            NAV_UPCOMING: self.nav_upcoming,
-            NAV_PROJECTS: self.nav_projects,
+            NavItem.INBOX: self.nav_inbox,
+            NavItem.TODAY: self.nav_today,
+            NavItem.CALENDAR: self.nav_calendar,
+            NavItem.UPCOMING: self.nav_upcoming,
+            NavItem.PROJECTS: self.nav_projects,
         }
 
         self.nav_manager.wire(
@@ -504,7 +417,7 @@ class TrebnicApp:
 
     def _show_pending_errors(self) -> None:
         """Show any pending errors that occurred during initialization."""
-        if hasattr(self, '_pending_error') and self._pending_error:
+        if self._pending_error:
             self.snack.show(self._pending_error, COLORS["danger"])
             self._pending_error = None
 

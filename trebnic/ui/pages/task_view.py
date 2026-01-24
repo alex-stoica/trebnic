@@ -4,7 +4,7 @@ from typing import Dict, Any
 from config import (
     COLORS,
     BORDER_RADIUS,
-    NAV_TODAY,
+    NavItem, 
     DURATION_SLIDER_STEP,
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
@@ -237,8 +237,8 @@ class TasksView:
             self.done_list.controls.append(TaskTile(task, True, self.ctrl).build())
 
         self.empty_state.visible = (
-            len(pending) == 0 and self.state.selected_nav == NAV_TODAY 
-        ) 
+            len(pending) == 0 and self.state.selected_nav == NavItem.TODAY  
+        )
         self.page.update()
 
     def set_mobile(self, is_mobile: bool) -> None: 
