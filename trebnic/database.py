@@ -1,10 +1,11 @@
 import aiosqlite
-import asyncio
 import json
 import logging
+import threading
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, AsyncIterator
 
 from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
 
@@ -25,27 +26,26 @@ class Database:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
-            cls._instance._lock = None
+            cls._instance._init_lock = threading.Lock()
         return cls._instance
 
-    def _get_lock(self) -> asyncio.Lock:
-        """Get or create the asyncio lock."""
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
-
-    def _get_connection(self) -> aiosqlite.Connection:
-        """Get a database connection context manager."""
-        return aiosqlite.connect(DB_PATH)
+    @asynccontextmanager
+    async def _get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
+        """Get a database connection with row_factory pre-configured."""
+        async with aiosqlite.connect(DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            yield conn
 
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
-        async with self._get_lock():
+        with self._init_lock:
+            if self._initialized:
+                return
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await self._init_schema(conn)
                 await self._migrate_schema(conn)
                 await conn.commit()
+            self._initialized = True
 
     async def _init_schema(self, conn: aiosqlite.Connection) -> None:
         default_freq = RecurrenceFrequency.WEEKS.value
@@ -208,7 +208,6 @@ class Database:
         )
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 if t.get("id") is None:
                     cursor = await conn.execute(
                         "INSERT INTO tasks "
@@ -236,7 +235,6 @@ class Database:
     async def delete_task(self, task_id: int) -> None:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
                 await conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
                 await conn.commit()
@@ -247,7 +245,6 @@ class Database:
     async def load_tasks(self) -> List[Dict[str, Any]]:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute("SELECT * FROM tasks ORDER BY sort_order, id") as cursor:
                     result = []
                     async for r in cursor:
@@ -274,7 +271,6 @@ class Database:
     async def save_project(self, p: Dict[str, str]) -> None:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await conn.execute(
                     "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
                     (p["id"], p["name"], p["icon"], p["color"])
@@ -287,7 +283,6 @@ class Database:
     async def delete_project(self, project_id: str) -> int:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT COUNT(*) FROM tasks WHERE project_id=?",
                     (project_id,)
@@ -311,7 +306,6 @@ class Database:
     async def load_projects(self) -> List[Dict[str, str]]:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute("SELECT * FROM projects") as cursor:
                     return [dict(r) async for r in cursor]
         except Exception as e:
@@ -322,7 +316,6 @@ class Database:
         """Save a time entry to the database."""
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 if entry.get("id") is None:
                     cursor = await conn.execute(
                         "INSERT INTO time_entries (task_id, start_time, end_time) "
@@ -346,7 +339,6 @@ class Database:
         """Load time entries from the database, ordered by start time descending."""
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 if limit is not None:
                     query = "SELECT * FROM time_entries ORDER BY start_time DESC LIMIT ?"
                     async with conn.execute(query, (limit,)) as cursor:
@@ -363,7 +355,6 @@ class Database:
         """Load time entries for a specific task."""
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT * FROM time_entries WHERE task_id=? ORDER BY start_time DESC",
                     (task_id,)
@@ -378,7 +369,6 @@ class Database:
         try:
             date_str = target_date.isoformat()
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT * FROM time_entries "
                     "WHERE date(start_time) = ? "
@@ -394,7 +384,6 @@ class Database:
         """Delete a time entry."""
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
                 await conn.commit()
         except Exception as e:
@@ -406,7 +395,6 @@ class Database:
         try:
             today = date.today().isoformat()
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT SUM("
                     "  CASE WHEN end_time IS NOT NULL THEN "
@@ -425,7 +413,6 @@ class Database:
         """Get a setting value. Returns default if not found or on error."""
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT value FROM settings WHERE key=?",
                     (key,)
@@ -439,7 +426,6 @@ class Database:
     async def set_setting(self, key: str, value: Any) -> None:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await conn.execute(
                     "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
                     (key, json.dumps(value))
@@ -452,7 +438,6 @@ class Database:
     async def clear_all(self) -> None:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 await conn.executescript(
                     "DELETE FROM time_entries; DELETE FROM tasks; "
                     "DELETE FROM projects; DELETE FROM settings;"
@@ -465,7 +450,6 @@ class Database:
     async def is_empty(self) -> bool:
         try:
             async with self._get_connection() as conn:
-                conn.row_factory = aiosqlite.Row
                 async with conn.execute(
                     "SELECT COUNT(*) FROM projects"
                 ) as cursor:
