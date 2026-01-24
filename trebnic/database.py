@@ -1,4 +1,5 @@
-import sqlite3
+import aiosqlite
+import asyncio
 import json
 import logging
 from datetime import date
@@ -10,12 +11,6 @@ from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
 DB_PATH = Path("trebnic.db")
 
 logger = logging.getLogger(__name__)
-
-sqlite3.register_adapter(date, lambda d: d.isoformat())
-sqlite3.register_converter(
-    "DATE",
-    lambda s: date.fromisoformat(s.decode()) if s else None
-)
 
 
 class DatabaseError(Exception):
@@ -29,37 +24,33 @@ class Database:
     def __new__(cls) -> "Database":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._conn = None
+            cls._instance._initialized = False
+            cls._instance._lock = None
         return cls._instance
 
-    @property
-    def conn(self) -> sqlite3.Connection:
-        if self._conn is None or not DB_PATH.exists():
-            if self._conn is not None:
-                self._close_connection()
-            self._conn = sqlite3.connect(
-                DB_PATH,
-                detect_types=sqlite3.PARSE_DECLTYPES,
-                check_same_thread=False
-            )
-            self._conn.row_factory = sqlite3.Row
-            self._init_schema()
-        return self._conn
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the asyncio lock."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
-    def _close_connection(self) -> None:
-        """Safely close the database connection."""
-        if self._conn is not None:
-            try:
-                self._conn.close()
-            except sqlite3.Error as e:
-                logger.warning(f"Error closing database connection: {e}")
-            finally:
-                self._conn = None
+    def _get_connection(self) -> aiosqlite.Connection:
+        """Get a database connection context manager."""
+        return aiosqlite.connect(DB_PATH)
 
-    def _init_schema(self) -> None:
+    async def init_db(self) -> None:
+        """Initialize the database schema if needed."""
+        async with self._get_lock():
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await self._init_schema(conn)
+                await self._migrate_schema(conn)
+                await conn.commit()
+
+    async def _init_schema(self, conn: aiosqlite.Connection) -> None:
         default_freq = RecurrenceFrequency.WEEKS.value
         try:
-            self.conn.executescript(f"""  
+            await conn.executescript(f"""
                 CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL,
                     icon TEXT NOT NULL, color TEXT NOT NULL
@@ -68,13 +59,13 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL,
                     spent_seconds INTEGER DEFAULT 0,
                     estimated_seconds INTEGER DEFAULT {DEFAULT_ESTIMATED_SECONDS},
-                    project_id TEXT, due_date DATE, is_done INTEGER DEFAULT 0,
+                    project_id TEXT, due_date TEXT, is_done INTEGER DEFAULT 0,
                     recurrent INTEGER DEFAULT 0, recurrence_interval INTEGER DEFAULT 1,
                     recurrence_frequency TEXT DEFAULT '{default_freq}',
                     recurrence_weekdays TEXT DEFAULT '[]', notes TEXT DEFAULT '',
                     sort_order INTEGER DEFAULT 0,
                     recurrence_end_type TEXT DEFAULT 'never',
-                    recurrence_end_date DATE
+                    recurrence_end_date TEXT
                 );
                 CREATE TABLE IF NOT EXISTS time_entries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,33 +79,36 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
             """)
-            self._migrate_schema()
-            self.conn.commit()
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error initializing database schema: {e}")
             raise DatabaseError(f"Failed to initialize schema: {e}") from e
 
-    def _migrate_schema(self) -> None:
+    async def _migrate_schema(self, conn: aiosqlite.Connection) -> None:
         """Handle schema migrations for existing databases."""
         try:
-            cols = [r[1] for r in self.conn.execute("PRAGMA table_info(tasks)")]
+            async with conn.execute("PRAGMA table_info(tasks)") as cursor:
+                cols = [r[1] async for r in cursor]
+
             if "sort_order" not in cols:
-                self.conn.execute(
+                await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0"
                 )
             if "recurrence_end_type" not in cols:
-                self.conn.execute(
+                await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN recurrence_end_type TEXT DEFAULT 'never'"
                 )
             if "recurrence_end_date" not in cols:
-                self.conn.execute(
-                    "ALTER TABLE tasks ADD COLUMN recurrence_end_date DATE"
+                await conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN recurrence_end_date TEXT"
                 )
-            tables = [r[0] for r in self.conn.execute(
+
+            async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
-            )]
+            ) as cursor:
+                tables = [r[0] async for r in cursor]
+
             if "time_entries" not in tables:
-                self.conn.execute("""  
+                await conn.execute("""
                     CREATE TABLE time_entries (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         task_id INTEGER NOT NULL,
@@ -123,36 +117,36 @@ class Database:
                         FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                     )
                 """)
-                self.conn.execute(
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id)"
                 )
-                self.conn.execute(
+                await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time)"
                 )
-        except sqlite3.Error as e:
+        except Exception as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
 
-    def seed_default_data(self) -> None:
+    async def seed_default_data(self) -> None:
         """Insert default seed data after factory reset."""
-        try: 
+        try:
             default_projects = [
                 {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},
                 {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},
             ]
             for project in default_projects:
-                self.save_project(project)
- 
-            from datetime import datetime, timedelta  
-            now = datetime.now() 
-            
+                await self.save_project(project)
+
+            from datetime import datetime, timedelta
+            now = datetime.now()
+
             welcome_task = {
                 "id": None,
                 "title": "Welcome to Trebnic!",
-                "spent_seconds": 1800, 
-                "estimated_seconds": 3600,  
+                "spent_seconds": 1800,
+                "estimated_seconds": 3600,
                 "project_id": "personal",
-                "due_date": date.today(),
+                "due_date": date.today().isoformat(),
                 "is_done": 0,
                 "recurrent": 0,
                 "recurrence_interval": 1,
@@ -163,38 +157,45 @@ class Database:
                 "recurrence_end_type": "never",
                 "recurrence_end_date": None,
             }
-            task_id = self.save_task(welcome_task)
-             
-            entry1_start = now - timedelta(hours=2, minutes=30) 
-            entry1_end = entry1_start + timedelta(minutes=20)  
-            self.save_time_entry({
+            task_id = await self.save_task(welcome_task)
+
+            entry1_start = now - timedelta(hours=2, minutes=30)
+            entry1_end = entry1_start + timedelta(minutes=20)
+            await self.save_time_entry({
                 "id": None,
                 "task_id": task_id,
                 "start_time": entry1_start.isoformat(),
                 "end_time": entry1_end.isoformat(),
             })
-             
+
             entry2_start = now - timedelta(minutes=45)
             entry2_end = entry2_start + timedelta(minutes=10)
-            self.save_time_entry({
+            await self.save_time_entry({
                 "id": None,
                 "task_id": task_id,
                 "start_time": entry2_start.isoformat(),
                 "end_time": entry2_end.isoformat(),
             })
-            
-        except sqlite3.Error as e:
+
+        except Exception as e:
             logger.error(f"Error seeding default data: {e}")
             raise DatabaseError(f"Failed to seed default data: {e}") from e
 
-    def save_task(self, t: Dict[str, Any]) -> int:
+    async def save_task(self, t: Dict[str, Any]) -> int:
         weekdays = json.dumps(t.get("recurrence_weekdays", []))
+        due_date = t["due_date"]
+        if isinstance(due_date, date):
+            due_date = due_date.isoformat()
+        recurrence_end_date = t.get("recurrence_end_date")
+        if isinstance(recurrence_end_date, date):
+            recurrence_end_date = recurrence_end_date.isoformat()
+
         params = (
             t["title"],
             t["spent_seconds"],
             t["estimated_seconds"],
             t["project_id"],
-            t["due_date"],
+            due_date,
             t.get("is_done", 0),
             t.get("recurrent", 0),
             t.get("recurrence_interval", 1),
@@ -203,236 +204,274 @@ class Database:
             t.get("notes", ""),
             t.get("sort_order", 0),
             t.get("recurrence_end_type", "never"),
-            t.get("recurrence_end_date"),
+            recurrence_end_date,
         )
         try:
-            if t.get("id") is None:
-                cur = self.conn.execute(
-                    "INSERT INTO tasks "
-                    "(title,spent_seconds,estimated_seconds,project_id,"
-                    "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
-                    "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                    "recurrence_end_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    params
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                if t.get("id") is None:
+                    cursor = await conn.execute(
+                        "INSERT INTO tasks "
+                        "(title,spent_seconds,estimated_seconds,project_id,"
+                        "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
+                        "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
+                        "recurrence_end_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        params
+                    )
+                    await conn.commit()
+                    return cursor.lastrowid
+                await conn.execute(
+                    "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,"
+                    "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
+                    "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
+                    "recurrence_end_type=?,recurrence_end_date=? WHERE id=?",
+                    params + (t["id"],)
                 )
-                self.conn.commit()
-                return cur.lastrowid
-            self.conn.execute(
-                "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,"
-                "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
-                "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
-                "recurrence_end_type=?,recurrence_end_date=? WHERE id=?",
-                params + (t["id"],)
-            )
-            self.conn.commit()
-            return t["id"]
-        except sqlite3.Error as e:
+                await conn.commit()
+                return t["id"]
+        except Exception as e:
             logger.error(f"Error saving task: {e}")
             raise DatabaseError(f"Failed to save task: {e}") from e
 
-    def delete_task(self, task_id: int) -> None:
+    async def delete_task(self, task_id: int) -> None:
         try:
-            self.conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
-            self.conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
-            self.conn.commit()
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
+                await conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+                await conn.commit()
+        except Exception as e:
             logger.error(f"Error deleting task {task_id}: {e}")
             raise DatabaseError(f"Failed to delete task: {e}") from e
 
-    def load_tasks(self) -> List[Dict[str, Any]]:
+    async def load_tasks(self) -> List[Dict[str, Any]]:
         try:
-            rows = self.conn.execute("SELECT * FROM tasks ORDER BY sort_order, id")
-            result = []
-            for r in rows:
-                task_dict = dict(r)
-                task_dict["recurrence_weekdays"] = json.loads(r["recurrence_weekdays"])
-                task_dict["recurrence_end_type"] = (
-                    r["recurrence_end_type"]
-                    if "recurrence_end_type" in r.keys()
-                    else "never"
-                )
-                task_dict["recurrence_end_date"] = (
-                    r["recurrence_end_date"]
-                    if "recurrence_end_date" in r.keys()
-                    else None
-                )
-                result.append(task_dict)
-            return result
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute("SELECT * FROM tasks ORDER BY sort_order, id") as cursor:
+                    result = []
+                    async for r in cursor:
+                        task_dict = dict(r)
+                        task_dict["recurrence_weekdays"] = json.loads(
+                            task_dict.get("recurrence_weekdays", "[]")
+                        )
+                        task_dict["recurrence_end_type"] = task_dict.get(
+                            "recurrence_end_type", "never"
+                        )
+                        # Convert date strings back to date objects
+                        if task_dict.get("due_date"):
+                            task_dict["due_date"] = date.fromisoformat(task_dict["due_date"])
+                        if task_dict.get("recurrence_end_date"):
+                            task_dict["recurrence_end_date"] = date.fromisoformat(
+                                task_dict["recurrence_end_date"]
+                            )
+                        result.append(task_dict)
+                    return result
+        except Exception as e:
             logger.error(f"Error loading tasks: {e}")
             raise DatabaseError(f"Failed to load tasks: {e}") from e
 
-    def save_project(self, p: Dict[str, str]) -> None:
+    async def save_project(self, p: Dict[str, str]) -> None:
         try:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
-                (p["id"], p["name"], p["icon"], p["color"])
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await conn.execute(
+                    "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
+                    (p["id"], p["name"], p["icon"], p["color"])
+                )
+                await conn.commit()
+        except Exception as e:
             logger.error(f"Error saving project: {e}")
             raise DatabaseError(f"Failed to save project: {e}") from e
 
-    def delete_project(self, project_id: str) -> int:
+    async def delete_project(self, project_id: str) -> int:
         try:
-            count = self.conn.execute(
-                "SELECT COUNT(*) FROM tasks WHERE project_id=?",
-                (project_id,)
-            ).fetchone()[0]
-            self.conn.execute(
-                "DELETE FROM time_entries WHERE task_id IN "
-                "(SELECT id FROM tasks WHERE project_id=?)",
-                (project_id,)
-            )
-            self.conn.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
-            self.conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
-            self.conn.commit()
-            return count
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
+                    "SELECT COUNT(*) FROM tasks WHERE project_id=?",
+                    (project_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    count = row[0]
+
+                await conn.execute(
+                    "DELETE FROM time_entries WHERE task_id IN "
+                    "(SELECT id FROM tasks WHERE project_id=?)",
+                    (project_id,)
+                )
+                await conn.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
+                await conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+                await conn.commit()
+                return count
+        except Exception as e:
             logger.error(f"Error deleting project {project_id}: {e}")
             raise DatabaseError(f"Failed to delete project: {e}") from e
 
-    def load_projects(self) -> List[Dict[str, str]]:
+    async def load_projects(self) -> List[Dict[str, str]]:
         try:
-            return [dict(r) for r in self.conn.execute("SELECT * FROM projects")]
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute("SELECT * FROM projects") as cursor:
+                    return [dict(r) async for r in cursor]
+        except Exception as e:
             logger.error(f"Error loading projects: {e}")
             raise DatabaseError(f"Failed to load projects: {e}") from e
 
-    def save_time_entry(self, entry: Dict[str, Any]) -> int:
+    async def save_time_entry(self, entry: Dict[str, Any]) -> int:
         """Save a time entry to the database."""
         try:
-            if entry.get("id") is None:
-                cur = self.conn.execute(
-                    "INSERT INTO time_entries (task_id, start_time, end_time) "
-                    "VALUES (?, ?, ?)",
-                    (entry["task_id"], entry["start_time"], entry["end_time"])
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                if entry.get("id") is None:
+                    cursor = await conn.execute(
+                        "INSERT INTO time_entries (task_id, start_time, end_time) "
+                        "VALUES (?, ?, ?)",
+                        (entry["task_id"], entry["start_time"], entry["end_time"])
+                    )
+                    await conn.commit()
+                    return cursor.lastrowid
+                await conn.execute(
+                    "UPDATE time_entries SET task_id=?, start_time=?, end_time=? "
+                    "WHERE id=?",
+                    (entry["task_id"], entry["start_time"], entry["end_time"], entry["id"])
                 )
-                self.conn.commit()
-                return cur.lastrowid
-            self.conn.execute(
-                "UPDATE time_entries SET task_id=?, start_time=?, end_time=? "
-                "WHERE id=?",
-                (entry["task_id"], entry["start_time"], entry["end_time"], entry["id"])
-            )
-            self.conn.commit()
-            return entry["id"]
-        except sqlite3.Error as e:
+                await conn.commit()
+                return entry["id"]
+        except Exception as e:
             logger.error(f"Error saving time entry: {e}")
             raise DatabaseError(f"Failed to save time entry: {e}") from e
 
-    def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Load time entries from the database, ordered by start time descending."""
         try:
-            if limit is not None:
-                rows = self.conn.execute(
-                    "SELECT * FROM time_entries ORDER BY start_time DESC LIMIT ?",
-                    (limit,)
-                )
-            else:
-                rows = self.conn.execute(
-                    "SELECT * FROM time_entries ORDER BY start_time DESC"
-                )
-            return [dict(r) for r in rows]
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                if limit is not None:
+                    query = "SELECT * FROM time_entries ORDER BY start_time DESC LIMIT ?"
+                    async with conn.execute(query, (limit,)) as cursor:
+                        return [dict(r) async for r in cursor]
+                else:
+                    query = "SELECT * FROM time_entries ORDER BY start_time DESC"
+                    async with conn.execute(query) as cursor:
+                        return [dict(r) async for r in cursor]
+        except Exception as e:
             logger.error(f"Error loading time entries: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def load_time_entries_for_task(self, task_id: int) -> List[Dict[str, Any]]:
+    async def load_time_entries_for_task(self, task_id: int) -> List[Dict[str, Any]]:
         """Load time entries for a specific task."""
         try:
-            return [
-                dict(r) for r in self.conn.execute(
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM time_entries WHERE task_id=? ORDER BY start_time DESC",
                     (task_id,)
-                )
-            ]
-        except sqlite3.Error as e:
+                ) as cursor:
+                    return [dict(r) async for r in cursor]
+        except Exception as e:
             logger.error(f"Error loading time entries for task {task_id}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]:
+    async def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]:
         """Load time entries for a specific date."""
         try:
             date_str = target_date.isoformat()
-            return [
-                dict(r) for r in self.conn.execute(
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
                     "SELECT * FROM time_entries "
                     "WHERE date(start_time) = ? "
                     "ORDER BY start_time ASC",
                     (date_str,)
-                )
-            ]
-        except sqlite3.Error as e:
+                ) as cursor:
+                    return [dict(r) async for r in cursor]
+        except Exception as e:
             logger.error(f"Error loading time entries for date {target_date}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
-    def delete_time_entry(self, entry_id: int) -> None:
+    async def delete_time_entry(self, entry_id: int) -> None:
         """Delete a time entry."""
         try:
-            self.conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
-            self.conn.commit()
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
+                await conn.commit()
+        except Exception as e:
             logger.error(f"Error deleting time entry {entry_id}: {e}")
             raise DatabaseError(f"Failed to delete time entry: {e}") from e
 
-    def get_total_tracked_today(self) -> int:
+    async def get_total_tracked_today(self) -> int:
         """Get total tracked seconds for today."""
         try:
             today = date.today().isoformat()
-            result = self.conn.execute(
-                "SELECT SUM("
-                "  CASE WHEN end_time IS NOT NULL THEN "
-                "    (julianday(end_time) - julianday(start_time)) * 86400 "
-                "  ELSE 0 END"
-                ") as total FROM time_entries WHERE date(start_time) = ?",
-                (today,)
-            ).fetchone()
-            return int(result[0] or 0)
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
+                    "SELECT SUM("
+                    "  CASE WHEN end_time IS NOT NULL THEN "
+                    "    (julianday(end_time) - julianday(start_time)) * 86400 "
+                    "  ELSE 0 END"
+                    ") as total FROM time_entries WHERE date(start_time) = ?",
+                    (today,)
+                ) as cursor:
+                    result = await cursor.fetchone()
+                    return int(result[0] or 0)
+        except Exception as e:
             logger.error(f"Error getting total tracked today: {e}")
             raise DatabaseError(f"Failed to get total tracked today: {e}") from e
 
-    def get_setting(self, key: str, default: Any = None) -> Any:
+    async def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a setting value. Returns default if not found or on error."""
         try:
-            row = self.conn.execute(
-                "SELECT value FROM settings WHERE key=?",
-                (key,)
-            ).fetchone()
-            return json.loads(row["value"]) if row else default
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
+                    "SELECT value FROM settings WHERE key=?",
+                    (key,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return json.loads(row["value"]) if row else default
+        except Exception as e:
             logger.warning(f"Error getting setting {key}: {e}")
-            return default 
+            return default
 
-    def set_setting(self, key: str, value: Any) -> None:
+    async def set_setting(self, key: str, value: Any) -> None:
         try:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
-                (key, json.dumps(value))
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await conn.execute(
+                    "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
+                    (key, json.dumps(value))
+                )
+                await conn.commit()
+        except Exception as e:
             logger.error(f"Error setting {key}: {e}")
             raise DatabaseError(f"Failed to save setting: {e}") from e
 
-    def clear_all(self) -> None:
+    async def clear_all(self) -> None:
         try:
-            self.conn.executescript(
-                "DELETE FROM time_entries; DELETE FROM tasks; "
-                "DELETE FROM projects; DELETE FROM settings;"
-            )
-            self.conn.commit()
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                await conn.executescript(
+                    "DELETE FROM time_entries; DELETE FROM tasks; "
+                    "DELETE FROM projects; DELETE FROM settings;"
+                )
+                await conn.commit()
+        except Exception as e:
             logger.error(f"Error clearing database: {e}")
             raise DatabaseError(f"Failed to clear database: {e}") from e
 
-    def is_empty(self) -> bool:
+    async def is_empty(self) -> bool:
         try:
-            return self.conn.execute(
-                "SELECT COUNT(*) FROM projects"
-            ).fetchone()[0] == 0
-        except sqlite3.Error as e:
+            async with self._get_connection() as conn:
+                conn.row_factory = aiosqlite.Row
+                async with conn.execute(
+                    "SELECT COUNT(*) FROM projects"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    return row[0] == 0
+        except Exception as e:
             logger.error(f"Error checking if database is empty: {e}")
             raise DatabaseError(f"Failed to check database: {e}") from e
 

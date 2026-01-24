@@ -1,11 +1,30 @@
 import uuid
+import asyncio
 from datetime import date, timedelta
 from typing import List, Tuple, Optional
 
-from config import NavItem  
+from config import NavItem
 from database import db
 from models.entities import AppState, Task, Project, TimeEntry
 from services.recurrence import calculate_next_recurrence
+
+
+def run_async(coro):
+    """Helper to run async code from sync context."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # We're in an async context, create a task
+        future = asyncio.ensure_future(coro)
+        # For sync callers in async context, we need to handle this differently
+        # This is a workaround - ideally all callers would be async
+        return future
+    else:
+        # No running loop, create one
+        return asyncio.run(coro)
 
 
 class TaskService:
@@ -13,72 +32,91 @@ class TaskService:
         self.state = state
 
     @staticmethod
-    def load_state() -> AppState:
+    async def load_state_async() -> AppState:
+        """Async version of load_state."""
         state = AppState()
-        
-        for p_dict in db.load_projects():
+
+        # Initialize database schema
+        await db.init_db()
+
+        # Check if database is empty and seed if needed
+        if await db.is_empty():
+            await db.seed_default_data()
+
+        for p_dict in await db.load_projects():
             state.projects.append(Project.from_dict(p_dict))
-            
-        all_tasks = db.load_tasks()
+
+        all_tasks = await db.load_tasks()
         for t_dict in all_tasks:
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 state.done_tasks.append(task)
             else:
                 state.tasks.append(task)
-                
-        state.default_estimated_minutes = db.get_setting("default_estimated_minutes", 15)
-        state.email_weekly_stats = db.get_setting("email_weekly_stats", False)
-        
+
+        state.default_estimated_minutes = await db.get_setting("default_estimated_minutes", 15)
+        state.email_weekly_stats = await db.get_setting("email_weekly_stats", False)
+
         return state
+
+    @staticmethod
+    def load_state() -> AppState:
+        """Sync wrapper for load_state_async."""
+        return asyncio.run(TaskService.load_state_async())
 
     @staticmethod
     def create_empty_state() -> AppState:
         """Create an empty state without loading from database."""
         return AppState()
 
-    def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
+    async def add_task_async(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
         task = Task(
             title=title,
             project_id=project_id,
             estimated_seconds=estimated_seconds,
             spent_seconds=0,
-            due_date=date.today() if self.state.selected_nav == NavItem.TODAY else None, 
+            due_date=date.today() if self.state.selected_nav == NavItem.TODAY else None,
             sort_order=len(self.state.tasks)
         )
-        task.id = db.save_task(task.to_dict())
+        task.id = await db.save_task(task.to_dict())
         self.state.tasks.append(task)
         return task
 
-    def persist_task(self, task: Task) -> None:
-        is_done = task in self.state.done_tasks
-        db.save_task(task.to_dict(is_done=is_done))
+    def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
+        return asyncio.run(self.add_task_async(title, project_id, estimated_seconds))
 
-    def rename_task(self, task: Task, new_title: str) -> None: 
+    async def persist_task_async(self, task: Task) -> None:
+        is_done = task in self.state.done_tasks
+        await db.save_task(task.to_dict(is_done=is_done))
+
+    def persist_task(self, task: Task) -> None:
+        asyncio.run(self.persist_task_async(task))
+
+    def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task."""
         task.title = new_title
         self.persist_task(task)
 
-    def set_task_due_date(self, task: Task, due_date: Optional[date]) -> None: 
+    def set_task_due_date(self, task: Task, due_date: Optional[date]) -> None:
         """Set or clear a task's due date."""
         task.due_date = due_date
         self.persist_task(task)
 
-    def set_task_notes(self, task: Task, notes: str) -> None:  
+    def set_task_notes(self, task: Task, notes: str) -> None:
         """Update task notes."""
         task.notes = notes
         self.persist_task(task)
 
-    def update_task_time(self, task: Task, spent_seconds: int) -> None: 
+    def update_task_time(self, task: Task, spent_seconds: int) -> None:
         """Update task's spent time."""
         task.spent_seconds = spent_seconds
         self.persist_task(task)
 
-    def complete_task(self, task: Task) -> Optional[Task]:
+    async def complete_task_async(self, task: Task) -> Optional[Task]:
         if task in self.state.tasks:
             self.state.tasks.remove(task)
             self.state.done_tasks.append(task)
-            db.save_task(task.to_dict(is_done=True))
+            await db.save_task(task.to_dict(is_done=True))
 
             if task.recurrent:
                 next_date = calculate_next_recurrence(task)
@@ -96,34 +134,46 @@ class TaskService:
                         notes=task.notes,
                         sort_order=task.sort_order
                     )
-                    new_task.id = db.save_task(new_task.to_dict())
+                    new_task.id = await db.save_task(new_task.to_dict())
                     self.state.tasks.append(new_task)
                     return new_task
         return None
 
-    def uncomplete_task(self, task: Task) -> bool:
+    def complete_task(self, task: Task) -> Optional[Task]:
+        return asyncio.run(self.complete_task_async(task))
+
+    async def uncomplete_task_async(self, task: Task) -> bool:
         if task in self.state.done_tasks:
             self.state.done_tasks.remove(task)
             self.state.tasks.append(task)
-            db.save_task(task.to_dict(is_done=False))
+            await db.save_task(task.to_dict(is_done=False))
             return True
         return False
 
-    def delete_task(self, task: Task) -> None:
+    def uncomplete_task(self, task: Task) -> bool:
+        return asyncio.run(self.uncomplete_task_async(task))
+
+    async def delete_task_async(self, task: Task) -> None:
         if task in self.state.tasks:
             self.state.tasks.remove(task)
         elif task in self.state.done_tasks:
             self.state.done_tasks.remove(task)
         if task.id:
-            db.delete_task(task.id)
+            await db.delete_task(task.id)
 
-    def duplicate_task(self, task: Task) -> Task:
+    def delete_task(self, task: Task) -> None:
+        asyncio.run(self.delete_task_async(task))
+
+    async def duplicate_task_async(self, task: Task) -> Task:
         new_task = Task.from_dict(task.to_dict())
         new_task.id = None
         new_task.title = f"{task.title} (copy)"
-        new_task.id = db.save_task(new_task.to_dict())
+        new_task.id = await db.save_task(new_task.to_dict())
         self.state.tasks.append(new_task)
         return new_task
+
+    def duplicate_task(self, task: Task) -> Task:
+        return asyncio.run(self.duplicate_task_async(task))
 
     def postpone_task(self, task: Task) -> date:
         current = task.due_date or date.today()
@@ -134,10 +184,10 @@ class TaskService:
     def get_filtered_tasks(self) -> Tuple[List[Task], List[Task]]:
         nav = self.state.selected_nav
         today = date.today()
-        
+
         pending = self.state.tasks
         done = self.state.done_tasks
- 
+
         if nav == NavItem.TODAY:
             pending = [t for t in pending if t.due_date and t.due_date <= today]
             done = [t for t in done if t.due_date == today]
@@ -153,30 +203,48 @@ class TaskService:
 
         return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
 
+    async def save_time_entry_async(self, entry: TimeEntry) -> int:
+        return await db.save_time_entry(entry.to_dict())
+
     def save_time_entry(self, entry: TimeEntry) -> int:
-        return db.save_time_entry(entry.to_dict())
+        return asyncio.run(self.save_time_entry_async(entry))
+
+    async def delete_time_entry_async(self, entry_id: int) -> None:
+        await db.delete_time_entry(entry_id)
 
     def delete_time_entry(self, entry_id: int) -> None:
-        db.delete_time_entry(entry_id)
+        asyncio.run(self.delete_time_entry_async(entry_id))
 
-    def update_time_entry(self, entry: TimeEntry) -> int: 
-        """Update an existing time entry.""" 
-        return db.save_time_entry(entry.to_dict())
+    async def update_time_entry_async(self, entry: TimeEntry) -> int:
+        """Update an existing time entry."""
+        return await db.save_time_entry(entry.to_dict())
+
+    def update_time_entry(self, entry: TimeEntry) -> int:
+        """Update an existing time entry."""
+        return asyncio.run(self.update_time_entry_async(entry))
+
+    async def load_time_entries_for_task_async(self, task_id: int) -> List[TimeEntry]:
+        return [TimeEntry.from_dict(d) for d in await db.load_time_entries_for_task(task_id)]
 
     def load_time_entries_for_task(self, task_id: int) -> List[TimeEntry]:
-        return [TimeEntry.from_dict(d) for d in db.load_time_entries_for_task(task_id)]
+        return asyncio.run(self.load_time_entries_for_task_async(task_id))
 
-    def recalculate_task_time_from_entries(self, task: Task) -> None:  # EDITED - New method
+    async def recalculate_task_time_from_entries_async(self, task: Task) -> None:
         """Recalculate task spent_seconds from its time entries."""
         if task.id is None:
             return
-        entries = self.load_time_entries_for_task(task.id)
+        entries = await self.load_time_entries_for_task_async(task.id)
         total = sum(e.duration_seconds for e in entries if e.end_time)
         task.spent_seconds = total
-        self.persist_task(task)
+        await self.persist_task_async(task)
+
+    def recalculate_task_time_from_entries(self, task: Task) -> None:
+        """Recalculate task spent_seconds from its time entries."""
+        asyncio.run(self.recalculate_task_time_from_entries_async(task))
 
     def validate_project_name(self, name: str, editing_id: Optional[str] = None) -> Optional[str]:
-        if not name: return "Name required"
+        if not name:
+            return "Name required"
         for p in self.state.projects:
             if p.name.lower() == name.lower() and p.id != editing_id:
                 return "Project already exists"
@@ -185,34 +253,46 @@ class TaskService:
     def generate_project_id(self, name: str) -> str:
         return str(uuid.uuid4())[:8]
 
-    def save_project(self, project: Project) -> None:
-        db.save_project(project.to_dict())
+    async def save_project_async(self, project: Project) -> None:
+        await db.save_project(project.to_dict())
 
-    def delete_project(self, project_id: str) -> int:
+    def save_project(self, project: Project) -> None:
+        asyncio.run(self.save_project_async(project))
+
+    async def delete_project_async(self, project_id: str) -> int:
         self.state.projects = [p for p in self.state.projects if p.id != project_id]
-        count = db.delete_project(project_id)
+        count = await db.delete_project(project_id)
         self.state.tasks = [t for t in self.state.tasks if t.project_id != project_id]
         self.state.done_tasks = [t for t in self.state.done_tasks if t.project_id != project_id]
         return count
 
-    def reset(self) -> None:
-        db.clear_all()
-        db.seed_default_data()
+    def delete_project(self, project_id: str) -> int:
+        return asyncio.run(self.delete_project_async(project_id))
+
+    async def reset_async(self) -> None:
+        await db.clear_all()
+        await db.seed_default_data()
         self.state.tasks.clear()
         self.state.done_tasks.clear()
-        self.state.projects.clear() 
-        for p_dict in db.load_projects():
+        self.state.projects.clear()
+        for p_dict in await db.load_projects():
             self.state.projects.append(Project.from_dict(p_dict))
-        for t_dict in db.load_tasks():
+        for t_dict in await db.load_tasks():
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self.state.done_tasks.append(task)
             else:
                 self.state.tasks.append(task)
 
+    def reset(self) -> None:
+        asyncio.run(self.reset_async())
+
+    async def save_settings_async(self) -> None:
+        await db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
+        await db.set_setting("email_weekly_stats", self.state.email_weekly_stats)
+
     def save_settings(self) -> None:
-        db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
-        db.set_setting("email_weekly_stats", self.state.email_weekly_stats)
+        asyncio.run(self.save_settings_async())
 
     def task_name_exists(self, name: str, exclude_task: Task) -> bool:
         all_active = [t.title.lower() for t in self.state.tasks if t != exclude_task]
@@ -222,7 +302,10 @@ class TaskService:
         task.project_id = project_id
         self.persist_task(task)
 
-    def persist_task_order(self) -> None:
+    async def persist_task_order_async(self) -> None:
         for i, task in enumerate(self.state.tasks):
             task.sort_order = i
-            self.persist_task(task)
+            await self.persist_task_async(task)
+
+    def persist_task_order(self) -> None:
+        asyncio.run(self.persist_task_order_async())
