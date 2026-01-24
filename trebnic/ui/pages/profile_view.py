@@ -25,7 +25,7 @@ class ProfilePage:
         state: AppState,
         service: TaskService,
         snack: SnackService,
-        navigate: Callable[[str], None],
+        navigate: Callable[[PageType], None],
     ) -> None:
         self.page = page
         self.state = state
@@ -207,13 +207,13 @@ class ProfilePage:
 
 class PreferencesPage:
     def __init__(
-        self, 
-        page: ft.Page, 
-        state: AppState, 
-        service: TaskService, 
-        snack: SnackService, 
-        navigate: Callable[[str], None], 
-        tasks_view, 
+        self,
+        page: ft.Page,
+        state: AppState,
+        service: TaskService,
+        snack: SnackService,
+        navigate: Callable[[PageType], None],
+        tasks_view,
     ) -> None: 
         self.page = page
         self.state = state

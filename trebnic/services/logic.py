@@ -37,7 +37,8 @@ class TaskService:
         if self._page is not None:
             if not need_result:
                 # Fire-and-forget - use page.run_task for non-blocking execution
-                self._page.run_task(lambda: coro)
+                # Pass the coroutine directly, not wrapped in a lambda
+                self._page.run_task(coro)
                 return None
             # Need result - schedule and wait with timeout to avoid indefinite blocking
             future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)

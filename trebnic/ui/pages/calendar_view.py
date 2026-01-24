@@ -1,13 +1,13 @@
 import flet as ft
 from datetime import date, timedelta
-from typing import List, Tuple 
+from typing import Callable, List, Optional, Tuple
 
 from config import COLORS, CALENDAR_HEADER_HEIGHT
-from models.entities import AppState, Task 
+from models.entities import AppState, Task
 
 
 class CalendarView:
-    def __init__(self, state: AppState, on_update: callable = None) -> None:
+    def __init__(self, state: AppState, on_update: Optional[Callable[[], None]] = None) -> None:
         self.state = state
         self.on_update = on_update
 

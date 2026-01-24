@@ -49,7 +49,7 @@ class TimeEntriesView:
         state: AppState,
         service: TaskService,
         snack: SnackService,
-        navigate: Callable[[str], None],
+        navigate: Callable[[PageType], None],
     ) -> None:
         self.page = page
         self.state = state
@@ -247,8 +247,8 @@ class TimeEntriesView:
             new_end = entry.start_time + timedelta(minutes=minutes)
             end_time_text.value = self._format_time(new_end)
             self.page.update()
-        
-        knob._on_change = on_knob_change
+
+        knob.set_on_change(on_knob_change)
         
         end_time_display = ft.Container(
             content=ft.Column(

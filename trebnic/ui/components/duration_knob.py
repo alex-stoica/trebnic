@@ -150,6 +150,10 @@ class DurationKnob(ft.Container):
         self._minutes = self._clamp(minutes)
         self._update_display()
 
+    def set_on_change(self, callback: Optional[Callable[[int], None]]) -> None:
+        """Set the callback for when the duration value changes."""
+        self._on_change = callback
+
     def _clamp(self, minutes: int) -> int:
         """Clamp minutes to valid range."""
         return max(DURATION_KNOB_MIN_MINUTES, min(DURATION_KNOB_MAX_MINUTES, minutes))
