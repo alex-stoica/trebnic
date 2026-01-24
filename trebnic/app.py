@@ -10,6 +10,7 @@ from config import (
     NAV_TODAY,
     NAV_CALENDAR,
     NAV_UPCOMING,
+    NAV_PROJECTS,
     PAGE_TASKS,
     PAGE_PROFILE,
     PAGE_PREFERENCES,
@@ -20,35 +21,14 @@ from database import DatabaseError
 from events import event_bus, AppEvent
 from services.logic import TaskService
 from services.timer import TimerService
-from models.entities import Task 
+from models.entities import Task
 from ui.controller import UIController
-from ui.helpers import SnackService 
+from ui.navigation import NavigationManager, NavigationHandler
+from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
 from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView
 from ui.timer_controller import TimerController
-
-
-class NavigationHandler:
-    """Handles navigation-related actions with named methods."""
-
-    def __init__(self, app: "TrebnicApp") -> None:
-        self.app = app
-
-    def on_inbox_click(self, e: ft.ControlEvent) -> None:
-        self.app.select_nav(NAV_INBOX)
-
-    def on_today_click(self, e: ft.ControlEvent) -> None:
-        self.app.select_nav(NAV_TODAY)
-
-    def on_calendar_click(self, e: ft.ControlEvent) -> None:
-        self.app.select_nav(NAV_CALENDAR)
-
-    def on_upcoming_click(self, e: ft.ControlEvent) -> None:
-        self.app.select_nav(NAV_UPCOMING)
-
-    def on_projects_toggle(self, e: ft.ControlEvent) -> None:
-        self.app.toggle_projects()
 
 
 class TrebnicApp:
@@ -59,10 +39,12 @@ class TrebnicApp:
         self.event_bus = event_bus
         self._setup_page()
         self._init_services()
+        self._init_navigation()
         self._init_ui_components()
         self._init_timer_controller()
         self._subscribe_to_events()
         self._wire_controller()
+        self._wire_navigation()
         self._build_layout()
 
     def _setup_page(self) -> None:
@@ -76,12 +58,18 @@ class TrebnicApp:
             self.state = TaskService.load_state()
         except DatabaseError as e:
             self.state = TaskService.create_empty_state()
-            self._show_db_error(f"Failed to load data: {e}")
+            self._pending_error = f"Failed to load data: {e}"
+
         self.service = TaskService(self.state)
         self.snack = SnackService(self.page)
         self.timer_svc = TimerService()
         self.ctrl = UIController(self.page, self.state, self.service)
-        self.nav_handler = NavigationHandler(self)
+
+    def _init_navigation(self) -> None:
+        """Initialize navigation manager and handler."""
+        self.nav_manager = NavigationManager(self.page, self.state)
+        self.nav_handler = NavigationHandler(self.nav_manager)
+        self.ctrl.set_nav_manager(self.nav_manager)
 
     def _show_db_error(self, message: str) -> None:
         """Show database error to user after snack service is ready."""
@@ -104,7 +92,7 @@ class TrebnicApp:
             self.state,
             self.service,
             self.snack,
-            self.navigate_to,
+            self.nav_manager.navigate_to,
         )
 
         self.profile_page = ProfilePage(
@@ -112,7 +100,7 @@ class TrebnicApp:
             self.state,
             self.service,
             self.snack,
-            self.navigate_to,
+            self.nav_manager.navigate_to,
         )
 
         self.prefs_page = PreferencesPage(
@@ -120,7 +108,7 @@ class TrebnicApp:
             self.state,
             self.service,
             self.snack,
-            self.navigate_to,
+            self.nav_manager.navigate_to,
             self.tasks_view,
         )
 
@@ -129,7 +117,7 @@ class TrebnicApp:
             self.state,
             self.service,
             self.snack,
-            self.navigate_to,
+            self.nav_manager.navigate_to,
         )
 
         self.project_dialogs = ProjectDialogs(
@@ -168,13 +156,13 @@ class TrebnicApp:
     def _on_data_reset(self, data: Any) -> None:
         """Handle data reset events."""
         self.rebuild_sidebar()
-        self.navigate_to(PAGE_TASKS)
+        self.nav_manager.navigate_to(PAGE_TASKS)
         self.tasks_view.refresh()
 
     def _wire_controller(self) -> None:
         """Wire up the UI controller callbacks."""
         self.ctrl.wire(
-            update_nav=self.update_nav,
+            update_nav=self.nav_manager.update_nav,
             refresh=self.tasks_view.refresh,
             show_snack=self.snack.show,
             delete_task=self._delete_task,
@@ -190,6 +178,11 @@ class TrebnicApp:
             update_content=self.update_content,
         )
 
+    def _wire_navigation(self) -> None:
+        """Wire navigation manager after UI components are built."""
+        # This will be called after layout is built
+        pass
+
     def rebuild_sidebar(self) -> None:
         """Rebuild the sidebar with updated project list."""
         self.project_btns.clear()
@@ -197,6 +190,7 @@ class TrebnicApp:
         for p in self.state.projects:
             self.project_btns[p.id] = ProjectSidebarItem(p, self.ctrl)
             self.projects_items.controls.append(self.project_btns[p.id])
+        self.nav_manager.set_project_btns(self.project_btns)
         self.event_bus.emit(AppEvent.PROJECT_UPDATED)
 
     def _on_timer_stop(self, e: ft.ControlEvent) -> None:
@@ -258,13 +252,6 @@ class TrebnicApp:
 
         threading.Thread(target=delayed, daemon=True).start()
 
-    def navigate_to(self, page_name: str) -> None:
-        """Navigate to a specific page."""
-        self.state.current_page = page_name
-        self.update_content()
-        self.event_bus.emit(AppEvent.NAV_CHANGED, page_name)
-        self.page.update()
-
     def update_content(self) -> None:
         """Update the main content area based on current state."""
         if self.state.current_page == PAGE_PROFILE:
@@ -278,55 +265,13 @@ class TrebnicApp:
         else:
             self.page_content.content = self.tasks_view.build()
 
-    def update_nav(self) -> None:
-        """Update navigation state and UI."""
-        self.nav_inbox.selected = self.state.selected_nav == NAV_INBOX
-        self.nav_today.selected = self.state.selected_nav == NAV_TODAY
-        self.nav_calendar.selected = self.state.selected_nav == NAV_CALENDAR
-        self.nav_upcoming.selected = self.state.selected_nav == NAV_UPCOMING
-        self.nav_projects.selected = len(self.state.selected_projects) > 0
-
-        for pid, btn in self.project_btns.items():
-            btn.set_selected(pid in self.state.selected_projects)
-
-        self.projects_items.visible = self.state.projects_expanded
-        self.projects_arrow.name = (
-            ft.Icons.KEYBOARD_ARROW_DOWN
-            if self.state.projects_expanded
-            else ft.Icons.KEYBOARD_ARROW_RIGHT
-        )
-
-        self.settings_menu.items = self._get_settings_items()
-        self.update_content()
-        self.tasks_view.refresh()
-        self.page.update()
-
-    def select_nav(self, name: str) -> None:
-        """Select a navigation item."""
-        self.state.selected_nav = name
-        self.state.selected_projects.clear()
-        self.state.current_page = PAGE_TASKS
-        if self.state.is_mobile:
-            self.drawer.open = False
-        self.update_nav()
-
-    def toggle_projects(self) -> None:
-        """Toggle the projects section expansion."""
-        self.state.projects_expanded = not self.state.projects_expanded
-        self.update_nav()
-
-    def _on_menu_click(self, e: ft.ControlEvent) -> None:
-        """Handle menu button click."""
-        self.drawer.open = True
-        self.page.update()
-
     def _on_profile_click(self, e: ft.ControlEvent) -> None:
         """Handle profile menu item click."""
-        self.navigate_to(PAGE_PROFILE)
+        self.nav_manager.navigate_to(PAGE_PROFILE)
 
     def _on_preferences_click(self, e: ft.ControlEvent) -> None:
         """Handle preferences menu item click."""
-        self.navigate_to(PAGE_PREFERENCES)
+        self.nav_manager.navigate_to(PAGE_PREFERENCES)
 
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""
@@ -376,6 +321,7 @@ class TrebnicApp:
         self._build_drawer_and_sidebar()
         self._build_header()
         self._build_main_area()
+        self._finalize_navigation_wiring()
         self._assemble_layout()
         self._show_pending_errors()
 
@@ -476,7 +422,7 @@ class TrebnicApp:
         self.menu_btn = ft.IconButton(
             icon=ft.Icons.MENU,
             icon_color=COLORS["accent"],
-            on_click=self._on_menu_click,
+            on_click=self.nav_handler.on_menu_click,
             visible=True,
         )
 
@@ -516,6 +462,31 @@ class TrebnicApp:
             ),
         )
 
+    def _finalize_navigation_wiring(self) -> None:
+        """Wire navigation manager with all built components."""
+        nav_items = {
+            NAV_INBOX: self.nav_inbox,
+            NAV_TODAY: self.nav_today,
+            NAV_CALENDAR: self.nav_calendar,
+            NAV_UPCOMING: self.nav_upcoming,
+            NAV_PROJECTS: self.nav_projects,
+        }
+
+        self.nav_manager.wire(
+            nav_items=nav_items,
+            project_btns=self.project_btns,
+            projects_items=self.projects_items,
+            projects_arrow=self.projects_arrow,
+            drawer=self.drawer,
+            sidebar=self.sidebar,
+            menu_btn=self.menu_btn,
+            nav_content=self.nav_content,
+            settings_menu=self.settings_menu,
+            on_content_update=self.update_content,
+            on_refresh=self.tasks_view.refresh,
+            get_settings_items=self._get_settings_items,
+        )
+
     def _assemble_layout(self) -> None:
         """Assemble the final layout and add to page."""
         main_row = ft.Row(
@@ -539,22 +510,9 @@ class TrebnicApp:
 
     def _handle_resize(self, e: Optional[ft.ControlEvent] = None) -> None:
         """Handle window resize events."""
-        self.state.is_mobile = (self.page.width or 800) < MOBILE_BREAKPOINT
-
-        if self.state.is_mobile:
-            self.sidebar.visible = False
-            self.sidebar.content = None
-            self.menu_btn.visible = True
-            self.drawer.controls = [
-                ft.Container(padding=20, content=self.nav_content)
-            ]
-        else:
-            self.drawer.controls = []
-            self.sidebar.content = self.nav_content
-            self.sidebar.visible = True
-            self.menu_btn.visible = False
-
-        self.tasks_view.set_mobile(self.state.is_mobile)
+        is_mobile = (self.page.width or 800) < MOBILE_BREAKPOINT
+        self.nav_manager.handle_resize(is_mobile)
+        self.tasks_view.set_mobile(is_mobile)
         self.tasks_view.refresh()
         self.page.update()
 

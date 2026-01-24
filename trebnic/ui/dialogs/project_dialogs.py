@@ -81,8 +81,8 @@ class IconPickerController:
                 alignment=ft.alignment.center,
                 border_radius=BORDER_RADIUS_MD,
                 bgcolor=(
-                    COLORS["accent"] 
-                    if icon == self.state.current_icon 
+                    COLORS["accent"]
+                    if icon == self.state.current_icon
                     else COLORS["card"]
                 ),
                 data=icon,
@@ -190,8 +190,8 @@ class ColorPickerController:
             opts.append(container)
 
         self._color_list = ft.ListView(
-            controls=opts, 
-            spacing=SPACING_SM, 
+            controls=opts,
+            spacing=SPACING_SM,
             height=COLOR_PICKER_HEIGHT,
         )
 
@@ -251,10 +251,12 @@ class ProjectDialogs:
         self._icon_display.value = self._icon
         self._color_display.bgcolor = self._color
         self._error.visible = False
+        self._dialog = None  
         self._show_main()
         self.page.open(self._dialog)
 
-    def _show_main(self) -> None:
+    def _build_main_content(self) -> ft.Column:
+        """Build the main dialog content."""
         icon_btn = ft.Container(
             content=ft.Row(
                 [self._icon_display, ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=FONT_SIZE_3XL)],
@@ -282,7 +284,7 @@ class ProjectDialogs:
             ink=True,
         )
 
-        content = ft.Column(
+        return ft.Column(
             [
                 ft.Row(
                     [ft.Text("Icon:", size=FONT_SIZE_LG, width=50), icon_btn],
@@ -299,7 +301,8 @@ class ProjectDialogs:
             tight=True,
         )
 
-        title = "Edit Project" if self.state.editing_project_id else "Create New Project"
+    def _build_main_actions(self) -> list:
+        """Build the main dialog actions."""
         actions = [ft.TextButton("Cancel", on_click=self._close)]
 
         if self.state.editing_project_id:
@@ -314,13 +317,27 @@ class ProjectDialogs:
             self._save,
         ))
 
-        self._dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(title),
-            content=ft.Container(width=DIALOG_WIDTH_MD, content=content),
-            actions=actions,
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
+        return actions
+
+    def _show_main(self) -> None:
+        """Show or update the main project dialog."""
+        content = self._build_main_content()
+        title = "Edit Project" if self.state.editing_project_id else "Create New Project"
+        actions = self._build_main_actions()
+
+        if self._dialog is not None: 
+            self._dialog.title = ft.Text(title)
+            self._dialog.content = ft.Container(width=DIALOG_WIDTH_MD, content=content)
+            self._dialog.actions = actions
+            self._dialog.update()
+        else: 
+            self._dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(title),
+                content=ft.Container(width=DIALOG_WIDTH_MD, content=content),
+                actions=actions,
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
 
     def _show_icon_picker(self, e: ft.ControlEvent) -> None:
         """Show the icon picker sub-dialog."""
@@ -343,10 +360,12 @@ class ProjectDialogs:
             on_back=on_back,
         )
 
-        self._dialog.title = ft.Text("Select icon")
-        self._dialog.content = controller.build_content()
-        self._dialog.actions = controller.build_actions()
-        self.page.update()
+        if self._dialog:
+            self._dialog.title = ft.Text("Select Icon")
+            self._dialog.content = controller.build_content()
+            self._dialog.actions = controller.build_actions()
+            self._dialog.update()
+            self.page.update()
 
     def _show_color_picker(self, e: ft.ControlEvent) -> None:
         """Show the color picker sub-dialog."""
@@ -369,10 +388,12 @@ class ProjectDialogs:
             on_back=on_back,
         )
 
-        self._dialog.title = ft.Text("Select Color")
-        self._dialog.content = controller.build_content()
-        self._dialog.actions = controller.build_actions()
-        self.page.update()
+        if self._dialog:
+            self._dialog.title = ft.Text("Select Color")
+            self._dialog.content = controller.build_content()
+            self._dialog.actions = controller.build_actions()
+            self._dialog.update()
+            self.page.update()
 
     def _save(self, e: ft.ControlEvent) -> None:
         name = self._name_field.value.strip()
