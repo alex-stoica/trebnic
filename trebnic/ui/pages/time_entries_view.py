@@ -25,7 +25,7 @@ from config import (
 )
 from models.entities import AppState, TimeEntry, Task
 from services.logic import TaskService
-from trebnic.ui.components import DurationKnob
+from ui.components import DurationKnob
 from ui.formatters import TimeFormatter
 from ui.helpers import SnackService, accent_btn  
 from ui.dialogs.base import open_dialog 
@@ -306,7 +306,7 @@ class TimeEntriesView:
 
         _, close = open_dialog(
             self.page,
-            "Edit Time Entry",
+            "Edit time entry",
             content,
             lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
         )
@@ -393,33 +393,37 @@ class TimeEntriesView:
             border_radius=2,
         )
  
+        # On mobile, hide project badge since it's shown in the header
+        project_badge = ft.Row(
+            [
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text(project_icon, size=FONT_SIZE_SM),
+                            ft.Text(
+                                project_name,
+                                size=FONT_SIZE_SM,
+                                color=COLORS["white"],
+                            ),
+                        ],
+                        spacing=SPACING_XS,
+                        tight=True,
+                    ),
+                    bgcolor=project_color,
+                    padding=ft.padding.symmetric(horizontal=PADDING_MD, vertical=2),
+                    border_radius=10,
+                ),
+            ],
+            spacing=SPACING_SM,
+            visible=not self.state.is_mobile,
+        )
+
         task_info = ft.Column(
             [
-                ft.Row(
-                    [
-                        ft.Container( 
-                            content=ft.Row(
-                                [
-                                    ft.Text(project_icon, size=FONT_SIZE_SM),
-                                    ft.Text(
-                                        project_name,
-                                        size=FONT_SIZE_SM,
-                                        color=COLORS["white"],
-                                    ),
-                                ],
-                                spacing=SPACING_XS,
-                                tight=True,
-                            ),
-                            bgcolor=project_color,
-                            padding=ft.padding.symmetric(horizontal=PADDING_MD, vertical=2),
-                            border_radius=10,
-                        ),
-                    ],
-                    spacing=SPACING_SM,
-                ),
+                project_badge,
                 self._build_progress_bar(
-                    entry.duration_seconds, 
-                    max_duration, 
+                    entry.duration_seconds,
+                    max_duration,
                     project_color,
                 ),
             ],
@@ -445,22 +449,17 @@ class TimeEntriesView:
                 spacing=SPACING_XS,
                 tight=True,
             ),
-            bgcolor=COLORS["green"] if is_running else COLORS["card"], 
+            bgcolor=COLORS["green"] if is_running else COLORS["card"],
             padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
-            border=None if is_running else ft.border.all(1, COLORS["border"]), 
+            border=None if is_running else ft.border.all(1, COLORS["border"]),
+            on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
+            ink=not is_running,
+            tooltip="Click to edit" if not is_running else None,
         )
  
         action_btns = ft.Row(
             [
-                ft.IconButton(  
-                    icon=ft.Icons.EDIT_OUTLINED,
-                    icon_color=COLORS["accent"],
-                    icon_size=18,
-                    tooltip="Edit entry",
-                    on_click=lambda e, ent=entry: self._edit_entry(ent),
-                    visible=not is_running,
-                ),
                 ft.IconButton(
                     icon=ft.Icons.DELETE_OUTLINE,
                     icon_color=COLORS["danger"],
@@ -765,7 +764,7 @@ class TimeEntriesView:
             self._total_text.value = f"Total: {TimeFormatter.seconds_to_short(total_seconds)}"
 
         if self._header_text and task:
-            self._header_text.value = f"Time Entries: {task.title}"
+            self._header_text.value = f"Time entries: {task.title}"
 
         self.page.update()
 
@@ -781,9 +780,11 @@ class TimeEntriesView:
         )
 
         self._header_text = ft.Text(
-            f"Time Entries: {task.title if task else 'Unknown'}",
-            size=FONT_SIZE_2XL,
+            f"Time entries: {task.title if task else 'Unknown'}",
+            size=FONT_SIZE_2XL if not self.state.is_mobile else FONT_SIZE_LG,
             weight="bold",
+            overflow=ft.TextOverflow.ELLIPSIS,
+            expand=True,
         )
 
         self._total_text = ft.Text(
@@ -793,15 +794,33 @@ class TimeEntriesView:
             weight="bold",
         )
 
-        header = ft.Row(
-            [
-                back_btn,
-                self._header_text,
-                ft.Container(expand=True),
-                self._total_text,
-            ],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
+        if self.state.is_mobile:
+            header = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            back_btn,
+                            self._header_text,
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Container(
+                        content=self._total_text,
+                        padding=ft.padding.only(left=48),
+                    ),
+                ],
+                spacing=0,
+            )
+        else:
+            header = ft.Row(
+                [
+                    back_btn,
+                    self._header_text,
+                    ft.Container(expand=True),
+                    self._total_text,
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
 
         project = self.state.get_project_by_id(task.project_id) if task else None
         project_icon = project.icon if project else "📋"
@@ -820,11 +839,12 @@ class TimeEntriesView:
                     ft.Text(project_icon, size=FONT_SIZE_LG),
                     ft.Text(project_name, size=FONT_SIZE_MD, color=COLORS["done_text"]),
                     ft.Container(expand=True), 
-                    ft.Text(  
-                        "💡 Click time to edit", 
-                        size=FONT_SIZE_SM, 
-                        color=COLORS["done_text"], 
-                        italic=True, 
+                    ft.Text(
+                        "💡 Click duration to edit",
+                        size=FONT_SIZE_SM,
+                        color=COLORS["done_text"],
+                        italic=True,
+                        visible=not self.state.is_mobile,
                     ), 
                 ],
                 spacing=SPACING_MD,
