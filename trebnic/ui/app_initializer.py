@@ -84,12 +84,13 @@ class AppInitializer:
             self.components.state = TaskService.create_empty_state()
             self.components.pending_error = f"Failed to load data: {e}"
 
-        self.components.service = TaskService(self.components.state)
+        # Pass page to TaskService for proper async scheduling in Flet context
+        self.components.service = TaskService(self.components.state, self.page)
         self.components.snack = SnackService(self.page)
         self.components.timer_svc = TimerService()
         self.components.ctrl = UIController(
-            self.page, 
-            self.components.state, 
+            self.page,
+            self.components.state,
             self.components.service
         )
     

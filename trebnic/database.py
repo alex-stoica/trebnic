@@ -21,12 +21,16 @@ class DatabaseError(Exception):
 
 class Database:
     _instance: Optional["Database"] = None
+    _instance_lock = threading.Lock()
 
     def __new__(cls) -> "Database":
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-            cls._instance._init_lock = threading.Lock()
+            with cls._instance_lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     @asynccontextmanager

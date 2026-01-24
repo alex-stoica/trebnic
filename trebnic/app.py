@@ -1,20 +1,20 @@
 import flet as ft
 import time
 import threading
-from typing import Optional, Any
+from typing import Optional, Any, List
 
 from config import (
     COLORS,
     MOBILE_BREAKPOINT,
-    NavItem, 
-    PageType, 
+    NavItem,
+    PageType,
     ANIMATION_DELAY,
 )
 from database import DatabaseError
-from events import event_bus, AppEvent 
-from models.entities import Task 
-from ui.components import ProjectSidebarItem, TimerWidget 
-from ui.app_initializer import AppInitializer 
+from events import event_bus, AppEvent, Subscription
+from models.entities import Task
+from ui.components import ProjectSidebarItem, TimerWidget
+from ui.app_initializer import AppInitializer
 
 
 class TrebnicApp:
@@ -23,18 +23,25 @@ class TrebnicApp:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
         self.event_bus = event_bus
-         
+        self._subscriptions: List[Subscription] = []
+
         initializer = AppInitializer(page)
         self._components = initializer.initialize()
-         
+
         self._extract_components()
-         
+
+        # Wire page to service for proper async scheduling
+        self.service.set_page(page)
+
         self.timer_widget = TimerWidget(self._on_timer_stop)
         self.timer_ctrl.timer_widget = self.timer_widget
-        
+
         self._subscribe_to_events()
         self._wire_controller()
         self._build_layout()
+
+        # Register cleanup on page close
+        self.page.on_close = self._on_page_close
 
     def _extract_components(self) -> None:  
         """Extract components from initializer for class-level access."""
@@ -58,10 +65,35 @@ class TrebnicApp:
         self._pending_error = c.pending_error
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to application events."""
-        self.event_bus.subscribe(AppEvent.REFRESH_UI, self._on_refresh_ui)
-        self.event_bus.subscribe(AppEvent.SIDEBAR_REBUILD, self._on_sidebar_rebuild)
-        self.event_bus.subscribe(AppEvent.DATA_RESET, self._on_data_reset)
+        """Subscribe to application events and track subscriptions for cleanup."""
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.REFRESH_UI, self._on_refresh_ui)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.SIDEBAR_REBUILD, self._on_sidebar_rebuild)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.DATA_RESET, self._on_data_reset)
+        )
+
+    def _unsubscribe_all(self) -> None:
+        """Unsubscribe all event subscriptions."""
+        for subscription in self._subscriptions:
+            subscription.unsubscribe()
+        self._subscriptions.clear()
+
+    def _on_page_close(self, e: ft.ControlEvent) -> None:
+        """Handle page close - cleanup resources."""
+        self._cleanup()
+
+    def _cleanup(self) -> None:
+        """Clean up all resources."""
+        # Unsubscribe from all events
+        self._unsubscribe_all()
+
+        # Stop timer if running
+        if self.timer_ctrl:
+            self.timer_ctrl.cleanup()
 
     def _on_refresh_ui(self, data: Any) -> None:
         """Handle UI refresh events."""
