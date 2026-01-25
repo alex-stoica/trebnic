@@ -18,13 +18,14 @@ class NavItem(Enum):
     TIMESHEET = "timesheet"
 
 
-class PageType(Enum): 
+class PageType(Enum):
     """Enum for page types."""
     TASKS = "tasks"
     PROFILE = "profile"
     PREFERENCES = "preferences"
     TIME_ENTRIES = "time_entries"
     HELP = "help"
+    FEEDBACK = "feedback"
 
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",

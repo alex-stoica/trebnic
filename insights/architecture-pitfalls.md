@@ -113,6 +113,77 @@ class TaskDialogs:
 
 **Key Learning**: Flet's overlay is a list that persists for the session. Always reuse or explicitly remove overlay controls.
 
+## 6. Database Connection Churn
+
+**Problem**: Creating a new `aiosqlite.connect()` for every database operation adds overhead. Each connection requires:
+- Opening a file handle
+- Running PRAGMA statements (journal_mode=WAL, busy_timeout)
+- Closing the connection afterward
+
+While acceptable for occasional operations, this becomes inefficient during startup (multiple sequential queries) or batch operations.
+
+**Solution**: Use a persistent connection with an async lock for serialization (SQLite limitation):
+
+```python
+class Database:
+    async def _ensure_connection(self) -> aiosqlite.Connection:
+        if self._conn is None:
+            self._conn = await aiosqlite.connect(DB_PATH)
+            self._conn.row_factory = aiosqlite.Row
+            await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._conn.execute("PRAGMA busy_timeout=5000")
+        return self._conn
+
+    @asynccontextmanager
+    async def _get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
+        async with self._get_lock():  # asyncio.Lock() for serialization
+            conn = await self._ensure_connection()
+            yield conn
+```
+
+**Key Learning**: Connection pooling matters. For SQLite, a single reused connection with proper locking is simpler and more efficient than connection-per-operation.
+
+**Note**: The original claim that "batch reordering causes N connections" was incorrect - `update_task_sort_orders` already used `executemany` in a single connection. The fix addresses the general pattern, not a specific bug.
+
+## 7. Dynamic Dispatch Breaks IDE Navigation
+
+**Problem**: Using dictionary-based callback dispatch with string keys:
+
+```python
+# WRONG - can't Ctrl+Click through this
+self._callbacks = {}
+self._callbacks["rename_task"] = task_dialogs.rename
+
+def rename(self, task):
+    self._call("rename_task", task)  # IDE can't follow this
+```
+
+**Solution**: Use typed callback attributes instead:
+
+```python
+# CORRECT - full IDE navigation support
+self._rename_task: Optional[Callable[[Task], None]] = None
+
+def wire(self, rename_task: Callable[[Task], None] = None, ...):
+    if rename_task is not None:
+        self._rename_task = rename_task
+
+def rename(self, task: Task) -> None:
+    if self._rename_task:
+        self._rename_task(task)
+```
+
+**Key Learning**: Dynamic dispatch is useful for plugins but harmful for core logic. When the callbacks are known at compile time, use typed attributes. You get the same decoupling benefits with full static analysis support.
+
+## 8. Zombie Listeners - A Non-Issue (Here)
+
+**Problem Claimed**: "TaskTile subscribes to events, and when TasksView.refresh() recreates them, old listeners become zombies."
+
+**Reality**: TaskTile doesn't subscribe to any events. It only holds a reference to UIController and calls its methods. The EventBus subscriptions in this codebase are:
+- App-level singletons in `app.py` that live for the app lifetime
+
+**Key Learning**: Before "fixing" a problem, verify it exists. Check grep for `subscribe(` calls in the component. The EventBus already has proper `Subscription.unsubscribe()` infrastructure - it just isn't needed for TaskTile because it doesn't subscribe.
+
 ## General Principles
 
 1. **Encryption changes query patterns** - can't use SQL WHERE on encrypted fields
@@ -120,3 +191,6 @@ class TaskDialogs:
 3. **Weak refs need strong owners** - lambdas need explicit storage
 4. **State updates need UI signals** - mutable state changes are invisible without events
 5. **Overlays accumulate** - treat overlay controls as persistent resources to manage
+6. **Reuse connections** - connection-per-operation adds unnecessary overhead
+7. **Type your callbacks** - dynamic dispatch hides code flow from static analysis
+8. **Verify before fixing** - grep for actual usage before assuming a problem exists

@@ -68,11 +68,14 @@ def _is_encrypted(value: Optional[str]) -> bool:
 
 
 class Database:
-    """Async SQLite database with connection-per-operation pattern.
+    """Async SQLite database with persistent connection and async lock.
 
-    Uses connection-per-operation to avoid event loop binding issues.
-    Each operation opens a fresh connection, which is safe with aiosqlite
-    and SQLite's WAL mode for concurrent access.
+    Uses a single persistent connection with an async lock to serialize
+    access (SQLite limitation). This avoids the overhead of opening/closing
+    connections and running PRAGMA statements for every operation.
+
+    The connection is lazily initialized on first use and reused for all
+    subsequent operations until explicitly closed.
     """
     _instance: Optional["Database"] = None
     _instance_lock = threading.Lock()
@@ -84,27 +87,50 @@ class Database:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
                     cls._instance._init_lock = threading.Lock()
+                    cls._instance._conn: Optional[aiosqlite.Connection] = None
+                    cls._instance._conn_lock: Optional[asyncio.Lock] = None
         return cls._instance
+
+    async def _ensure_connection(self) -> aiosqlite.Connection:
+        """Ensure we have an open connection, creating one if needed.
+
+        This is called internally by _get_connection. The connection is
+        created lazily and reused for all operations.
+        """
+        if self._conn is None:
+            self._conn = await aiosqlite.connect(DB_PATH)
+            self._conn.row_factory = aiosqlite.Row
+            await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._conn.execute("PRAGMA busy_timeout=5000")
+        return self._conn
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock for connection serialization."""
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+        return self._conn_lock
 
     @asynccontextmanager
     async def _get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
-        """Get a database connection with row_factory pre-configured.
+        """Get a database connection with serialized access.
 
-        Creates a fresh connection per operation to avoid event loop binding
-        issues. SQLite with WAL mode handles concurrent access efficiently.
+        Uses an async lock to ensure only one operation runs at a time
+        (SQLite limitation). The connection is reused across operations
+        to avoid the overhead of opening/closing for every query.
         """
-        conn = await aiosqlite.connect(DB_PATH)
-        conn.row_factory = aiosqlite.Row
-        await conn.execute("PRAGMA journal_mode=WAL")
-        await conn.execute("PRAGMA busy_timeout=5000")
-        try:
+        async with self._get_lock():
+            conn = await self._ensure_connection()
             yield conn
-        finally:
-            await conn.close()
 
     async def close(self) -> None:
-        """No-op for compatibility. Connections are closed per-operation."""
-        pass
+        """Close the persistent connection."""
+        if self._conn is not None:
+            try:
+                await self._conn.close()
+            except Exception as e:
+                logger.warning(f"Error closing database connection: {e}")
+            finally:
+                self._conn = None
 
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
@@ -869,6 +895,8 @@ class Database:
         with cls._instance_lock:
             if cls._instance is not None:
                 cls._instance._initialized = False
+                cls._instance._conn = None
+                cls._instance._conn_lock = None
                 cls._instance = None
 
 

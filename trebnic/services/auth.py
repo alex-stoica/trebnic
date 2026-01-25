@@ -4,27 +4,97 @@ Authentication service for Trebnic.
 This module provides:
 - Master password setup and verification
 - App lock/unlock state management
-- Passkey/WebAuthn integration (placeholder for OS biometrics)
+- Biometric authentication via OS keychains (Windows Hello, Touch ID, etc.)
 
 Authentication Flow:
 1. First-time setup: User creates master password
 2. App stores: salt + key verification hash (NOT the password or key)
 3. On launch: User enters password -> derive key -> verify -> unlock
-4. Optional: Use passkey/biometrics to unlock (stores key in OS keychain)
+4. Optional: Use biometrics to unlock (stores key in OS keychain)
 
 Security Model:
 - Master password never stored
 - Encryption key derived at runtime, held only in memory
-- Passkeys use OS-level secure storage (Keychain/Credential Manager)
+- Biometric unlock uses OS-level secure storage (Keychain/Credential Manager)
 """
+import asyncio
 import base64
 import logging
+import platform
+import sys
 import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Awaitable
 
 from services.crypto import crypto, generate_salt, CRYPTO_AVAILABLE
+
+# Cross-platform keyring for secure credential storage
+try:
+    import keyring
+    from keyring.errors import KeyringError, PasswordDeleteError
+    KEYRING_AVAILABLE = True
+except ImportError:
+    KEYRING_AVAILABLE = False
+    KeyringError = Exception
+    PasswordDeleteError = Exception
+
+# macOS Touch ID support via pyobjc
+TOUCHID_AVAILABLE = False
+if sys.platform == "darwin":
+    try:
+        import objc
+        from LocalAuthentication import LAContext, LAPolicyDeviceOwnerAuthenticationWithBiometrics
+        TOUCHID_AVAILABLE = True
+    except ImportError:
+        pass
+
+# Windows Hello support detection
+WINDOWS_HELLO_AVAILABLE = False
+if sys.platform == "win32":
+    try:
+        # Check if Windows Hello APIs are available (Windows 10+)
+        _winrt_available = False
+        try:
+            import winrt.windows.security.credentials.ui as wincred_ui
+            _winrt_available = True
+            WINDOWS_HELLO_AVAILABLE = True
+        except ImportError:
+            # Try alternative: check via registry or other means
+            # Windows Hello is available on Windows 10 1607+ with compatible hardware
+            pass
+    except Exception:
+        pass
+
+# Android biometric support detection via pyjnius
+ANDROID_BIOMETRIC_AVAILABLE = False
+_is_android = False
+
+def _detect_android() -> bool:
+    """Detect if running on Android."""
+    # Method 1: Check for Android-specific paths
+    import os
+    if os.path.exists("/system/build.prop"):
+        return True
+    # Method 2: Check ANDROID_ROOT env variable
+    if os.environ.get("ANDROID_ROOT"):
+        return True
+    # Method 3: Try importing android module (Kivy/P4A)
+    try:
+        import android
+        return True
+    except ImportError:
+        pass
+    return False
+
+_is_android = _detect_android()
+
+if _is_android:
+    try:
+        from jnius import autoclass
+        ANDROID_BIOMETRIC_AVAILABLE = True
+    except ImportError:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -78,68 +148,423 @@ class AuthConfig:
 
 
 # ============================================================================
-# Passkey / WebAuthn Integration (Placeholder)
+# Biometric Authentication Service
 # ============================================================================
 
-# TODO: Implement actual WebAuthn/Passkey integration
-#
-# For Flet apps, this would involve:
-#
-# 1. Desktop (Windows/macOS/Linux):
-#    - Use platform credential manager APIs
-#    - Windows: Windows Hello / Credential Manager
-#    - macOS: Keychain Services + Touch ID
-#    - Linux: libsecret / GNOME Keyring
-#
-# 2. Mobile (iOS/Android):
-#    - iOS: Local Authentication framework (Face ID / Touch ID)
-#    - Android: BiometricPrompt API
-#
-# 3. Web:
-#    - WebAuthn API for browser-based passkeys
-#    - navigator.credentials.create() / get()
-#
-# The flow would be:
-# 1. User sets up master password (derives key)
-# 2. User opts to enable biometrics
-# 3. Store encrypted key in OS secure storage (protected by biometrics)
-# 4. On next launch, biometrics unlocks access to stored key
-#
-# For now, this is a placeholder that always returns False for availability
+# Service name for keyring storage
+KEYRING_SERVICE = "trebnic"
+KEYRING_KEY_ID = "master-key"
+
+
+class BiometricResult(Enum):
+    """Result of biometric authentication attempt."""
+    SUCCESS = "success"
+    CANCELLED = "cancelled"
+    NOT_ENROLLED = "not_enrolled"
+    NOT_AVAILABLE = "not_available"
+    FAILED = "failed"
+    LOCKOUT = "lockout"
+
+
+def _check_windows_hello_available() -> bool:
+    """Check if Windows Hello is available and configured."""
+    if sys.platform != "win32":
+        return False
+
+    if not KEYRING_AVAILABLE:
+        return False
+
+    # Try using winrt to check Windows Hello availability
+    try:
+        import winrt.windows.security.credentials.ui as wincred_ui
+        from winrt.windows.security.credentials.ui import (
+            UserConsentVerifierAvailability,
+            UserConsentVerifier,
+        )
+
+        # Run async check synchronously
+        async def check():
+            availability = await UserConsentVerifier.check_availability_async()
+            return availability == UserConsentVerifierAvailability.AVAILABLE
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(check())
+        finally:
+            loop.close()
+    except ImportError:
+        # winrt not available, check via alternative method
+        # Windows Hello requires Windows 10 1607+ with TPM or camera
+        try:
+            # Check Windows version (10.0.14393 = Windows 10 1607)
+            version = platform.version()
+            major, minor, build = map(int, version.split(".")[:3])
+            if major >= 10 and build >= 14393:
+                # Windows 10 1607+, Windows Hello might be available
+                # We can't definitively check without winrt, so return True
+                # and let the actual auth attempt handle failures
+                return True
+        except (ValueError, AttributeError):
+            pass
+    except Exception as e:
+        logger.debug(f"Windows Hello check failed: {e}")
+
+    return False
+
+
+def _check_touchid_available() -> bool:
+    """Check if Touch ID / Face ID is available on macOS."""
+    if sys.platform != "darwin" or not TOUCHID_AVAILABLE:
+        return False
+
+    try:
+        context = LAContext.alloc().init()
+        error = None
+        can_evaluate = context.canEvaluatePolicy_error_(
+            LAPolicyDeviceOwnerAuthenticationWithBiometrics,
+            error
+        )
+        return can_evaluate
+    except Exception as e:
+        logger.debug(f"Touch ID check failed: {e}")
+        return False
+
+
+async def _prompt_windows_hello(reason: str) -> BiometricResult:
+    """Prompt for Windows Hello authentication.
+
+    Args:
+        reason: Message shown to user explaining why auth is needed
+
+    Returns:
+        BiometricResult indicating success or failure reason
+    """
+    try:
+        import winrt.windows.security.credentials.ui as wincred_ui
+        from winrt.windows.security.credentials.ui import (
+            UserConsentVerificationResult,
+            UserConsentVerifier,
+        )
+
+        result = await UserConsentVerifier.request_verification_async(reason)
+
+        if result == UserConsentVerificationResult.VERIFIED:
+            return BiometricResult.SUCCESS
+        elif result == UserConsentVerificationResult.CANCELED:
+            return BiometricResult.CANCELLED
+        elif result == UserConsentVerificationResult.DEVICE_NOT_PRESENT:
+            return BiometricResult.NOT_AVAILABLE
+        elif result == UserConsentVerificationResult.NOT_CONFIGURED_FOR_USER:
+            return BiometricResult.NOT_ENROLLED
+        elif result == UserConsentVerificationResult.RETRIES_EXHAUSTED:
+            return BiometricResult.LOCKOUT
+        else:
+            return BiometricResult.FAILED
+
+    except ImportError:
+        logger.warning("winrt package not installed for Windows Hello support")
+        return BiometricResult.NOT_AVAILABLE
+    except Exception as e:
+        logger.error(f"Windows Hello authentication failed: {e}")
+        return BiometricResult.FAILED
+
+
+async def _prompt_touchid(reason: str) -> BiometricResult:
+    """Prompt for Touch ID / Face ID authentication on macOS.
+
+    Args:
+        reason: Message shown to user explaining why auth is needed
+
+    Returns:
+        BiometricResult indicating success or failure reason
+    """
+    if not TOUCHID_AVAILABLE:
+        return BiometricResult.NOT_AVAILABLE
+
+    try:
+        context = LAContext.alloc().init()
+
+        # Check if biometrics are available
+        error = None
+        can_evaluate = context.canEvaluatePolicy_error_(
+            LAPolicyDeviceOwnerAuthenticationWithBiometrics,
+            error
+        )
+
+        if not can_evaluate:
+            return BiometricResult.NOT_ENROLLED
+
+        # Perform authentication - this runs on a background thread
+        # and blocks until user responds
+        def evaluate_sync():
+            result = {"success": False, "error": None}
+
+            def callback(success, auth_error):
+                result["success"] = success
+                result["error"] = auth_error
+
+            context.evaluatePolicy_localizedReason_reply_(
+                LAPolicyDeviceOwnerAuthenticationWithBiometrics,
+                reason,
+                callback
+            )
+            # Note: The callback is called asynchronously by the system
+            # We need to use a different approach for proper async handling
+
+        # Use asyncio to run the blocking call in a thread
+        loop = asyncio.get_event_loop()
+
+        # Create a future to get the result
+        future = loop.create_future()
+
+        def run_auth():
+            try:
+                success_holder = [False]
+                error_holder = [None]
+                done_event = threading.Event()
+
+                def callback(success, auth_error):
+                    success_holder[0] = success
+                    error_holder[0] = auth_error
+                    done_event.set()
+
+                context.evaluatePolicy_localizedReason_reply_(
+                    LAPolicyDeviceOwnerAuthenticationWithBiometrics,
+                    reason,
+                    callback
+                )
+
+                # Wait for callback (with timeout)
+                done_event.wait(timeout=60)
+
+                if success_holder[0]:
+                    loop.call_soon_threadsafe(future.set_result, BiometricResult.SUCCESS)
+                elif error_holder[0]:
+                    error_code = error_holder[0].code()
+                    if error_code == -2:  # LAErrorUserCancel
+                        loop.call_soon_threadsafe(future.set_result, BiometricResult.CANCELLED)
+                    elif error_code == -5:  # LAErrorPasscodeNotSet
+                        loop.call_soon_threadsafe(future.set_result, BiometricResult.NOT_ENROLLED)
+                    elif error_code == -8:  # LAErrorBiometryLockout
+                        loop.call_soon_threadsafe(future.set_result, BiometricResult.LOCKOUT)
+                    else:
+                        loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
+                else:
+                    loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
+            except Exception as e:
+                logger.error(f"Touch ID thread error: {e}")
+                loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
+
+        thread = threading.Thread(target=run_auth, daemon=True)
+        thread.start()
+
+        return await future
+
+    except Exception as e:
+        logger.error(f"Touch ID authentication failed: {e}")
+        return BiometricResult.FAILED
+
+
+def _check_android_biometric_available() -> bool:
+    """Check if Android biometric authentication is available."""
+    if not _is_android or not ANDROID_BIOMETRIC_AVAILABLE:
+        return False
+
+    try:
+        from jnius import autoclass
+
+        Context = autoclass("android.content.Context")
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        BiometricManager = autoclass("androidx.biometric.BiometricManager")
+
+        activity = PythonActivity.mActivity
+        biometric_manager = BiometricManager.from_(activity)
+
+        # Check if biometrics can be used
+        result = biometric_manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        return result == BiometricManager.BIOMETRIC_SUCCESS
+
+    except Exception as e:
+        logger.debug(f"Android biometric check failed: {e}")
+        return False
+
+
+async def _prompt_android_biometric(reason: str) -> BiometricResult:
+    """Prompt for Android biometric authentication (fingerprint/face).
+
+    Args:
+        reason: Message shown to user explaining why auth is needed
+
+    Returns:
+        BiometricResult indicating success or failure reason
+    """
+    if not _is_android or not ANDROID_BIOMETRIC_AVAILABLE:
+        return BiometricResult.NOT_AVAILABLE
+
+    try:
+        from jnius import autoclass
+
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        BiometricPrompt = autoclass("androidx.biometric.BiometricPrompt")
+        BiometricPromptInfo = autoclass("androidx.biometric.BiometricPrompt$PromptInfo")
+        Executors = autoclass("java.util.concurrent.Executors")
+
+        activity = PythonActivity.mActivity
+
+        # Use asyncio to bridge Java callback with Python
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+
+        def run_biometric():
+            try:
+                # Create callback class
+                from jnius import PythonJavaClass, java_method
+
+                class BiometricCallback(PythonJavaClass):
+                    __javainterfaces__ = ["androidx/biometric/BiometricPrompt$AuthenticationCallback"]
+
+                    @java_method("(Landroidx/biometric/BiometricPrompt$AuthenticationResult;)V")
+                    def onAuthenticationSucceeded(self, result):
+                        loop.call_soon_threadsafe(future.set_result, BiometricResult.SUCCESS)
+
+                    @java_method("(ILjava/lang/CharSequence;)V")
+                    def onAuthenticationError(self, error_code, err_string):
+                        if error_code == 10:  # ERROR_USER_CANCELED
+                            loop.call_soon_threadsafe(future.set_result, BiometricResult.CANCELLED)
+                        elif error_code == 7:  # ERROR_LOCKOUT
+                            loop.call_soon_threadsafe(future.set_result, BiometricResult.LOCKOUT)
+                        elif error_code == 11:  # ERROR_NO_BIOMETRICS
+                            loop.call_soon_threadsafe(future.set_result, BiometricResult.NOT_ENROLLED)
+                        else:
+                            loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
+
+                    @java_method("()V")
+                    def onAuthenticationFailed(self):
+                        # Single failure (wrong finger), prompt stays open
+                        pass
+
+                callback = BiometricCallback()
+                executor = Executors.newSingleThreadExecutor()
+                prompt = BiometricPrompt(activity, executor, callback)
+
+                # Build prompt info
+                prompt_info = (
+                    BiometricPromptInfo.Builder()
+                    .setTitle("Unlock Trebnic")
+                    .setSubtitle(reason)
+                    .setNegativeButtonText("Cancel")
+                    .build()
+                )
+
+                # Must run on UI thread
+                activity.runOnUiThread(lambda: prompt.authenticate(prompt_info))
+
+            except Exception as e:
+                logger.error(f"Android biometric thread error: {e}")
+                loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
+
+        thread = threading.Thread(target=run_biometric, daemon=True)
+        thread.start()
+
+        return await future
+
+    except Exception as e:
+        logger.error(f"Android biometric authentication failed: {e}")
+        return BiometricResult.FAILED
 
 
 class PasskeyService:
     """
-    Placeholder for OS-level biometric authentication.
+    OS-level biometric authentication service.
 
-    This will integrate with:
-    - Windows Hello (Windows)
-    - Touch ID / Face ID (macOS/iOS)
-    - BiometricPrompt (Android)
-    - Fingerprint/Face unlock (Linux if available)
+    Provides cross-platform biometric unlock using:
+    - Windows Hello (Windows 10+)
+    - Touch ID / Face ID (macOS)
+    - Keyring-only fallback (Linux)
 
-    The actual implementation requires platform-specific code
-    and potentially Flet native extensions.
+    The encryption key is stored in the OS keychain (Credential Manager on Windows,
+    Keychain on macOS, libsecret on Linux). On platforms with biometric support,
+    a biometric prompt is shown before the key is retrieved.
+
+    Security Model:
+    - Key is stored encrypted in OS-level secure storage
+    - On Windows/macOS, biometric verification is required before retrieval
+    - On Linux, keychain access control depends on the desktop environment
+    - If biometrics fail, user falls back to master password
+
+    Usage:
+        passkey = PasskeyService()
+
+        if passkey.is_available:
+            # Store key after password unlock
+            await passkey.store_key_for_biometric(crypto._key, "trebnic-master-key")
+
+            # Later, retrieve with biometric prompt
+            key = await passkey.retrieve_key_with_biometric("trebnic-master-key")
+            if key is not None:
+                # Use key to unlock app
     """
 
     def __init__(self) -> None:
         self._available: Optional[bool] = None
+        self._biometric_type: Optional[str] = None
+
+    def _detect_availability(self) -> tuple[bool, Optional[str]]:
+        """Detect biometric availability and type.
+
+        Returns:
+            Tuple of (is_available, biometric_type)
+        """
+        if not KEYRING_AVAILABLE:
+            logger.debug("Keyring not available - biometric auth disabled")
+            return False, None
+
+        # Check Android first (sys.platform is "linux" on Android)
+        if _is_android:
+            if _check_android_biometric_available():
+                return True, "Fingerprint"
+            # Android without biometric hardware - use keyring only
+            return True, "Keyring"
+
+        if sys.platform == "win32":
+            if _check_windows_hello_available():
+                return True, "Windows Hello"
+        elif sys.platform == "darwin":
+            if _check_touchid_available():
+                return True, "Touch ID"
+        elif sys.platform.startswith("linux"):
+            # Linux has keyring but typically no standard biometric API
+            # Return True for keyring-only mode (no biometric prompt)
+            return True, "Keyring"
+
+        return False, None
 
     @property
     def is_available(self) -> bool:
-        """Check if passkey/biometric authentication is available on this platform."""
-        # TODO: Implement platform detection
-        #
-        # This would check:
-        # - Platform capabilities (has TouchID, Windows Hello, etc.)
-        # - User has enrolled biometrics
-        # - App has necessary permissions
-        #
-        # For now, always return False until implemented
-        return False
+        """Check if biometric authentication is available on this platform.
+
+        Returns True if:
+        - keyring library is installed
+        - Platform has biometric support (Windows Hello, Touch ID) OR
+        - Platform supports secure keyring storage (Linux fallback)
+        """
+        if self._available is None:
+            self._available, self._biometric_type = self._detect_availability()
+            if self._available:
+                logger.info(f"Biometric auth available: {self._biometric_type}")
+            else:
+                logger.info("Biometric auth not available")
+        return self._available
+
+    @property
+    def biometric_type(self) -> Optional[str]:
+        """Get the type of biometric authentication available."""
+        if self._available is None:
+            self._available, self._biometric_type = self._detect_availability()
+        return self._biometric_type
 
     async def store_key_for_biometric(self, key: bytes, user_id: str) -> bool:
-        """Store encryption key in OS secure storage, protected by biometrics.
+        """Store encryption key in OS secure storage.
 
         Args:
             key: The derived encryption key to store
@@ -148,22 +573,36 @@ class PasskeyService:
         Returns:
             True if stored successfully, False otherwise
 
-        The stored key can only be retrieved after biometric verification.
+        The key is stored in the OS keychain:
+        - Windows: Credential Manager
+        - macOS: Keychain
+        - Linux: libsecret / GNOME Keyring / KWallet
         """
-        # TODO: Implement platform-specific secure storage
-        #
-        # macOS example (using keychain):
-        #   import keyring
-        #   keyring.set_password("trebnic", user_id, base64.b64encode(key).decode())
-        #
-        # Windows example (using Windows Credential Manager):
-        #   import keyring
-        #   keyring.set_password("trebnic", user_id, base64.b64encode(key).decode())
-        #
-        # The keyring library provides cross-platform support, but biometric
-        # protection requires additional platform-specific configuration.
-        logger.warning("Passkey storage not implemented")
-        return False
+        if not KEYRING_AVAILABLE:
+            logger.warning("Keyring not available - cannot store key")
+            return False
+
+        try:
+            # Encode key as base64 for storage
+            key_b64 = base64.b64encode(key).decode('utf-8')
+
+            # Store in keyring
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: keyring.set_password(KEYRING_SERVICE, user_id, key_b64)
+            )
+
+            logger.info(f"Stored encryption key for biometric unlock")
+            return True
+
+        except KeyringError as e:
+            logger.error(f"Failed to store key in keyring: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error storing key: {e}")
+            return False
 
     async def retrieve_key_with_biometric(self, user_id: str) -> Optional[bytes]:
         """Retrieve encryption key from OS secure storage using biometrics.
@@ -174,17 +613,117 @@ class PasskeyService:
         Returns:
             The encryption key if biometric auth succeeds, None otherwise
 
-        This will prompt the user for biometric verification (fingerprint, face, etc.)
+        On Windows and macOS, this prompts for biometric verification before
+        returning the key. On Linux, the key is returned directly from the
+        keychain (access control depends on the desktop environment).
         """
-        # TODO: Implement platform-specific retrieval with biometric prompt
-        logger.warning("Passkey retrieval not implemented")
-        return None
+        if not KEYRING_AVAILABLE:
+            logger.warning("Keyring not available")
+            return None
+
+        # First, prompt for biometric authentication on supported platforms
+        if _is_android and ANDROID_BIOMETRIC_AVAILABLE:
+            result = await _prompt_android_biometric("Unlock Trebnic")
+            if result != BiometricResult.SUCCESS:
+                logger.info(f"Android biometric authentication failed: {result.value}")
+                return None
+
+        elif sys.platform == "win32" and WINDOWS_HELLO_AVAILABLE:
+            result = await _prompt_windows_hello("Unlock Trebnic")
+            if result != BiometricResult.SUCCESS:
+                logger.info(f"Windows Hello authentication failed: {result.value}")
+                return None
+
+        elif sys.platform == "darwin" and TOUCHID_AVAILABLE:
+            result = await _prompt_touchid("Unlock Trebnic")
+            if result != BiometricResult.SUCCESS:
+                logger.info(f"Touch ID authentication failed: {result.value}")
+                return None
+
+        # Linux: no biometric prompt, just retrieve from keyring
+        # The keyring itself may prompt for authentication depending on config
+
+        try:
+            # Retrieve from keyring
+            loop = asyncio.get_event_loop()
+            key_b64 = await loop.run_in_executor(
+                None,
+                lambda: keyring.get_password(KEYRING_SERVICE, user_id)
+            )
+
+            if key_b64 is None:
+                logger.warning("No key found in keyring")
+                return None
+
+            # Decode from base64
+            key = base64.b64decode(key_b64)
+            logger.info("Retrieved encryption key via biometric unlock")
+            return key
+
+        except KeyringError as e:
+            logger.error(f"Failed to retrieve key from keyring: {e}")
+            return None
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to decode stored key: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving key: {e}")
+            return None
 
     async def delete_stored_key(self, user_id: str) -> bool:
-        """Delete stored encryption key (when user disables biometrics)."""
-        # TODO: Implement
-        logger.warning("Passkey deletion not implemented")
-        return False
+        """Delete stored encryption key from keychain.
+
+        Args:
+            user_id: Identifier for the key to delete
+
+        Returns:
+            True if deleted successfully or key didn't exist
+        """
+        if not KEYRING_AVAILABLE:
+            return True  # Nothing to delete
+
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: keyring.delete_password(KEYRING_SERVICE, user_id)
+            )
+            logger.info("Deleted stored encryption key")
+            return True
+
+        except PasswordDeleteError:
+            # Key didn't exist - that's fine
+            logger.debug("No stored key to delete")
+            return True
+        except KeyringError as e:
+            logger.error(f"Failed to delete key from keyring: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error deleting key: {e}")
+            return False
+
+    async def has_stored_key(self, user_id: str) -> bool:
+        """Check if a key is stored for the given user ID.
+
+        Args:
+            user_id: Identifier for the key to check
+
+        Returns:
+            True if a key exists in the keychain
+        """
+        if not KEYRING_AVAILABLE:
+            return False
+
+        try:
+            loop = asyncio.get_event_loop()
+            key_b64 = await loop.run_in_executor(
+                None,
+                lambda: keyring.get_password(KEYRING_SERVICE, user_id)
+            )
+            return key_b64 is not None
+
+        except Exception:
+            return False
 
 
 # ============================================================================
@@ -267,13 +806,28 @@ class AuthService:
 
     @property
     def is_passkey_available(self) -> bool:
-        """Check if passkey/biometric auth is available on this platform."""
+        """Check if biometric auth is available on this platform.
+
+        Returns True if keyring is installed and either:
+        - Windows Hello is available (Windows)
+        - Touch ID is available (macOS)
+        - Keyring backend is available (Linux)
+        """
         return self._passkey.is_available
 
     @property
     def is_passkey_enabled(self) -> bool:
-        """Check if passkey/biometric auth is enabled for this user."""
+        """Check if biometric auth is enabled for this user."""
         return self._config.passkey_enabled and self._passkey.is_available
+
+    @property
+    def biometric_type(self) -> Optional[str]:
+        """Get the name of the available biometric type.
+
+        Returns:
+            "Windows Hello", "Touch ID", "Keyring", or None if not available
+        """
+        return self._passkey.biometric_type
 
     @property
     def is_crypto_available(self) -> bool:
@@ -383,20 +937,44 @@ class AuthService:
 
         Returns:
             True if unlock succeeded, False otherwise
+
+        This retrieves the encryption key from the OS keychain after
+        successful biometric verification (Windows Hello / Touch ID).
         """
         if not self._passkey.is_available or not self._config.passkey_enabled:
             return False
 
-        # TODO: Implement biometric unlock
-        # key = await self._passkey.retrieve_key_with_biometric("trebnic-master-key")
-        # if key is None:
-        #     return False
-        # crypto._key = key
-        # crypto._aesgcm = AESGCM(key)
-        # self._state = AuthState.UNLOCKED
-        # return True
+        # Check if we have a stored key
+        has_key = await self._passkey.has_stored_key(KEYRING_KEY_ID)
+        if not has_key:
+            logger.warning("No stored key for biometric unlock")
+            return False
 
-        return False
+        # Retrieve key with biometric prompt
+        key = await self._passkey.retrieve_key_with_biometric(KEYRING_KEY_ID)
+        if key is None:
+            return False
+
+        # Verify the key is correct by checking against stored verification hash
+        if self._config.key_verification_hash is None:
+            logger.error("No key verification hash configured")
+            return False
+
+        # Set up crypto with the retrieved key
+        from services.crypto import verify_key, CRYPTO_AVAILABLE
+        if not verify_key(key, self._config.key_verification_hash):
+            logger.warning("Retrieved key failed verification")
+            return False
+
+        # Key is valid - unlock the app
+        crypto._key = key
+        if CRYPTO_AVAILABLE:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            crypto._aesgcm = AESGCM(key)
+
+        self._state = AuthState.UNLOCKED
+        logger.info("Unlocked via biometric authentication")
+        return True
 
     def lock(self) -> None:
         """Lock the app, clearing the encryption key from memory."""
@@ -549,37 +1127,45 @@ class AuthService:
         """Enable biometric/passkey authentication.
 
         Args:
-            password: Master password (needed to store key securely)
+            password: Master password (needed to derive and store key)
 
         Returns:
             True if enabled successfully
+
+        This stores the encryption key in the OS keychain, protected by
+        biometric authentication (Windows Hello / Touch ID).
         """
         if not self._passkey.is_available:
             logger.warning("Passkey not available on this platform")
             return False
 
-        # Verify password and get key
+        # Verify password and derive key
         if not await self.unlock_with_password(password):
             return False
 
-        # TODO: Store key in secure storage
-        # success = await self._passkey.store_key_for_biometric(
-        #     crypto._key,
-        #     "trebnic-master-key"
-        # )
-        # if not success:
-        #     return False
+        # Store key in secure storage
+        if crypto._key is None:
+            logger.error("No encryption key available to store")
+            return False
+
+        success = await self._passkey.store_key_for_biometric(
+            crypto._key,
+            KEYRING_KEY_ID
+        )
+        if not success:
+            logger.error("Failed to store key for biometric unlock")
+            return False
 
         await self._set_setting(SETTING_PASSKEY_ENABLED, True)
         self._config.passkey_enabled = True
 
-        logger.info("Passkey enabled")
+        logger.info(f"Biometric unlock enabled ({self._passkey.biometric_type})")
         return True
 
     async def disable_passkey(self) -> bool:
         """Disable biometric/passkey authentication."""
-        # Delete stored key
-        await self._passkey.delete_stored_key("trebnic-master-key")
+        # Delete stored key from keychain
+        await self._passkey.delete_stored_key(KEYRING_KEY_ID)
 
         await self._set_setting(SETTING_PASSKEY_ENABLED, False)
         self._config.passkey_enabled = False

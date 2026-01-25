@@ -74,6 +74,7 @@ class TrebnicApp:
         self.profile_page = c.profile_page
         self.prefs_page = c.prefs_page
         self.help_page = c.help_page
+        self.feedback_page = c.feedback_page
         self.task_dialogs = c.task_dialogs
         self.project_dialogs = c.project_dialogs
         self._pending_error = c.pending_error
@@ -293,6 +294,8 @@ class TrebnicApp:
             self.page_content.content = self.prefs_page.build()
         elif self.state.current_page == PageType.HELP:
             self.page_content.content = self.help_page.build()
+        elif self.state.current_page == PageType.FEEDBACK:
+            self.page_content.content = self.feedback_page.build()
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NavItem.CALENDAR:
@@ -336,7 +339,7 @@ class TrebnicApp:
                 on_click=self._on_encryption_click,
             ),
             ft.PopupMenuItem(
-                text="Help & feedback",
+                text="Help",
                 icon=ft.Icons.HELP_OUTLINE,
                 on_click=self._on_help_click,
             )
