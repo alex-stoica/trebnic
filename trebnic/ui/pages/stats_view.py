@@ -116,17 +116,12 @@ class StatsPage:
         )
 
     def _build_overview_cards(self) -> ft.Column:
-        """Build the overview stat cards."""
-        # Get filtered data
-        tasks, done_tasks, entries = stats_service.filter_by_project(
-            self.state.tasks,
-            self.state.done_tasks,
-            self._time_entries,
-            self._selected_project,
+        """Build the overview stat cards. Always shows ALL projects."""
+        # Always use ALL data (not filtered by project)
+        stats = stats_service.calculate_overall_stats(
+            self.state.tasks, self.state.done_tasks, self._time_entries
         )
-
-        stats = stats_service.calculate_overall_stats(tasks, done_tasks, entries)
-        streak = stats_service.calculate_completion_streak(done_tasks)
+        streak = stats_service.calculate_completion_streak(self.state.done_tasks)
 
         # Format time tracked
         time_tracked = seconds_to_time(stats.total_time_tracked_seconds)
@@ -193,16 +188,14 @@ class StatsPage:
         )
 
     def _build_daily_chart(self) -> ft.Container:
-        """Build the daily time chart (last 7 days) with estimated and tracked bars."""
-        # Get filtered data
-        tasks, done_tasks, entries = stats_service.filter_by_project(
-            self.state.tasks,
-            self.state.done_tasks,
-            self._time_entries,
-            self._selected_project,
-        )
+        """Build the daily time chart (last 7 days) with estimated and tracked bars.
 
-        daily_stats = stats_service.calculate_daily_stats(entries, done_tasks, tasks, days=7)
+        Always shows ALL projects regardless of filter selection.
+        """
+        # Always use ALL data for the daily chart (not filtered by project)
+        daily_stats = stats_service.calculate_daily_stats(
+            self._time_entries, self.state.done_tasks, self.state.tasks, days=7
+        )
 
         # Find max for scaling (consider both tracked and estimated)
         max_seconds = max(
@@ -243,11 +236,11 @@ class StatsPage:
                         height=bar_container_height,
                         content=ft.Row(
                             [
-                                # Estimated bar (lighter color)
+                                # Estimated bar (orange color)
                                 ft.Container(
                                     width=14,
                                     height=estimated_height,
-                                    bgcolor=COLORS["border"],
+                                    bgcolor=COLORS["orange"],
                                     border_radius=ft.border_radius.only(top_left=3, top_right=3),
                                     tooltip=f"Est: {estimated_text}",
                                 ),
@@ -281,7 +274,7 @@ class StatsPage:
         # Legend
         legend = ft.Row(
             [
-                ft.Container(width=12, height=12, bgcolor=COLORS["border"], border_radius=2),
+                ft.Container(width=12, height=12, bgcolor=COLORS["orange"], border_radius=2),
                 ft.Text("Estimated", size=FONT_SIZE_SM, color=COLORS["done_text"]),
                 ft.Container(width=SPACING_LG),
                 ft.Container(width=12, height=12, bgcolor=COLORS["accent"], border_radius=2),
@@ -319,6 +312,10 @@ class StatsPage:
             self.state.done_tasks,
             self.state.projects,
         )
+
+        # Filter by selected project if one is chosen
+        if self._selected_project is not None:
+            project_stats = [ps for ps in project_stats if ps.project_id == self._selected_project]
 
         # Sort by time tracked
         project_stats.sort(key=lambda p: p.tracked_seconds, reverse=True)

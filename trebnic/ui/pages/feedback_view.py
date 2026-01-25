@@ -42,10 +42,15 @@ class FeedbackPage:
                     timeout=15.0,
                 )
 
+            # formsubmit.co returns JSON with success field
             if response.status_code == 200:
-                self.snack.show("Feedback sent, thank you!", COLORS["green"])
-                message_field.value = ""
-                message_field.update()
+                result = response.json()
+                if result.get("success") == "true":
+                    self.snack.show("Feedback sent, thank you!", COLORS["green"])
+                    message_field.value = ""
+                    message_field.update()
+                else:
+                    self.snack.show("Failed to send feedback. Please try again.", COLORS["danger"])
             else:
                 self.snack.show("Failed to send feedback. Please try again.", COLORS["danger"])
         except httpx.TimeoutException:
