@@ -26,6 +26,8 @@ dependencies = [
     "cryptography (>=46.0.3,<47.0.0)",
     "argon2-cffi (>=25.1.0,<26.0.0)",
     "httpx (>=0.28.0,<1.0.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "resend (>=2.21.0,<3.0.0)",
 ]
 
 [project.urls]

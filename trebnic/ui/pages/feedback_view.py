@@ -1,11 +1,12 @@
 import flet as ft
-import httpx
+import resend
 from typing import Callable
 
 from config import (
     COLORS,
     BORDER_RADIUS,
     PageType,
+    RESEND_API_KEY,
     FEEDBACK_EMAIL,
     FONT_SIZE_SM,
 )
@@ -23,49 +24,57 @@ class FeedbackPage:
         self.navigate = navigate
         self.snack = snack
 
-    async def _send_feedback_async(self, category: str, message: str, message_field: ft.TextField) -> None:
-        """Send feedback directly via formsubmit.co."""
-        subject = f"[{category}] Trebnic feedback"
+    def _send_feedback_sync(self, category: str, message: str, message_field: ft.TextField) -> None:
+        """Send feedback via Resend email API."""
+        if not RESEND_API_KEY or not FEEDBACK_EMAIL:
+            self.snack.show("Feedback not configured. Check .env file.", COLORS["danger"])
+            return
 
-        data = {
-            "_subject": subject,
-            "message": message,
-            "_template": "table",
-            "_captcha": "false",
-        }
+        resend.api_key = RESEND_API_KEY
+
+        # Format message with line breaks preserved
+        formatted_message = message.replace("\n", "<br>")
+
+        html_content = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 24px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 20px;">📬 New Feedback</h1>
+            </div>
+            <div style="background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px;">
+                <div style="background: white; padding: 16px; border-radius: 8px; border-left: 4px solid #6366f1;">
+                    <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Category</p>
+                    <p style="margin: 0; color: #1e293b; font-weight: 600;">{category}</p>
+                </div>
+                <div style="margin-top: 16px; background: white; padding: 16px; border-radius: 8px;">
+                    <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Message</p>
+                    <p style="margin: 0; color: #1e293b; line-height: 1.6;">{formatted_message}</p>
+                </div>
+                <p style="margin: 24px 0 0 0; color: #94a3b8; font-size: 12px; text-align: center;">Sent from Trebnic App</p>
+            </div>
+        </div>
+        """
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"https://formsubmit.co/ajax/{FEEDBACK_EMAIL}",
-                    data=data,
-                    timeout=15.0,
-                )
-
-            # formsubmit.co returns JSON with success field
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("success") == "true":
-                    self.snack.show("Feedback sent, thank you!", COLORS["green"])
-                    message_field.value = ""
-                    message_field.update()
-                else:
-                    self.snack.show("Failed to send feedback. Please try again.", COLORS["danger"])
-            else:
-                self.snack.show("Failed to send feedback. Please try again.", COLORS["danger"])
-        except httpx.TimeoutException:
-            self.snack.show("Request timed out. Check your connection.", COLORS["danger"])
-        except httpx.RequestError as e:
-            self.snack.show(f"Network error: {e}", COLORS["danger"])
+            resend.Emails.send({
+                "from": "Trebnic <onboarding@resend.dev>",
+                "to": [FEEDBACK_EMAIL],
+                "subject": f"[{category}] Trebnic feedback",
+                "html": html_content,
+            })
+            self.snack.show("Feedback sent, thank you!", COLORS["green"])
+            message_field.value = ""
+            message_field.update()
+        except resend.exceptions.ResendError as e:
+            self.snack.show(f"Failed: {e}", COLORS["danger"])
 
     def _send_feedback(self, category: str, message: str, message_field: ft.TextField) -> None:
-        """Validate and trigger async feedback send."""
+        """Validate and send feedback."""
         if not message.strip():
             self.snack.show("Please enter a message", COLORS["danger"])
             return
 
         self.snack.show("Sending feedback...", COLORS["accent"])
-        self.page.run_task(self._send_feedback_async, category, message, message_field)
+        self._send_feedback_sync(category, message, message_field)
 
     def build(self) -> ft.Column:
         back_btn = ft.IconButton(

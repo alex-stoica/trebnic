@@ -1,4 +1,11 @@
-from enum import Enum 
+import os
+from enum import Enum
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from the same directory as config.py
+load_dotenv(Path(__file__).parent / ".env")
 
 
 class RecurrenceFrequency(Enum): 
@@ -144,7 +151,10 @@ PAGE_TASKS = PageType.TASKS
 PAGE_PROFILE = PageType.PROFILE
 PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
 PAGE_HELP = PageType.HELP
-FEEDBACK_EMAIL = "alexstoica@protonmail.com"
+# Resend email API for feedback (free: 100 emails/day)
+# Get your API key at https://resend.com/api-keys
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "")
 
 # ============================================================================
 # Encryption & Authentication
