@@ -1,4 +1,5 @@
 import aiosqlite
+import asyncio
 import json
 import logging
 import threading
@@ -31,14 +32,45 @@ class Database:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
                     cls._instance._init_lock = threading.Lock()
+                    cls._instance._connection: Optional[aiosqlite.Connection] = None
+                    cls._instance._conn_lock: Optional[asyncio.Lock] = None
         return cls._instance
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization for correct event loop)."""
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
+        return self._conn_lock
+
+    async def _ensure_connection(self) -> aiosqlite.Connection:
+        """Get or create a persistent database connection."""
+        if self._connection is None or not self._connection._running:
+            self._connection = await aiosqlite.connect(DB_PATH)
+            self._connection.row_factory = aiosqlite.Row
+            # Enable WAL mode for better concurrent access
+            await self._connection.execute("PRAGMA journal_mode=WAL")
+            await self._connection.execute("PRAGMA busy_timeout=5000")
+        return self._connection
 
     @asynccontextmanager
     async def _get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
-        """Get a database connection with row_factory pre-configured."""
-        async with aiosqlite.connect(DB_PATH) as conn:
-            conn.row_factory = aiosqlite.Row
+        """Get a database connection with row_factory pre-configured.
+
+        Uses a persistent connection to avoid high-frequency open/close overhead.
+        """
+        async with self._get_lock():
+            conn = await self._ensure_connection()
             yield conn
+
+    async def close(self) -> None:
+        """Close the persistent database connection."""
+        if self._connection is not None:
+            try:
+                await self._connection.close()
+            except Exception as e:
+                logger.warning(f"Error closing database connection: {e}")
+            finally:
+                self._connection = None
 
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
@@ -487,6 +519,91 @@ class Database:
         except Exception as e:
             logger.error(f"Error checking if database is empty: {e}")
             raise DatabaseError(f"Failed to check database: {e}") from e
+
+    async def load_tasks_filtered(
+        self,
+        is_done: Optional[bool] = None,
+        due_date_lte: Optional[date] = None,
+        due_date_gt: Optional[date] = None,
+        due_date_eq: Optional[date] = None,
+        due_date_is_null: Optional[bool] = None,
+        project_ids: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Load tasks with SQL-level filtering for efficient queries.
+
+        Args:
+            is_done: Filter by completion status (True/False/None for all)
+            due_date_lte: Due date <= this date (for "today" view)
+            due_date_gt: Due date > this date (for "upcoming" view)
+            due_date_eq: Due date == this date (exact match)
+            due_date_is_null: True to get tasks without due date (inbox)
+            project_ids: List of project IDs to filter by
+            limit: Maximum number of results
+
+        Returns:
+            List of task dictionaries matching the filters.
+        """
+        try:
+            conditions = []
+            params: List[Any] = []
+
+            if is_done is not None:
+                conditions.append("is_done = ?")
+                params.append(1 if is_done else 0)
+
+            if due_date_lte is not None:
+                conditions.append("due_date IS NOT NULL AND due_date <= ?")
+                params.append(due_date_lte.isoformat())
+
+            if due_date_gt is not None:
+                conditions.append("due_date IS NOT NULL AND due_date > ?")
+                params.append(due_date_gt.isoformat())
+
+            if due_date_eq is not None:
+                conditions.append("due_date = ?")
+                params.append(due_date_eq.isoformat())
+
+            if due_date_is_null is True:
+                conditions.append("due_date IS NULL")
+
+            if project_ids is not None and len(project_ids) > 0:
+                placeholders = ",".join("?" * len(project_ids))
+                conditions.append(f"project_id IN ({placeholders})")
+                params.extend(project_ids)
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            query = f"SELECT * FROM tasks WHERE {where_clause} ORDER BY sort_order, id"
+
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+
+            async with self._get_connection() as conn:
+                async with conn.execute(query, tuple(params)) as cursor:
+                    result = []
+                    async for r in cursor:
+                        task_dict = dict(r)
+                        task_dict["recurrence_weekdays"] = json.loads(
+                            task_dict.get("recurrence_weekdays", "[]")
+                        )
+                        task_dict["recurrence_end_type"] = task_dict.get(
+                            "recurrence_end_type", "never"
+                        )
+                        task_dict["recurrence_from_completion"] = task_dict.get(
+                            "recurrence_from_completion", 0
+                        )
+                        if task_dict.get("due_date"):
+                            task_dict["due_date"] = date.fromisoformat(task_dict["due_date"])
+                        if task_dict.get("recurrence_end_date"):
+                            task_dict["recurrence_end_date"] = date.fromisoformat(
+                                task_dict["recurrence_end_date"]
+                            )
+                        result.append(task_dict)
+                    return result
+        except Exception as e:
+            logger.error(f"Error loading filtered tasks: {e}")
+            raise DatabaseError(f"Failed to load filtered tasks: {e}") from e
 
 
 db = Database()

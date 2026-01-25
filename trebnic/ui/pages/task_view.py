@@ -20,21 +20,23 @@ from ui.dialogs.base import open_dialog
 
 class TasksView:
     def __init__(
-        self, 
-        page: ft.Page, 
-        state: AppState, 
-        service: TaskService, 
-        ctrl: UIController, 
-        snack: SnackService, 
-    ) -> None: 
+        self,
+        page: ft.Page,
+        state: AppState,
+        service: TaskService,
+        ctrl: UIController,
+        snack: SnackService,
+    ) -> None:
         self.page = page
         self.state = state
         self.service = service
         self.ctrl = ctrl
         self.snack = snack
-        self.pending_details: Dict[str, Any] = { 
+        self.pending_details: Dict[str, Any] = {
             "estimated_minutes": state.default_estimated_minutes
-        } 
+        }
+        self._section_label: ft.Text = None  # Will be set in _build_controls
+        self._done_section: ft.Column = None  # Will be set in _build_controls
         self._build_controls()
 
     def _build_controls(self) -> None: 
@@ -221,59 +223,95 @@ class TasksView:
             lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)], 
         ) 
 
-    def refresh(self) -> None: 
+    def refresh(self) -> None:
         pending, done = self.service.get_filtered_tasks()
+
+        # Update section label based on current navigation
+        if self._section_label is not None:
+            self._section_label.value = self._get_section_label()
+
+        # Update done section visibility
+        if self._done_section is not None:
+            self._done_section.visible = self._should_show_done_section()
 
         self.task_list.controls.clear()
         for i, task in enumerate(pending):
             draggable = ft.ReorderableDraggable(
-                index=i, 
-                content=TaskTile(task, False, self.ctrl).build(), 
-            ) 
+                index=i,
+                content=TaskTile(task, False, self.ctrl).build(),
+            )
             self.task_list.controls.append(draggable)
 
         self.done_list.controls.clear()
         for task in done:
             self.done_list.controls.append(TaskTile(task, True, self.ctrl).build())
 
+        # Show empty state only when there are no pending tasks in Today view
         self.empty_state.visible = (
-            len(pending) == 0 and self.state.selected_nav == NavItem.TODAY  
+            len(pending) == 0 and self.state.selected_nav == NavItem.TODAY
         )
         self.page.update()
 
     def set_mobile(self, is_mobile: bool) -> None: 
         self.submit_btn.visible = is_mobile
 
+    def _get_section_label(self) -> str:
+        """Get the appropriate section label based on current navigation."""
+        nav = self.state.selected_nav
+        if nav == NavItem.TODAY:
+            return "TODAY"
+        elif nav == NavItem.INBOX:
+            return "INBOX"
+        elif nav == NavItem.UPCOMING:
+            return "UPCOMING"
+        elif nav == NavItem.PROJECTS:
+            return "TASKS"
+        return "TASKS"
+
+    def _should_show_done_section(self) -> bool:
+        """Determine if the done section should be visible."""
+        # Show done section for all task views
+        return True
+
     def build(self) -> ft.Column:
+        self._section_label = ft.Text(self._get_section_label(), color="grey", weight="bold")
+
+        self._done_section = ft.Column(
+            controls=[
+                ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE,
+                            size=16,
+                            color=COLORS["done_text"],
+                        ),
+                        ft.Text(
+                            "DONE",
+                            color=COLORS["done_text"],
+                            weight="bold",
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                ft.Divider(height=10, color="transparent"),
+                self.done_list,
+            ],
+            visible=self._should_show_done_section(),
+        )
+
         return ft.Column(
             alignment=ft.MainAxisAlignment.START,
             controls=[
                 ft.Row(
-                    controls=[self.task_input, self.details_btn, self.submit_btn], 
-                    spacing=10, 
-                ), 
+                    controls=[self.task_input, self.details_btn, self.submit_btn],
+                    spacing=10,
+                ),
                 ft.Divider(height=15, color="transparent"),
-                ft.Text("TODAY", color="grey", weight="bold"),
+                self._section_label,
                 self.empty_state,
                 self.task_list,
                 ft.Divider(height=25, color="transparent"),
-                ft.Row(
-                    [ 
-                        ft.Icon( 
-                            ft.Icons.CHECK_CIRCLE, 
-                            size=16, 
-                            color=COLORS["done_text"], 
-                        ), 
-                        ft.Text( 
-                            "DONE", 
-                            color=COLORS["done_text"], 
-                            weight="bold", 
-                        ), 
-                    ], 
-                    spacing=8,
-                ), 
-                ft.Divider(height=10, color="transparent"),
-                self.done_list,
-            ], 
+                self._done_section,
+            ],
             scroll=ft.ScrollMode.AUTO,
         ) 

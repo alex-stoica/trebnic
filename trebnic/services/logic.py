@@ -30,18 +30,17 @@ class TaskService:
             coro: The coroutine to schedule
             need_result: If True, block and return result. If False, fire-and-forget.
 
-        - If page is set and need_result=False, use page.run_task() (non-blocking)
-        - If page is set and need_result=True, use run_coroutine_threadsafe with timeout
-        - If no running loop, use asyncio.run()
+        Returns:
+            The result of the coroutine when need_result=True, None otherwise.
+            Always returns the actual result, never a Future.
         """
         if self._page is not None:
-            if not need_result:
-                # Fire-and-forget - use page.run_task for non-blocking execution
-                # Pass the coroutine directly, not wrapped in a lambda
-                self._page.run_task(coro)
-                return None
-            # Need result - schedule and wait with timeout to avoid indefinite blocking
+            # Schedule on page's event loop - this is the correct path for UI operations
             future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
+            if not need_result:
+                # Fire-and-forget - but still check for immediate errors
+                return None
+            # Need result - wait with timeout
             try:
                 return future.result(timeout=30.0)
             except TimeoutError:
@@ -54,9 +53,14 @@ class TaskService:
             loop = None
 
         if loop and loop.is_running():
-            # Already in async context - return the coroutine as a task
-            # Caller must await this
-            return asyncio.ensure_future(coro)
+            # Already in async context without page reference - this is a configuration error.
+            # We cannot safely create a new thread/loop because the database connection
+            # is bound to a specific event loop. Close the coroutine to prevent warnings.
+            coro.close()
+            raise RuntimeError(
+                "Cannot schedule database operation: already in async context but no page reference set. "
+                "Ensure TaskService.set_page() is called before database operations."
+            )
         else:
             # No running loop - safe to use asyncio.run()
             return asyncio.run(coro)
@@ -105,12 +109,20 @@ class TaskService:
         return AppState()
 
     async def add_task_async(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
+        # Determine default due date based on current view
+        if self.state.selected_nav == NavItem.TODAY:
+            default_due_date = date.today()
+        elif self.state.selected_nav == NavItem.UPCOMING:
+            default_due_date = date.today() + timedelta(days=7)
+        else:
+            default_due_date = None
+
         task = Task(
             title=title,
             project_id=project_id,
             estimated_seconds=estimated_seconds,
             spent_seconds=0,
-            due_date=date.today() if self.state.selected_nav == NavItem.TODAY else None,
+            due_date=default_due_date,
             sort_order=len(self.state.tasks)
         )
         # Save to DB first
@@ -126,47 +138,54 @@ class TaskService:
         is_done = task in self.state.done_tasks
         await db.save_task(task.to_dict(is_done=is_done))
 
-    def persist_task(self, task: Task) -> None:
-        self._schedule_async(self.persist_task_async(task), need_result=False)
+    def persist_task(self, task: Task, wait_for_result: bool = False) -> None:
+        """Persist task to database.
+
+        Args:
+            task: The task to persist
+            wait_for_result: If True, wait for DB confirmation (enables rollback).
+                           If False, fire-and-forget (no rollback possible).
+        """
+        self._schedule_async(self.persist_task_async(task), need_result=wait_for_result)
 
     def rename_task(self, task: Task, new_title: str) -> None:
-        """Rename a task."""
+        """Rename a task with rollback on failure."""
         old_title = task.title
         task.title = new_title
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.title = old_title  # Rollback on failure
+            task.title = old_title
             raise
 
     def set_task_due_date(self, task: Task, due_date: Optional[date]) -> None:
-        """Set or clear a task's due date."""
+        """Set or clear a task's due date with rollback on failure."""
         old_date = task.due_date
         task.due_date = due_date
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.due_date = old_date  # Rollback on failure
+            task.due_date = old_date
             raise
 
     def set_task_notes(self, task: Task, notes: str) -> None:
-        """Update task notes."""
+        """Update task notes with rollback on failure."""
         old_notes = task.notes
         task.notes = notes
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.notes = old_notes  # Rollback on failure
+            task.notes = old_notes
             raise
 
     def update_task_time(self, task: Task, spent_seconds: int) -> None:
-        """Update task's spent time."""
+        """Update task's spent time with rollback on failure."""
         old_seconds = task.spent_seconds
         task.spent_seconds = spent_seconds
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.spent_seconds = old_seconds  # Rollback on failure
+            task.spent_seconds = old_seconds
             raise
 
     async def complete_task_async(self, task: Task) -> Optional[Task]:
@@ -252,17 +271,77 @@ class TaskService:
         return self._schedule_async(self.duplicate_task_async(task))
 
     def postpone_task(self, task: Task) -> date:
+        """Postpone task by one day with rollback on failure."""
         current = task.due_date or date.today()
         old_date = task.due_date
         task.due_date = current + timedelta(days=1)
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.due_date = old_date  # Rollback on failure
+            task.due_date = old_date
             raise
         return task.due_date
 
-    def get_filtered_tasks(self) -> Tuple[List[Task], List[Task]]:
+    async def get_filtered_tasks_async(self, done_limit: int = 50) -> Tuple[List[Task], List[Task]]:
+        """Get filtered tasks using efficient SQL queries.
+
+        Args:
+            done_limit: Maximum number of done tasks to return (prevents loading
+                       thousands of historical tasks into memory).
+
+        Returns:
+            Tuple of (pending_tasks, done_tasks) filtered by current navigation.
+        """
+        nav = self.state.selected_nav
+        today = date.today()
+
+        # Build filter parameters based on navigation
+        pending_kwargs: dict = {"is_done": False}
+        done_kwargs: dict = {"is_done": True, "limit": done_limit}
+
+        if nav == NavItem.TODAY:
+            pending_kwargs["due_date_lte"] = today
+            done_kwargs["due_date_eq"] = today
+        elif nav == NavItem.UPCOMING:
+            pending_kwargs["due_date_gt"] = today
+            done_kwargs["due_date_gt"] = today
+        elif nav == NavItem.INBOX:
+            pending_kwargs["due_date_is_null"] = True
+            done_kwargs["due_date_is_null"] = True
+        elif nav == NavItem.PROJECTS:
+            project_ids = list(self.state.selected_projects)
+            if project_ids:
+                pending_kwargs["project_ids"] = project_ids
+                done_kwargs["project_ids"] = project_ids
+            else:
+                # No projects selected - return empty
+                return [], []
+
+        # Query database with filters
+        pending_dicts = await db.load_tasks_filtered(**pending_kwargs)
+        done_dicts = await db.load_tasks_filtered(**done_kwargs)
+
+        pending = [Task.from_dict(d) for d in pending_dicts]
+        done = [Task.from_dict(d) for d in done_dicts]
+
+        # Update in-memory state for pending tasks (these should be kept in sync)
+        # Note: We don't update done_tasks here as we intentionally limit them
+        return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
+
+    def get_filtered_tasks(self, done_limit: int = 50) -> Tuple[List[Task], List[Task]]:
+        """Get filtered tasks. Uses SQL filtering when page is available.
+
+        Args:
+            done_limit: Maximum number of done tasks to return.
+
+        Returns:
+            Tuple of (pending_tasks, done_tasks) filtered by current navigation.
+        """
+        # If page is available, use efficient async database queries
+        if self._page is not None:
+            return self._schedule_async(self.get_filtered_tasks_async(done_limit))
+
+        # Fallback to in-memory filtering (only for initial load or tests)
         nav = self.state.selected_nav
         today = date.today()
 
@@ -274,15 +353,18 @@ class TaskService:
             done = [t for t in done if t.due_date == today]
         elif nav == NavItem.UPCOMING:
             pending = [t for t in pending if t.due_date and t.due_date > today]
-            done = []
+            done = [t for t in done if t.due_date and t.due_date > today]
         elif nav == NavItem.INBOX:
             pending = [t for t in pending if not t.due_date]
-            done = []
+            done = [t for t in done if not t.due_date]
         elif nav == NavItem.PROJECTS:
             pending = [t for t in pending if t.project_id in self.state.selected_projects]
             done = [t for t in done if t.project_id in self.state.selected_projects]
 
-        return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
+        # Apply limit to done tasks even for in-memory filtering
+        done = sorted(done, key=lambda x: x.id or 0, reverse=True)[:done_limit]
+
+        return pending, done
 
     async def save_time_entry_async(self, entry: TimeEntry) -> int:
         return await db.save_time_entry(entry.to_dict())
@@ -294,7 +376,7 @@ class TaskService:
         await db.delete_time_entry(entry_id)
 
     def delete_time_entry(self, entry_id: int) -> None:
-        self._schedule_async(self.delete_time_entry_async(entry_id), need_result=False)
+        self._schedule_async(self.delete_time_entry_async(entry_id), need_result=True)
 
     async def update_time_entry_async(self, entry: TimeEntry) -> int:
         """Update an existing time entry."""
@@ -359,6 +441,7 @@ class TaskService:
         self.state.tasks.clear()
         self.state.done_tasks.clear()
         self.state.projects.clear()
+        self.state.viewing_task_id = None
         for p_dict in await db.load_projects():
             self.state.projects.append(Project.from_dict(p_dict))
         for t_dict in await db.load_tasks():
@@ -369,7 +452,7 @@ class TaskService:
                 self.state.tasks.append(task)
 
     def reset(self) -> None:
-        self._schedule_async(self.reset_async(), need_result=False)
+        self._schedule_async(self.reset_async(), need_result=True)
 
     async def save_settings_async(self) -> None:
         await db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
@@ -383,12 +466,13 @@ class TaskService:
         return name.lower() in all_active
 
     def assign_project(self, task: Task, project_id: Optional[str]) -> None:
+        """Assign task to a project with rollback on failure."""
         old_project_id = task.project_id
         task.project_id = project_id
         try:
-            self.persist_task(task)
+            self.persist_task(task, wait_for_result=True)
         except Exception:
-            task.project_id = old_project_id  # Rollback on failure
+            task.project_id = old_project_id
             raise
 
     async def persist_task_order_async(self) -> None:

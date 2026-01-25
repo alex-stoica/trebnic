@@ -9,7 +9,7 @@ from config import (
     PageType,
     ANIMATION_DELAY,
 )
-from database import DatabaseError
+from database import db, DatabaseError
 from events import event_bus, AppEvent, Subscription
 from models.entities import Task
 from ui.components import ProjectSidebarItem, TimerWidget
@@ -99,6 +99,12 @@ class TrebnicApp:
         # Stop timer if running
         if self.timer_ctrl:
             self.timer_ctrl.cleanup()
+
+        # Close database connection
+        try:
+            asyncio.run(db.close())
+        except Exception:
+            pass  # Best effort on cleanup
 
     def _on_refresh_ui(self, data: Any) -> None:
         """Handle UI refresh events."""
@@ -354,8 +360,8 @@ class TrebnicApp:
                 ft.Divider(color="grey"),
                 self.nav_inbox,
                 self.nav_today,
-                self.nav_calendar,
                 self.nav_upcoming,
+                self.nav_calendar,
                 ft.Divider(color="grey"),
                 self.nav_projects,
                 self.projects_items,

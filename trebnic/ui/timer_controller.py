@@ -1,5 +1,6 @@
 import flet as ft
 import asyncio
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -11,6 +12,8 @@ from ui.helpers import format_timer_display, SnackService
 from ui.components import TimerWidget
 from events import event_bus, AppEvent
 
+
+logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
 
@@ -32,14 +35,16 @@ class TimerController:
         self.snack = snack
         self.timer_widget = timer_widget
         self._timer_task: Optional[asyncio.Task] = None
-        self._stop_event: Optional[asyncio.Event] = None
+        self._stop_event: asyncio.Event = asyncio.Event()  # Proper async synchronization
         self._last_heartbeat_seconds: int = 0
 
-    def _get_stop_event(self) -> asyncio.Event:
-        """Get or create the stop event (lazy initialization for correct event loop)."""
-        if self._stop_event is None:
-            self._stop_event = asyncio.Event()
-        return self._stop_event
+    def _reset_stop_flag(self) -> None:
+        """Reset the stop event for a new timer session."""
+        self._stop_event.clear()
+
+    def _signal_stop(self) -> None:
+        """Signal the timer loop to stop (async-safe)."""
+        self._stop_event.set()
 
     def _save_time_entry(self, entry: TimeEntry) -> int:
         """Save a time entry to the database."""
@@ -65,23 +70,24 @@ class TimerController:
             # Clear end_time in memory so timer continues as "running"
             entry.end_time = None
             self._last_heartbeat_seconds = self.timer_svc.seconds
-        except Exception:
-            pass  # Best effort - don't interrupt timer on save failure
+        except Exception as e:
+            # Log heartbeat failures instead of silently swallowing
+            logger.warning(f"Failed to save timer heartbeat: {e}")
 
-    def _create_tick_loop(self, stop_event: asyncio.Event):
+    def _create_tick_loop(self):
         """Create the async tick loop coroutine for timer updates.
 
         Includes heartbeat saves every HEARTBEAT_INTERVAL_SECONDS to minimize
         data loss on unexpected app termination.
+        Uses asyncio.Event for proper async-safe stop signaling.
         """
         async def tick_loop():
             try:
-                while self.timer_svc.running:
-                    try:
-                        await asyncio.wait_for(stop_event.wait(), timeout=1.0)
-                        break  # Stop was requested
-                    except asyncio.TimeoutError:
-                        pass  # Normal timeout - do a tick
+                while self.timer_svc.running and not self._stop_event.is_set():
+                    await asyncio.sleep(1.0)
+
+                    if self._stop_event.is_set():
+                        break
 
                     if self.timer_svc.running:
                         self.timer_svc.tick()
@@ -110,15 +116,12 @@ class TimerController:
         self.timer_widget.start(task.title)
         event_bus.emit(AppEvent.TIMER_STARTED, task)
 
-        # Reset heartbeat tracking for new timer session
+        # Reset for new timer session
         self._last_heartbeat_seconds = 0
-
-        # Get/create stop event and reset for new timer session
-        stop_event = self._get_stop_event()
-        stop_event.clear()
+        self._reset_stop_flag()
 
         # Use page.run_task to run on Flet's event loop
-        self._timer_task = self.page.run_task(self._create_tick_loop(stop_event))
+        self._timer_task = self.page.run_task(self._create_tick_loop())
         self.snack.show(f"Timer started for '{task.title}'")
 
     def on_timer_stop(self, e: ft.ControlEvent) -> None:
@@ -130,9 +133,8 @@ class TimerController:
         if not self.timer_svc.running:
             return
 
-        # Signal the async loop to stop
-        if self._stop_event is not None:
-            self._stop_event.set()
+        # Signal the async loop to stop (thread-safe)
+        self._signal_stop()
 
         # Cancel the timer task if it exists
         if self._timer_task and not self._timer_task.done():
@@ -187,11 +189,10 @@ class TimerController:
         # Set heartbeat tracking to current elapsed time for recovered timer
         self._last_heartbeat_seconds = elapsed
 
-        # Get/create stop event and reset for timer session
-        stop_event = self._get_stop_event()
-        stop_event.clear()
+        # Reset stop flag for timer session
+        self._reset_stop_flag()
 
-        self._timer_task = self.page.run_task(self._create_tick_loop(stop_event))
+        self._timer_task = self.page.run_task(self._create_tick_loop())
         self.snack.show(f"Timer recovered for '{task.title}' ({format_timer_display(elapsed)} elapsed)")
 
         # Clear the recovered entry from state
@@ -199,9 +200,8 @@ class TimerController:
 
     def cleanup(self) -> None:
         """Clean up timer resources and save running entry to prevent data loss."""
-        # Signal the async loop to stop first
-        if self._stop_event is not None:
-            self._stop_event.set()
+        # Signal the async loop to stop first (thread-safe)
+        self._signal_stop()
 
         # Cancel the timer task
         if self._timer_task and not self._timer_task.done():
@@ -227,5 +227,5 @@ class TimerController:
         self.timer_svc.seconds = 0
 
         self._timer_task = None
-        self._stop_event = None
+        self._stop_event.clear()
         self._last_heartbeat_seconds = 0

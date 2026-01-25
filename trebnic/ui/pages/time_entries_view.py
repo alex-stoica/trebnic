@@ -763,8 +763,9 @@ class TimeEntriesView:
         if self._total_text:
             self._total_text.value = f"Total: {TimeFormatter.seconds_to_short(total_seconds)}"
 
-        if self._header_text and task:
-            self._header_text.value = f"Time entries: {task.title}"
+        if self._header_text:
+            task_title = task.title if task else "Unknown task"
+            self._header_text.value = f"Time entries: {task_title}"
 
         self.page.update()
 
@@ -780,7 +781,7 @@ class TimeEntriesView:
         )
 
         self._header_text = ft.Text(
-            f"Time entries: {task.title if task else 'Unknown'}",
+            f"Time entries: {task.title if task else 'Unknown task'}",
             size=FONT_SIZE_2XL if not self.state.is_mobile else FONT_SIZE_LG,
             weight="bold",
             overflow=ft.TextOverflow.ELLIPSIS,

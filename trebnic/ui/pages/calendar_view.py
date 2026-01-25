@@ -140,25 +140,34 @@ class CalendarView:
             visible=self.state.calendar_week_offset != 0,
         )
 
-        header_row = ft.Row(
+        # Navigation controls grouped together to prevent overflow on mobile
+        nav_controls = ft.Row(
             [
-                ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
-                ft.Text("Weekly Calendar", size=16, weight="bold"),
-                ft.Container(expand=True),
-                today_btn,
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_LEFT,
                     icon_color=COLORS["accent"],
                     tooltip="Previous week",
                     on_click=lambda e: self._navigate_week(-1),
                 ),
-                ft.Text(date_range, color=COLORS["done_text"], size=11),
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
                     icon_color=COLORS["accent"],
                     tooltip="Next week",
                     on_click=lambda e: self._navigate_week(1),
                 ),
+            ],
+            spacing=0,
+            tight=True,
+        )
+
+        header_row = ft.Row(
+            [
+                ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
+                ft.Text("Calendar", size=16, weight="bold"),
+                ft.Container(expand=True),
+                today_btn,
+                ft.Text(date_range, color=COLORS["done_text"], size=11),
+                nav_controls,
             ],
             spacing=4,
         )
