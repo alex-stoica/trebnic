@@ -30,11 +30,12 @@ from config import (
     PADDING_XL,
 )
 from models.entities import AppState, Project
-from services.logic import TaskService
+from services.project_service import ProjectService
 from ui.helpers import accent_btn, danger_btn, SnackService
 from ui.dialogs.base import open_dialog
 from ui.dialogs.dialog_state import IconPickerState, ColorPickerState
 from events import event_bus, AppEvent
+from i18n import t
 
 
 class IconPickerController:
@@ -122,8 +123,8 @@ class IconPickerController:
     def build_actions(self) -> list:
         """Build the dialog actions."""
         return [
-            ft.TextButton("Back", on_click=lambda e: self.on_back()),
-            accent_btn("Select", self._on_confirm),
+            ft.TextButton(t("back"), on_click=lambda e: self.on_back()),
+            accent_btn(t("select"), self._on_confirm),
         ]
 
 
@@ -200,8 +201,8 @@ class ColorPickerController:
     def build_actions(self) -> list:
         """Build the dialog actions."""
         return [
-            ft.TextButton("Back", on_click=lambda e: self.on_back()),
-            accent_btn("Select", self._on_confirm),
+            ft.TextButton(t("back"), on_click=lambda e: self.on_back()),
+            accent_btn(t("select"), self._on_confirm),
         ]
 
 
@@ -210,18 +211,18 @@ class ProjectDialogs:
         self,
         page: ft.Page,
         state: AppState,
-        service: TaskService,
+        project_service: ProjectService,
         snack: SnackService,
     ) -> None:
         self.page = page
         self.state = state
-        self.service = service
+        self.project_service = project_service
         self.snack = snack
         self._icon = PROJECT_ICONS[0]
         self._color = PROJECT_COLORS[0]["value"]
         self._dialog: Optional[ft.AlertDialog] = None
         self._name_field = ft.TextField(
-            hint_text="Project name",
+            hint_text=t("project_name"),
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS_MD,
@@ -287,11 +288,11 @@ class ProjectDialogs:
         return ft.Column(
             [
                 ft.Row(
-                    [ft.Text("Icon:", size=FONT_SIZE_LG, width=50), icon_btn],
+                    [ft.Text(t("icon_label"), size=FONT_SIZE_LG, width=70), icon_btn],
                     spacing=SPACING_LG,
                 ),
                 ft.Row(
-                    [ft.Text("Color:", size=FONT_SIZE_LG, width=50), color_btn],
+                    [ft.Text(t("color_label"), size=FONT_SIZE_LG, width=70), color_btn],
                     spacing=SPACING_LG,
                 ),
                 self._name_field,
@@ -303,17 +304,17 @@ class ProjectDialogs:
 
     def _build_main_actions(self) -> list:
         """Build the main dialog actions."""
-        actions = [ft.TextButton("Cancel", on_click=self._close)]
+        actions = [ft.TextButton(t("cancel"), on_click=self._close)]
 
         if self.state.editing_project_id:
             actions.append(ft.TextButton(
-                "Delete",
+                t("delete"),
                 on_click=self._confirm_delete,
                 style=ft.ButtonStyle(color=COLORS["danger"]),
             ))
 
         actions.append(accent_btn(
-            "Save" if self.state.editing_project_id else "Create",
+            t("save") if self.state.editing_project_id else t("create"),
             self._save,
         ))
 
@@ -322,7 +323,7 @@ class ProjectDialogs:
     def _show_main(self) -> None:
         """Show or update the main project dialog."""
         content = self._build_main_content()
-        title = "Edit Project" if self.state.editing_project_id else "Create New Project"
+        title = t("edit_project") if self.state.editing_project_id else t("create_new_project")
         actions = self._build_main_actions()
 
         if self._dialog is not None: 
@@ -361,7 +362,7 @@ class ProjectDialogs:
         )
 
         if self._dialog:
-            self._dialog.title = ft.Text("Select Icon")
+            self._dialog.title = ft.Text(t("select_icon"))
             self._dialog.content = controller.build_content()
             self._dialog.actions = controller.build_actions()
             self._dialog.update()
@@ -389,7 +390,7 @@ class ProjectDialogs:
         )
 
         if self._dialog:
-            self._dialog.title = ft.Text("Select Color")
+            self._dialog.title = ft.Text(t("select_color"))
             self._dialog.content = controller.build_content()
             self._dialog.actions = controller.build_actions()
             self._dialog.update()
@@ -397,7 +398,7 @@ class ProjectDialogs:
 
     def _save(self, e: ft.ControlEvent) -> None:
         name = self._name_field.value.strip()
-        error = self.service.validate_project_name(name, self.state.editing_project_id)
+        error = self.project_service.validate_project_name(name, self.state.editing_project_id)
 
         if error:
             self._error.value = error
@@ -413,11 +414,11 @@ class ProjectDialogs:
                         p.name = name
                         p.icon = self._icon
                         p.color = self._color
-                        await self.service.save_project(p)
+                        await self.project_service.save_project(p)
                         break
-                msg = f"Project '{name}' updated"
+                msg = t("project_updated").replace("{name}", name)
             else:
-                new_id = self.service.generate_project_id(name)
+                new_id = self.project_service.generate_project_id(name)
                 new_p = Project(
                     id=new_id,
                     name=name,
@@ -425,8 +426,8 @@ class ProjectDialogs:
                     color=self._color,
                 )
                 self.state.projects.append(new_p)
-                await self.service.save_project(new_p)
-                msg = f"Project '{name}' created"
+                await self.project_service.save_project(new_p)
+                msg = t("project_created").replace("{name}", name)
 
             self._name_field.value = ""
             self._icon = PROJECT_ICONS[0]
@@ -450,27 +451,25 @@ class ProjectDialogs:
 
         def do_delete(e: ft.ControlEvent) -> None:
             async def _delete_async() -> None:
-                count = await self.service.delete_project(project.id)
+                count = await self.project_service.delete_project(project.id)
                 self.state.editing_project_id = None
                 close()
                 self.page.close(self._dialog)
-                self.snack.show(
-                    f"Project '{project.name}' deleted ({count} tasks removed)",
-                    COLORS["danger"],
-                )
+                msg = t("project_deleted").replace("{name}", project.name).replace("{count}", str(count))
+                self.snack.show(msg, COLORS["danger"])
                 event_bus.emit(AppEvent.SIDEBAR_REBUILD)
                 event_bus.emit(AppEvent.REFRESH_UI)
 
             self.page.run_task(_delete_async)
 
-        content = ft.Text(f"Delete '{project.name}' and all its tasks?")
+        content = ft.Text(t("delete_project_confirm").replace("{name}", project.name))
         _, close = open_dialog(
             self.page,
-            "Delete project",
+            t("delete_project"),
             content,
             lambda c: [
-                ft.TextButton("Cancel", on_click=c),
-                danger_btn("Delete", do_delete),
+                ft.TextButton(t("cancel"), on_click=c),
+                danger_btn(t("delete"), do_delete),
             ],
         )
 

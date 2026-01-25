@@ -1,31 +1,39 @@
 import flet as ft
+from typing import Optional
 
 from config import COLORS, BORDER_RADIUS
-from models.entities import Task
+from events import event_bus, AppEvent
+from models.entities import Task, Project, AppState
 from services.crypto import LOCKED_PLACEHOLDER
-from ui.controller import UIController
-from ui.presenters.task_presenter import TaskPresenter, TaskDisplayData
 from ui.dialogs.base import create_option_item
+from ui.presenters.task_presenter import TaskPresenter
 
 
 class TaskTile:
+    """Single task row component that emits events for user interactions.
+
+    Instead of calling controller methods directly, this component emits events
+    to the EventBus. The app layer subscribes to these events and dispatches
+    to appropriate handlers. This decouples the UI from business logic.
+    """
+
     def __init__(
-        self, 
-        task: Task, 
-        is_done: bool, 
-        ctrl: UIController, 
-    ) -> None: 
+        self,
+        task: Task,
+        is_done: bool,
+        state: AppState,
+        project: Optional[Project] = None,
+    ) -> None:
         self.task = task
         self.is_done = is_done
-        self.ctrl = ctrl
-        project = ctrl.get_project(task.project_id) 
+        self.state = state
         self.display = TaskPresenter.create_display_data(task, project) 
 
-    def _on_check(self, e: ft.ControlEvent) -> None: 
+    def _on_check(self, e: ft.ControlEvent) -> None:
         if self.is_done and not e.control.value:
-            self.ctrl.uncomplete(self.task)
+            event_bus.emit(AppEvent.TASK_UNCOMPLETE_REQUESTED, self.task)
         elif not self.is_done and e.control.value:
-            self.ctrl.complete(self.task)
+            event_bus.emit(AppEvent.TASK_COMPLETE_REQUESTED, self.task)
 
     def _build_project_tag_content(self) -> ft.Control:
         """Build the project tag content, showing lock icon if project name is locked."""
@@ -77,106 +85,106 @@ class TaskTile:
                 bgcolor=self.display.project_color,
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
-                on_click=lambda e: self.ctrl.assign_project(self.task),
+                on_click=lambda e: event_bus.emit(AppEvent.TASK_ASSIGN_PROJECT_REQUESTED, self.task),
                 ink=True,
             )
             tags.append(project_tag)
         else:
             unassigned_tag = ft.Container(
-                content=ft.Text( 
-                    "Unassigned", 
-                    size=10, 
-                    color=COLORS["unassigned"], 
-                ), 
+                content=ft.Text(
+                    "Unassigned",
+                    size=10,
+                    color=COLORS["unassigned"],
+                ),
                 bgcolor=COLORS["input_bg"],
                 border=ft.border.all(1, COLORS["border"]),
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
-                on_click=lambda e: self.ctrl.assign_project(self.task),
+                on_click=lambda e: event_bus.emit(AppEvent.TASK_ASSIGN_PROJECT_REQUESTED, self.task),
                 ink=True,
-            ) 
+            )
             tags.append(unassigned_tag)
 
-        if self.display.due_date_display: 
+        if self.display.due_date_display:
             due_tag = ft.Container(
-                content=ft.Text( 
-                    self.display.due_date_display, 
-                    size=10, 
-                    color=COLORS["done_text"], 
-                ), 
+                content=ft.Text(
+                    self.display.due_date_display,
+                    size=10,
+                    color=COLORS["done_text"],
+                ),
                 bgcolor=COLORS["input_bg"],
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
-                on_click=lambda e: self.ctrl.date_picker(self.task),
+                on_click=lambda e: event_bus.emit(AppEvent.TASK_DATE_PICKER_REQUESTED, self.task),
                 ink=True,
-            ) 
+            )
             tags.append(due_tag)
 
         return ft.Row(tags, spacing=8, tight=True, wrap=True)
 
     def _menu(self) -> ft.PopupMenuButton:
         items = []
-        if self.ctrl.state.is_mobile:
+        if self.state.is_mobile:
             items.append(create_option_item(
-                ft.Icons.TIMER_OUTLINED, 
-                "Start timer", 
-                lambda e: self.ctrl.start_timer(self.task), 
-                as_popup=True, 
-            )) 
+                ft.Icons.TIMER_OUTLINED,
+                "Start timer",
+                lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
+                as_popup=True,
+            ))
 
         items.extend([
             create_option_item(
-                ft.Icons.EDIT_OUTLINED, 
-                "Rename", 
-                lambda e: self.ctrl.rename(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.EDIT_OUTLINED,
+                "Rename",
+                lambda e: event_bus.emit(AppEvent.TASK_RENAME_REQUESTED, self.task),
+                as_popup=True,
+            ),
             create_option_item(
-                ft.Icons.SCHEDULE_OUTLINED, 
-                "Reschedule", 
-                lambda e: self.ctrl.date_picker(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.SCHEDULE_OUTLINED,
+                "Reschedule",
+                lambda e: event_bus.emit(AppEvent.TASK_DATE_PICKER_REQUESTED, self.task),
+                as_popup=True,
+            ),
             create_option_item(
-                ft.Icons.NEXT_PLAN_OUTLINED, 
-                "Postpone by 1 day", 
-                lambda e: self.ctrl.postpone(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.NEXT_PLAN_OUTLINED,
+                "Postpone by 1 day",
+                lambda e: event_bus.emit(AppEvent.TASK_POSTPONE_REQUESTED, self.task),
+                as_popup=True,
+            ),
             create_option_item(
-                ft.Icons.REPEAT, 
-                "Set recurrence", 
-                lambda e: self.ctrl.recurrence(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.REPEAT,
+                "Set recurrence",
+                lambda e: event_bus.emit(AppEvent.TASK_RECURRENCE_REQUESTED, self.task),
+                as_popup=True,
+            ),
             create_option_item(
-                ft.Icons.CONTENT_COPY_OUTLINED, 
-                "Duplicate task", 
-                lambda e: self.ctrl.duplicate(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.CONTENT_COPY_OUTLINED,
+                "Duplicate task",
+                lambda e: event_bus.emit(AppEvent.TASK_DUPLICATE_REQUESTED, self.task),
+                as_popup=True,
+            ),
             ft.PopupMenuItem(),
             create_option_item(
-                ft.Icons.INSIGHTS, 
-                "Stats", 
-                lambda e: self.ctrl.stats(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.INSIGHTS,
+                "Stats",
+                lambda e: event_bus.emit(AppEvent.TASK_STATS_REQUESTED, self.task),
+                as_popup=True,
+            ),
             create_option_item(
-                ft.Icons.STICKY_NOTE_2_OUTLINED, 
-                "Notes", 
-                lambda e: self.ctrl.notes(self.task), 
-                as_popup=True, 
-            ), 
+                ft.Icons.STICKY_NOTE_2_OUTLINED,
+                "Notes",
+                lambda e: event_bus.emit(AppEvent.TASK_NOTES_REQUESTED, self.task),
+                as_popup=True,
+            ),
             ft.PopupMenuItem(),
             create_option_item(
-                ft.Icons.DELETE_OUTLINE, 
-                "Delete", 
-                lambda e: self.ctrl.delete(self.task), 
-                color=COLORS["danger"], 
-                text_color=COLORS["danger"], 
-                as_popup=True, 
-            ), 
+                ft.Icons.DELETE_OUTLINE,
+                "Delete",
+                lambda e: event_bus.emit(AppEvent.TASK_DELETE_REQUESTED, self.task),
+                color=COLORS["danger"],
+                text_color=COLORS["danger"],
+                as_popup=True,
+            ),
         ])
 
         return ft.PopupMenuButton(
@@ -227,7 +235,7 @@ class TaskTile:
             f"{self.display.spent_display} / {self.display.estimated_display}",
             font_family="monospace",
             color=COLORS["done_text"],
-            visible=not self.ctrl.state.is_mobile,
+            visible=not self.state.is_mobile,
         ) 
 
         if self.is_done:
@@ -250,7 +258,7 @@ class TaskTile:
                 ]),
             ) 
 
-        if self.ctrl.state.is_mobile:
+        if self.state.is_mobile:
             return ft.Container(
                 padding=8,
                 bgcolor=bg,
@@ -275,7 +283,7 @@ class TaskTile:
             ft.Icons.PLAY_ARROW,
             icon_color=COLORS["accent"],
             tooltip="Start timer",
-            on_click=lambda e: self.ctrl.start_timer(self.task),
+            on_click=lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
         )
 
         return ft.Container(

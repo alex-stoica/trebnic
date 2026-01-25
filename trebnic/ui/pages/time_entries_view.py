@@ -7,7 +7,7 @@ from config import (
     BORDER_RADIUS,
     PADDING_MD,
     PADDING_SM,
-    PageType, 
+    PageType,
     GAP_THRESHOLD_SECONDS,
     FONT_SIZE_SM,
     FONT_SIZE_MD,
@@ -18,16 +18,18 @@ from config import (
     SPACING_SM,
     SPACING_MD,
     SPACING_LG,
-    SPACING_XL, 
+    SPACING_XL,
     PADDING_LG,
     PADDING_XL,
-    DIALOG_WIDTH_MD, 
+    DIALOG_WIDTH_MD,
 )
+from i18n import t
 from models.entities import AppState, TimeEntry, Task
 from services.logic import TaskService
+from services.time_entry_service import TimeEntryService
 from ui.components import DurationKnob
 from ui.formatters import TimeFormatter
-from ui.helpers import SnackService, accent_btn  
+from ui.helpers import SnackService, accent_btn
 from ui.dialogs.base import open_dialog 
 
 
@@ -47,13 +49,15 @@ class TimeEntriesView:
         self,
         page: ft.Page,
         state: AppState,
-        service: TaskService,
+        task_service: TaskService,
+        time_entry_service: TimeEntryService,
         snack: SnackService,
         navigate: Callable[[PageType], None],
     ) -> None:
         self.page = page
         self.state = state
-        self.service = service
+        self.task_service = task_service
+        self.time_entry_service = time_entry_service
         self.snack = snack
         self.navigate = navigate
         self._entries_container: Optional[ft.Column] = None
@@ -78,10 +82,10 @@ class TimeEntriesView:
         today = date_type.today()
         entry_date = dt.date()
         if entry_date == today:
-            return "Today"
-        yesterday = today - timedelta(days=1) 
+            return t("today_label")
+        yesterday = today - timedelta(days=1)
         if entry_date == yesterday:
-            return "Yesterday"
+            return t("yesterday_label")
         return dt.strftime("%A, %b %d")
 
     def _get_task_for_entry(self, entry: TimeEntry) -> Optional[Task]:
@@ -195,11 +199,11 @@ class TimeEntriesView:
             height=8,
         )
 
-    def _edit_entry(self, entry: TimeEntry) -> None:  
-        """Open dialog to edit a time entry using DurationKnob.""" 
-        
+    def _edit_entry(self, entry: TimeEntry) -> None:
+        """Open dialog to edit a time entry using DurationKnob."""
+
         if entry.is_running:
-            self.snack.show("Cannot edit a running timer", COLORS["danger"])
+            self.snack.show(t("cannot_edit_running"), COLORS["danger"])
             return
  
         current_duration_minutes = entry.duration_seconds // 60
@@ -208,7 +212,7 @@ class TimeEntriesView:
         start_time_display = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text("Start Time (fixed)", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ft.Text(t("start_time_fixed"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
                     ft.Text(
                         self._format_time_with_seconds(entry.start_time),
                         size=FONT_SIZE_XL,
@@ -253,7 +257,7 @@ class TimeEntriesView:
         end_time_display = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text("End Time", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ft.Text(t("end_time"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
                     end_time_text,
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -274,14 +278,15 @@ class TimeEntriesView:
             entry.end_time = new_end
 
             task = self._get_task_for_entry(entry)
-            if task:
-                await self.service.save_time_entry(entry)
-                await self.service.recalculate_task_time_from_entries(task)
-            else:
-                await self.service.save_time_entry(entry)
+            await self.time_entry_service.save_time_entry(entry)
+            # Recalculate task spent_seconds from time entries
+            if task and task.id is not None:
+                entries = await self.time_entry_service.load_time_entries_for_task(task.id)
+                task.spent_seconds = sum(e.duration_seconds for e in entries if e.end_time)
+                await self.task_service.persist_task(task)
 
             close(None)
-            self.snack.show("Time entry updated")
+            self.snack.show(t("time_entry_updated"))
             await self._refresh_async()
 
         def save(e: ft.ControlEvent) -> None:
@@ -309,9 +314,9 @@ class TimeEntriesView:
 
         _, close = open_dialog(
             self.page,
-            "Edit time entry",
+            t("edit_time_entry"),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
         )
 
     def _build_entry_row(
@@ -328,10 +333,10 @@ class TimeEntriesView:
 
         project_color = project.color if project else COLORS["unassigned"]
         project_icon = project.icon if project else "📋"
-        project_name = project.name if project else "No Project"
+        project_name = project.name if project else t("no_project")
 
         start_str = self._format_time(entry.start_time)
-        end_str = self._format_time(entry.end_time) if entry.end_time else "Now"
+        end_str = self._format_time(entry.end_time) if entry.end_time else t("now")
         duration_str = TimeFormatter.seconds_to_short(entry.duration_seconds)
 
         is_running = entry.end_time is None
@@ -372,7 +377,7 @@ class TimeEntriesView:
             spacing=0,
         )
  
-        time_col = ft.Container(  
+        time_col = ft.Container(
             content=ft.Column(
                 [
                     ft.Text(start_str, size=FONT_SIZE_LG, weight="bold"),
@@ -381,12 +386,12 @@ class TimeEntriesView:
                 spacing=SPACING_XS,
                 horizontal_alignment=ft.CrossAxisAlignment.END,
             ),
-            width=55, 
+            width=55,
             on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
             ink=not is_running,
             border_radius=4,
             padding=PADDING_SM,
-            tooltip="Click to edit" if not is_running else None,
+            tooltip=t("click_to_edit") if not is_running else None,
         )
  
         project_bar = ft.Container(
@@ -458,16 +463,16 @@ class TimeEntriesView:
             border=None if is_running else ft.border.all(1, COLORS["border"]),
             on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
             ink=not is_running,
-            tooltip="Click to edit" if not is_running else None,
+            tooltip=t("click_to_edit") if not is_running else None,
         )
- 
+
         action_btns = ft.Row(
             [
                 ft.IconButton(
                     icon=ft.Icons.DELETE_OUTLINE,
                     icon_color=COLORS["danger"],
                     icon_size=18,
-                    tooltip="Delete entry",
+                    tooltip=t("delete_entry"),
                     on_click=lambda e, eid=entry.id: self._delete_entry(eid),
                     visible=not is_running,
                 ),
@@ -558,7 +563,7 @@ class TimeEntriesView:
                     color=TimelineColors.GAP,
                 ),
                 ft.Text(
-                    f"Break · {gap_str}",
+                    f"{t('break_label')} · {gap_str}",
                     size=FONT_SIZE_MD,
                     color=TimelineColors.GAP,
                     italic=True,
@@ -624,26 +629,29 @@ class TimeEntriesView:
                 border=ft.border.all(1, COLORS["border"]), 
             )
 
+        entry_label = t("entry_singular") if entry_count == 1 else t("entries_plural")
+        breaks_label = t("break_singular") if len(gaps) == 1 else t("breaks_plural")
+
         return ft.Container(
             content=ft.Row(
                 [
                     stat_item(
                         ft.Icons.TIMER,
-                        "Work Time",
+                        t("work_time"),
                         TimeFormatter.seconds_to_short(total_work),
                         COLORS["accent"],
-                        f"{entry_count} {'entry' if entry_count == 1 else 'entries'}",
+                        f"{entry_count} {entry_label}",
                     ),
                     stat_item(
                         ft.Icons.COFFEE,
-                        "Break Time",
+                        t("break_time"),
                         TimeFormatter.seconds_to_short(total_gaps),
                         TimelineColors.GAP,
-                        f"{len(gaps)} {'break' if len(gaps) == 1 else 'breaks'}",
+                        f"{len(gaps)} {breaks_label}",
                     ),
                     stat_item(
                         ft.Icons.SPEED,
-                        "Efficiency",
+                        t("efficiency"),
                         f"{efficiency:.0f}%",
                         COLORS["green"] if efficiency >= 80 else COLORS["orange"],
                     ),
@@ -659,18 +667,18 @@ class TimeEntriesView:
             entries = []
             task_id = self.state.viewing_task_id
             if task_id:
-                entries = await self.service.load_time_entries_for_task(task_id)
+                entries = await self.time_entry_service.load_time_entries_for_task(task_id)
 
-            await self.service.delete_time_entry(entry_id)
+            await self.time_entry_service.delete_time_entry(entry_id)
 
             if task_id:
                 task = self.state.get_task_by_id(task_id)
                 if task:
                     remaining_entries = [e for e in entries if e.id != entry_id]
                     task.spent_seconds = sum(e.duration_seconds for e in remaining_entries if e.end_time)
-                    await self.service.persist_task(task)
+                    await self.task_service.persist_task(task)
 
-            self.snack.show("Time entry deleted", COLORS["danger"])
+            self.snack.show(t("time_entry_deleted"), COLORS["danger"])
             await self._refresh_async()
 
         self.page.run_task(_delete_async)
@@ -689,7 +697,7 @@ class TimeEntriesView:
         task = self.state.get_task_by_id(task_id)
 
         if task_id:
-            entries = await self.service.load_time_entries_for_task(task_id)
+            entries = await self.time_entry_service.load_time_entries_for_task(task_id)
         else:
             entries = []
 
@@ -714,13 +722,13 @@ class TimeEntriesView:
                                 color=COLORS["done_text"],
                             ),
                             ft.Text(
-                                "No time entries yet",
+                                t("no_time_entries"),
                                 size=FONT_SIZE_XL,
                                 weight="bold",
                                 color=COLORS["done_text"],
                             ),
                             ft.Text(
-                                "Start a timer on this task to track your time",
+                                t("start_timer_hint"),
                                 size=FONT_SIZE_MD,
                                 color=COLORS["done_text"],
                             ),
@@ -775,11 +783,11 @@ class TimeEntriesView:
 
         total_seconds = sum(e.duration_seconds for e in entries if e.end_time)
         if self._total_text:
-            self._total_text.value = f"Total: {TimeFormatter.seconds_to_short(total_seconds)}"
+            self._total_text.value = f"{t('total_label')}: {TimeFormatter.seconds_to_short(total_seconds)}"
 
         if self._header_text:
-            task_title = task.title if task else "Unknown task"
-            self._header_text.value = f"Time entries: {task_title}"
+            task_title = task.title if task else t("unknown_task")
+            self._header_text.value = f"{t('time_entries_title')}: {task_title}"
 
     def refresh(self) -> None:
         """Refresh the time entries display (sync wrapper)."""
@@ -797,7 +805,7 @@ class TimeEntriesView:
         )
 
         self._header_text = ft.Text(
-            f"Time entries: {task.title if task else 'Unknown task'}",
+            f"{t('time_entries_title')}: {task.title if task else t('unknown_task')}",
             size=FONT_SIZE_2XL if not self.state.is_mobile else FONT_SIZE_LG,
             weight="bold",
             overflow=ft.TextOverflow.ELLIPSIS,
@@ -805,7 +813,7 @@ class TimeEntriesView:
         )
 
         self._total_text = ft.Text(
-            "Total: 0m",
+            f"{t('total_label')}: 0m",
             size=FONT_SIZE_LG,
             color=COLORS["done_text"],
             weight="bold",
@@ -841,10 +849,10 @@ class TimeEntriesView:
 
         project = self.state.get_project_by_id(task.project_id) if task else None
         project_icon = project.icon if project else "📋"
-        project_name = project.name if project else "No Project"
+        project_name = project.name if project else t("no_project")
         project_color = project.color if project else COLORS["unassigned"]
 
-        subheader = ft.Container( 
+        subheader = ft.Container(
             content=ft.Row(
                 [
                     ft.Container(
@@ -855,18 +863,18 @@ class TimeEntriesView:
                     ),
                     ft.Text(project_icon, size=FONT_SIZE_LG),
                     ft.Text(project_name, size=FONT_SIZE_MD, color=COLORS["done_text"]),
-                    ft.Container(expand=True), 
+                    ft.Container(expand=True),
                     ft.Text(
-                        "💡 Click duration to edit",
+                        f"💡 {t('click_duration_hint')}",
                         size=FONT_SIZE_SM,
                         color=COLORS["done_text"],
                         italic=True,
                         visible=not self.state.is_mobile,
-                    ), 
+                    ),
                 ],
                 spacing=SPACING_MD,
             ),
-            padding=ft.padding.symmetric(vertical=SPACING_SM),  
+            padding=ft.padding.symmetric(vertical=SPACING_SM),
         )
 
         self._entries_container = ft.Column(

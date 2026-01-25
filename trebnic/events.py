@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 class AppEvent(Enum):
     """Application-wide events for the observer pattern."""
+    # Task lifecycle events (emitted after action completes)
     TASK_CREATED = auto()
     TASK_COMPLETED = auto()
     TASK_UNCOMPLETED = auto()
@@ -17,16 +18,43 @@ class AppEvent(Enum):
     TASK_RENAMED = auto()
     TASK_UPDATED = auto()
     TASK_POSTPONED = auto()
+
+    # Task action requests (emitted by UI, handled by app layer)
+    TASK_COMPLETE_REQUESTED = auto()
+    TASK_UNCOMPLETE_REQUESTED = auto()
+    TASK_DELETE_REQUESTED = auto()
+    TASK_DUPLICATE_REQUESTED = auto()
+    TASK_RENAME_REQUESTED = auto()
+    TASK_ASSIGN_PROJECT_REQUESTED = auto()
+    TASK_DATE_PICKER_REQUESTED = auto()
+    TASK_START_TIMER_REQUESTED = auto()
+    TASK_POSTPONE_REQUESTED = auto()
+    TASK_RECURRENCE_REQUESTED = auto()
+    TASK_STATS_REQUESTED = auto()
+    TASK_NOTES_REQUESTED = auto()
+
+    # Project events
     PROJECT_CREATED = auto()
     PROJECT_UPDATED = auto()
     PROJECT_DELETED = auto()
+
+    # Timer events
     TIMER_STARTED = auto()
     TIMER_STOPPED = auto()
+    TIMER_TICK = auto()
+
+    # Navigation and UI events
     NAV_CHANGED = auto()
     SETTINGS_CHANGED = auto()
     DATA_RESET = auto()
     REFRESH_UI = auto()
     SIDEBAR_REBUILD = auto()
+    LANGUAGE_CHANGED = auto()
+
+    # Notification events
+    NOTIFICATION_SCHEDULED = auto()
+    NOTIFICATION_FIRED = auto()
+    NOTIFICATION_TAPPED = auto()
 
 
 class Subscription:

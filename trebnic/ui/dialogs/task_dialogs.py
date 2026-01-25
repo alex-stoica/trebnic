@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional, List
+from weakref import WeakKeyDictionary
 
 from config import (
     COLORS,
@@ -13,9 +14,11 @@ from config import (
     BORDER_RADIUS,
     PageType,
     RecurrenceFrequency,
+    NavItem,
 )
 from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
+from services.time_entry_service import TimeEntryService
 from ui.formatters import TimeFormatter
 from ui.helpers import accent_btn, SnackService
 from ui.dialogs.base import open_dialog, create_option_item
@@ -24,14 +27,76 @@ from ui.components.duration_knob import DurationKnob
 from events import event_bus, AppEvent
 
 
+class DatePickerManager:
+    """Manages DatePicker instances to prevent overlay memory leaks.
+
+    Instead of creating new DatePickers for each dialog, this manager reuses
+    a single picker per page and properly cleans up when pages are disposed.
+    Uses WeakKeyDictionary with page objects as keys - this automatically
+    removes entries when pages are garbage collected, avoiding the fragile
+    id(page) approach where IDs can be reused after GC.
+    """
+
+    _instance: Optional["DatePickerManager"] = None
+    _pickers: WeakKeyDictionary  # page -> picker (auto-cleanup on page GC)
+
+    def __new__(cls) -> "DatePickerManager":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._pickers = WeakKeyDictionary()
+        return cls._instance
+
+    def get_picker(
+        self,
+        page: ft.Page,
+        first_date: Optional[date] = None,
+        last_date: Optional[date] = None,
+    ) -> ft.DatePicker:
+        """Get or create a DatePicker for the given page.
+
+        Args:
+            page: The Flet page
+            first_date: Minimum selectable date (default: today)
+            last_date: Maximum selectable date (default: 5 years from today)
+
+        Returns:
+            A DatePicker instance attached to the page's overlay
+        """
+        # Check if we have a valid picker for this page
+        picker = self._pickers.get(page)
+        if picker is not None:
+            # Verify the picker is still in the overlay
+            if picker in page.overlay:
+                return picker
+            # Picker was removed from overlay, create a new one
+
+        # Create new picker
+        picker = ft.DatePicker(
+            first_date=first_date or date.today(),
+            last_date=last_date or date.today() + timedelta(days=365 * 5),
+        )
+        page.overlay.append(picker)
+
+        # Store reference (auto-cleanup when page is GC'd via WeakKeyDictionary)
+        self._pickers[page] = picker
+
+        return picker
+
+    def remove_picker(self, page: ft.Page) -> None:
+        """Explicitly remove the picker for a page."""
+        picker = self._pickers.pop(page, None)
+        if picker and picker in page.overlay:
+            page.overlay.remove(picker)
+
+
+# Module-level singleton
+_picker_manager = DatePickerManager()
+
+
 class RecurrenceDialogController:
     """Controller for the recurrence dialog."""
 
     WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]
-
-    # Class-level DatePicker to reuse across instances and prevent memory leak
-    _shared_date_picker: Optional[ft.DatePicker] = None
-    _shared_picker_page: Optional[ft.Page] = None
 
     def __init__(
         self,
@@ -175,32 +240,18 @@ class RecurrenceDialogController:
     def _open_end_date_picker(self, e: ft.ControlEvent) -> None:
         """Open the end date picker.
 
-        Uses a class-level shared DatePicker to prevent overlay memory leaks.
-        The picker is reused across dialog instances and only added to overlay once.
+        Uses DatePickerManager to reuse pickers and prevent overlay memory leaks.
         """
-        cls = RecurrenceDialogController
-
-        # Check if we need to create a new picker (first time or page changed)
-        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
-            # Remove old picker from previous page's overlay if exists
-            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
-                try:
-                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
-                except ValueError:
-                    pass  # Already removed
-
-            # Create new picker for current page
-            cls._shared_date_picker = ft.DatePicker(
-                first_date=date.today(),
-                last_date=date.today() + timedelta(days=365 * 5),
-            )
-            self.page.overlay.append(cls._shared_date_picker)
-            cls._shared_picker_page = self.page
+        picker = _picker_manager.get_picker(
+            self.page,
+            first_date=date.today(),
+            last_date=date.today() + timedelta(days=365 * 5),
+        )
 
         # Update handler for this specific dialog instance
-        cls._shared_date_picker.on_change = self._on_end_date_change
-        cls._shared_date_picker.value = self.state.end_date or date.today()
-        cls._shared_date_picker.open = True
+        picker.on_change = self._on_end_date_change
+        picker.value = self.state.end_date or date.today()
+        picker.open = True
         self.page.update()
 
     def _on_end_date_change(self, e: ft.ControlEvent) -> None:
@@ -260,23 +311,46 @@ class RecurrenceDialogController:
 
 
 class TaskDialogs:
-    # Class-level DatePicker to reuse across instances and prevent memory leak
-    _shared_date_picker: Optional[ft.DatePicker] = None
-    _shared_picker_page: Optional[ft.Page] = None
-
     def __init__(
         self,
         page: ft.Page,
         state: AppState,
-        service: TaskService,
+        task_service: TaskService,
+        time_entry_service: TimeEntryService,
         snack: SnackService,
         navigate: Callable[[PageType], None] = None,
     ) -> None:
         self.page = page
         self.state = state
-        self.service = service
+        self.task_service = task_service
+        self.time_entry_service = time_entry_service
         self.snack = snack
         self.navigate = navigate
+
+    def _get_date_change_message(self, new_date: Optional[date]) -> str:
+        """Get an appropriate message when a task's date changes.
+
+        Tells the user where to find the task based on the new date
+        and current navigation selection.
+        """
+        today = date.today()
+        current_nav = self.state.selected_nav
+
+        if new_date is None:
+            # Task moved to Inbox
+            if current_nav == NavItem.INBOX:
+                return "Due date cleared"
+            return "Task moved to Inbox"
+        elif new_date <= today:
+            # Task is for today or overdue
+            if current_nav == NavItem.TODAY:
+                return f"Date set to {new_date.strftime('%b %d')}"
+            return f"Date set to {new_date.strftime('%b %d')} (see Today)"
+        else:
+            # Task is for the future
+            if current_nav == NavItem.UPCOMING:
+                return f"Date set to {new_date.strftime('%b %d')}"
+            return f"Date set to {new_date.strftime('%b %d')} (see Upcoming)"
 
     def rename(self, task: Task) -> None:
         error = ft.Text("", color=COLORS["danger"], size=12, visible=False)
@@ -292,14 +366,14 @@ class TaskDialogs:
             name = field.value.strip()
             if not name:
                 return
-            if self.service.task_name_exists(name, task):
+            if self.task_service.task_name_exists(name, task):
                 error.value = "A task with this name already exists"
                 error.visible = True
                 self.page.update()
                 return
 
             async def _save() -> None:
-                await self.service.rename_task(task, name)
+                await self.task_service.rename_task(task, name)
                 self.snack.show(f"Renamed to '{name}'")
                 close(e)
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -320,7 +394,7 @@ class TaskDialogs:
     def assign_project(self, task: Task) -> None:
         def select(pid: Optional[str]) -> None:
             async def _select() -> None:
-                await self.service.assign_project(task, pid)
+                await self.task_service.assign_project(task, pid)
                 p = self.state.get_project_by_id(pid)
                 self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
                 close()
@@ -382,31 +456,15 @@ class TaskDialogs:
         )
 
     def _ensure_date_picker(self) -> ft.DatePicker:
-        """Get or create the shared DatePicker, managing overlay lifecycle.
+        """Get or create a DatePicker using the DatePickerManager.
 
-        Uses a class-level shared DatePicker to prevent overlay memory leaks.
-        The picker is reused across dialog instances and only added to overlay once.
+        Uses DatePickerManager to reuse pickers and prevent overlay memory leaks.
         """
-        cls = TaskDialogs
-
-        # Check if we need to create a new picker (first time or page changed)
-        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
-            # Remove old picker from previous page's overlay if exists
-            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
-                try:
-                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
-                except ValueError:
-                    pass  # Already removed
-
-            # Create new picker for current page
-            cls._shared_date_picker = ft.DatePicker(
-                first_date=date.today(),
-                last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
-            )
-            self.page.overlay.append(cls._shared_date_picker)
-            cls._shared_picker_page = self.page
-
-        return cls._shared_date_picker
+        return _picker_manager.get_picker(
+            self.page,
+            first_date=date.today(),
+            last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
+        )
 
     def date_picker(self, task: Task) -> None:
         if task.recurrent:
@@ -450,8 +508,8 @@ class TaskDialogs:
                 new_date = e.control.value.date()
 
                 async def _handle() -> None:
-                    await self.service.set_task_due_date(task, new_date)
-                    self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                    await self.task_service.set_task_due_date(task, new_date)
+                    self.snack.show(self._get_date_change_message(new_date))
                     event_bus.emit(AppEvent.REFRESH_UI)
                 self.page.run_task(_handle)
 
@@ -461,16 +519,16 @@ class TaskDialogs:
             new_date = date.today() + timedelta(days=days)
 
             async def _preset() -> None:
-                await self.service.set_task_due_date(task, new_date)
-                self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                await self.task_service.set_task_due_date(task, new_date)
+                self.snack.show(self._get_date_change_message(new_date))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_preset)
 
         def clear(e: ft.ControlEvent) -> None:
             async def _clear() -> None:
-                await self.service.set_task_due_date(task, None)
-                self.snack.show("Date cleared")
+                await self.task_service.set_task_due_date(task, None)
+                self.snack.show(self._get_date_change_message(None))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_clear)
@@ -521,7 +579,7 @@ class TaskDialogs:
 
         def on_save() -> None:
             async def _save() -> None:
-                await self.service.persist_task(task)
+                await self.task_service.persist_task(task)
                 msg = "Recurrence updated" if task.recurrent else "Recurrence disabled"
                 self.snack.show(msg)
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -568,7 +626,7 @@ class TaskDialogs:
         """
         async def load_and_show() -> None:
             time_entries = (
-                await self.service.load_time_entries_for_task(task.id)
+                await self.time_entry_service.load_time_entries_for_task(task.id)
                 if task.id else []
             )
             self._show_stats_dialog(task, time_entries)
@@ -779,7 +837,7 @@ class TaskDialogs:
 
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
-                await self.service.set_task_notes(task, field.value)
+                await self.task_service.set_task_notes(task, field.value)
                 close(e)
                 self.snack.show("Notes saved")
             self.page.run_task(_save)
@@ -894,10 +952,10 @@ class TaskDialogs:
                 end_time = datetime.now()
                 start_time = end_time - timedelta(seconds=duration_seconds)
                 entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
-                await self.service.save_time_entry(entry)
+                await self.time_entry_service.save_time_entry(entry)
                 # Update task spent time
                 task.spent_seconds += duration_seconds
-                await self.service.persist_task(task)
+                await self.task_service.persist_task(task)
                 close(None)
                 # Now complete the task
                 on_complete(task)
@@ -936,6 +994,6 @@ class TaskDialogs:
             content,
             lambda c: [
                 ft.TextButton("Skip", on_click=skip),
-                accent_btn("Save & Complete", save),
+                accent_btn("Complete", save),
             ],
         )

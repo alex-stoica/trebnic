@@ -1,11 +1,40 @@
-from enum import Enum 
+"""Application configuration - single source of truth for all constants.
+
+Contains colors, dimensions, enums (NavItem, PageType, RecurrenceFrequency), and magic values.
+Import from here instead of hardcoding values elsewhere to ensure consistency across the app.
+"""
+import os
+from enum import Enum
+from pathlib import Path
+
+# Load .env if available (desktop only - not bundled in mobile builds)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass  # dotenv not available on mobile, skip loading .env
 
 
-class RecurrenceFrequency(Enum): 
-    """Enum for task recurrence frequency types.""" 
-    DAYS = "days" 
-    WEEKS = "weeks" 
-    MONTHS = "months" 
+class RecurrenceFrequency(Enum):
+    """Enum for task recurrence frequency types."""
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+
+
+class NotificationType(Enum):
+    """Enum for notification types."""
+    TIMER_COMPLETE = "timer_complete"
+    DUE_REMINDER = "due_reminder"
+    OVERDUE = "overdue"
+    DAILY_DIGEST = "daily_digest"
+
+
+class PermissionResult(Enum):
+    """Result of notification permission request."""
+    GRANTED = "granted"
+    DENIED = "denied"
+    NOT_REQUIRED = "not_required"  # Desktop platforms don't need runtime permission 
 
 
 class NavItem(Enum): 
@@ -22,10 +51,10 @@ class PageType(Enum):
     """Enum for page types."""
     TASKS = "tasks"
     PROFILE = "profile"
-    PREFERENCES = "preferences"
     TIME_ENTRIES = "time_entries"
     HELP = "help"
     FEEDBACK = "feedback"
+    STATS = "stats"
 
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
@@ -142,10 +171,13 @@ NAV_TIMESHEET = NavItem.TIMESHEET
 
 PAGE_TASKS = PageType.TASKS
 PAGE_PROFILE = PageType.PROFILE
-PAGE_PREFERENCES = PageType.PREFERENCES
 PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
-PAGE_HELP = PageType.HELP 
-FEEDBACK_EMAIL = "alexstoica@protonmail.com"
+PAGE_HELP = PageType.HELP
+# Resend email API for feedback (free: 100 emails/day)
+# Get your API key at https://resend.com/api-keys
+# Fallback values for mobile (env vars not available)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "") or "re_HnHAZnqJ_2UmbtCVJDF8ChFmTfj8WTJU3"
+FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "") or "alexstoica@protonmail.com"
 
 # ============================================================================
 # Encryption & Authentication
@@ -188,6 +220,9 @@ COLORS = {
     "green": "#4caf50",
     "blue": "#2196f3",
     "orange": "#ff9800",
-    "gap_bg": "#1a2a1a",  
-    "gap_text": "#4a7a4a",  
+    "gap_bg": "#1a2a1a",
+    "gap_text": "#4a7a4a",
+    # Stats chart colors (orange tones for estimates)
+    "estimated_done": "#ef6c00",  # Medium-dark orange for completed estimates
+    "estimated_pending": "#ff9800",  # Medium orange for pending estimates
 }

@@ -27,7 +27,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Awaitable
 
-from services.crypto import crypto, generate_salt, CRYPTO_AVAILABLE
+from services.crypto import (
+    crypto,
+    generate_salt,
+    CRYPTO_AVAILABLE,
+    wrap_key_for_biometric,
+    unwrap_key_from_biometric,
+    generate_biometric_secret,
+)
 
 # Cross-platform keyring for secure credential storage
 try:
@@ -63,8 +70,8 @@ if sys.platform == "win32":
             # Try alternative: check via registry or other means
             # Windows Hello is available on Windows 10 1607+ with compatible hardware
             pass
-    except Exception:
-        pass
+    except (ImportError, OSError, ValueError) as e:
+        logger.debug(f"Windows Hello availability check failed: {e}")
 
 # Android biometric support detection via pyjnius
 ANDROID_BIOMETRIC_AVAILABLE = False
@@ -108,6 +115,8 @@ SETTING_ENCRYPTION_SALT = "encryption_salt"           # Base64 encoded salt
 SETTING_KEY_VERIFICATION = "encryption_key_hash"      # Verification hash
 SETTING_PASSKEY_ENABLED = "passkey_enabled"           # Whether passkey is set up
 SETTING_KDF_METHOD = "encryption_kdf_method"          # "argon2" or "pbkdf2"
+SETTING_BIOMETRIC_WRAPPED_KEY = "biometric_wrapped_key"  # Wrapped encryption key (not raw)
+SETTING_BIOMETRIC_SALT = "biometric_salt"             # Salt for key wrapping
 
 
 # ============================================================================
@@ -563,59 +572,84 @@ class PasskeyService:
             self._available, self._biometric_type = self._detect_availability()
         return self._biometric_type
 
-    async def store_key_for_biometric(self, key: bytes, user_id: str) -> bool:
-        """Store encryption key in OS secure storage.
+    async def store_key_for_biometric(
+        self,
+        key: bytes,
+        user_id: str,
+        set_setting: Callable[[str, Any], Awaitable[None]],
+    ) -> bool:
+        """Store encryption key using key wrapping for biometric unlock.
+
+        Security: Instead of storing the raw encryption key in the keyring, we:
+        1. Generate a random biometric secret
+        2. Store only the biometric secret in the OS keyring
+        3. Wrap (encrypt) the encryption key with a key derived from the secret
+        4. Store the wrapped key in the database
+
+        This way, compromising the keyring alone doesn't reveal the encryption key.
+        An attacker would need both the keyring AND the database.
 
         Args:
-            key: The derived encryption key to store
+            key: The derived encryption key to protect
             user_id: Identifier for this key (e.g., "trebnic-master-key")
+            set_setting: Async function to save settings to database
 
         Returns:
             True if stored successfully, False otherwise
-
-        The key is stored in the OS keychain:
-        - Windows: Credential Manager
-        - macOS: Keychain
-        - Linux: libsecret / GNOME Keyring / KWallet
         """
         if not KEYRING_AVAILABLE:
             logger.warning("Keyring not available - cannot store key")
             return False
 
         try:
-            # Encode key as base64 for storage
-            key_b64 = base64.b64encode(key).decode('utf-8')
+            # Generate random biometric secret and salt
+            biometric_secret = generate_biometric_secret()
+            biometric_salt = generate_salt()
 
-            # Store in keyring
-            # Run in thread pool to avoid blocking
+            # Wrap the encryption key
+            wrapped_key = wrap_key_for_biometric(key, biometric_secret, biometric_salt)
+
+            # Store biometric secret in keyring (NOT the raw key)
+            secret_b64 = base64.b64encode(biometric_secret).decode('utf-8')
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
-                lambda: keyring.set_password(KEYRING_SERVICE, user_id, key_b64)
+                lambda: keyring.set_password(KEYRING_SERVICE, user_id, secret_b64)
             )
 
-            logger.info(f"Stored encryption key for biometric unlock")
+            # Store wrapped key and salt in database
+            await set_setting(SETTING_BIOMETRIC_WRAPPED_KEY, wrapped_key)
+            await set_setting(SETTING_BIOMETRIC_SALT, base64.b64encode(biometric_salt).decode('utf-8'))
+
+            logger.info("Stored wrapped key for biometric unlock (key wrapping enabled)")
             return True
 
         except KeyringError as e:
-            logger.error(f"Failed to store key in keyring: {e}")
+            logger.error(f"Failed to store biometric secret in keyring: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error storing key: {e}")
+            logger.error(f"Unexpected error storing biometric data: {e}")
             return False
 
-    async def retrieve_key_with_biometric(self, user_id: str) -> Optional[bytes]:
-        """Retrieve encryption key from OS secure storage using biometrics.
+    async def retrieve_key_with_biometric(
+        self,
+        user_id: str,
+        get_setting: Callable[[str, Any], Awaitable[Any]],
+    ) -> Optional[bytes]:
+        """Retrieve encryption key from biometric storage using key unwrapping.
+
+        Security: The encryption key is NOT stored directly in the keyring.
+        Instead, we:
+        1. Retrieve the biometric secret from the OS keyring (after biometric auth)
+        2. Retrieve the wrapped key and salt from the database
+        3. Unwrap (decrypt) the encryption key using the secret + salt
 
         Args:
             user_id: Identifier for the key to retrieve
+            get_setting: Async function to read settings from database
 
         Returns:
-            The encryption key if biometric auth succeeds, None otherwise
-
-        On Windows and macOS, this prompts for biometric verification before
-        returning the key. On Linux, the key is returned directly from the
-        keychain (access control depends on the desktop environment).
+            The encryption key if biometric auth succeeds and unwrapping works, None otherwise
         """
         if not KEYRING_AVAILABLE:
             logger.warning("Keyring not available")
@@ -644,27 +678,43 @@ class PasskeyService:
         # The keyring itself may prompt for authentication depending on config
 
         try:
-            # Retrieve from keyring
+            # Retrieve biometric secret from keyring
             loop = asyncio.get_event_loop()
-            key_b64 = await loop.run_in_executor(
+            secret_b64 = await loop.run_in_executor(
                 None,
                 lambda: keyring.get_password(KEYRING_SERVICE, user_id)
             )
 
-            if key_b64 is None:
-                logger.warning("No key found in keyring")
+            if secret_b64 is None:
+                logger.warning("No biometric secret found in keyring")
                 return None
 
-            # Decode from base64
-            key = base64.b64decode(key_b64)
-            logger.info("Retrieved encryption key via biometric unlock")
+            biometric_secret = base64.b64decode(secret_b64)
+
+            # Retrieve wrapped key and salt from database
+            wrapped_key = await get_setting(SETTING_BIOMETRIC_WRAPPED_KEY, None)
+            salt_b64 = await get_setting(SETTING_BIOMETRIC_SALT, None)
+
+            if wrapped_key is None or salt_b64 is None:
+                logger.warning("Wrapped key or salt not found in database")
+                return None
+
+            biometric_salt = base64.b64decode(salt_b64)
+
+            # Unwrap the encryption key
+            key = unwrap_key_from_biometric(wrapped_key, biometric_secret, biometric_salt)
+            if key is None:
+                logger.warning("Key unwrapping failed")
+                return None
+
+            logger.info("Retrieved encryption key via biometric unlock (key unwrapping)")
             return key
 
         except KeyringError as e:
-            logger.error(f"Failed to retrieve key from keyring: {e}")
+            logger.error(f"Failed to retrieve biometric secret from keyring: {e}")
             return None
         except (ValueError, TypeError) as e:
-            logger.error(f"Failed to decode stored key: {e}")
+            logger.error(f"Failed to decode biometric data: {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error retrieving key: {e}")
@@ -938,20 +988,24 @@ class AuthService:
         Returns:
             True if unlock succeeded, False otherwise
 
-        This retrieves the encryption key from the OS keychain after
-        successful biometric verification (Windows Hello / Touch ID).
+        This retrieves and unwraps the encryption key using:
+        1. Biometric secret from OS keychain (after biometric verification)
+        2. Wrapped key from database
         """
         if not self._passkey.is_available or not self._config.passkey_enabled:
             return False
 
-        # Check if we have a stored key
+        # Check if we have a stored biometric secret
         has_key = await self._passkey.has_stored_key(KEYRING_KEY_ID)
         if not has_key:
-            logger.warning("No stored key for biometric unlock")
+            logger.warning("No stored biometric secret for unlock")
             return False
 
-        # Retrieve key with biometric prompt
-        key = await self._passkey.retrieve_key_with_biometric(KEYRING_KEY_ID)
+        # Retrieve and unwrap key with biometric prompt
+        key = await self._passkey.retrieve_key_with_biometric(
+            KEYRING_KEY_ID,
+            self._get_setting,
+        )
         if key is None:
             return False
 
@@ -1132,8 +1186,10 @@ class AuthService:
         Returns:
             True if enabled successfully
 
-        This stores the encryption key in the OS keychain, protected by
-        biometric authentication (Windows Hello / Touch ID).
+        Security: The encryption key is NOT stored directly in the keyring.
+        Instead, a wrapped version is stored in the database, and only a
+        biometric secret is stored in the keyring. Both are needed to
+        recover the key, providing defense in depth.
         """
         if not self._passkey.is_available:
             logger.warning("Passkey not available on this platform")
@@ -1143,17 +1199,18 @@ class AuthService:
         if not await self.unlock_with_password(password):
             return False
 
-        # Store key in secure storage
+        # Store wrapped key using key wrapping
         if crypto._key is None:
             logger.error("No encryption key available to store")
             return False
 
         success = await self._passkey.store_key_for_biometric(
             crypto._key,
-            KEYRING_KEY_ID
+            KEYRING_KEY_ID,
+            self._set_setting,
         )
         if not success:
-            logger.error("Failed to store key for biometric unlock")
+            logger.error("Failed to store wrapped key for biometric unlock")
             return False
 
         await self._set_setting(SETTING_PASSKEY_ENABLED, True)
@@ -1164,9 +1221,12 @@ class AuthService:
 
     async def disable_passkey(self) -> bool:
         """Disable biometric/passkey authentication."""
-        # Delete stored key from keychain
+        # Delete stored biometric secret from keychain
         await self._passkey.delete_stored_key(KEYRING_KEY_ID)
 
+        # Clear wrapped key and salt from database
+        await self._set_setting(SETTING_BIOMETRIC_WRAPPED_KEY, None)
+        await self._set_setting(SETTING_BIOMETRIC_SALT, None)
         await self._set_setting(SETTING_PASSKEY_ENABLED, False)
         self._config.passkey_enabled = False
 

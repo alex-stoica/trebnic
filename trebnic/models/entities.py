@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
-from datetime import datetime  
+from datetime import datetime, date, time
 from typing import Optional, List, Set, Dict, Any
-from datetime import date
 
 from config import (
     DEFAULT_ESTIMATED_SECONDS,
@@ -185,10 +184,21 @@ class AppState:
     editing_project_id: Optional[str] = None
     default_estimated_minutes: int = 15
     email_weekly_stats: bool = False
+    language: str = "en"
     current_page: PageType = PageType.TASKS
     viewing_task_id: Optional[int] = None
     calendar_week_offset: int = 0
-    recovered_timer_entry: Optional["TimeEntry"] = None 
+    recovered_timer_entry: Optional["TimeEntry"] = None
+    # Notification settings
+    notifications_enabled: bool = False
+    notify_timer_complete: bool = True
+    remind_1h_before: bool = True
+    remind_6h_before: bool = True
+    remind_12h_before: bool = True
+    remind_24h_before: bool = True
+    reminder_minutes_before: int = 60
+    quiet_hours_start: Optional[time] = None
+    quiet_hours_end: Optional[time] = None 
 
     def get_project_by_id(self, project_id: Optional[str]) -> Optional[Project]: 
         if project_id is None:

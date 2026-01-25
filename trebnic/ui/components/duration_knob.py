@@ -1,3 +1,8 @@
+"""Radial duration picker - horseshoe-shaped knob for selecting time duration.
+
+Used in task completion dialog when no timer was running. Drag around the arc
+or tap to set duration (5 min to 8h 20m). Heavy on gesture math and canvas drawing.
+"""
 import flet as ft
 import math
 from typing import Callable, Optional

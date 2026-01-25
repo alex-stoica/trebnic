@@ -1,23 +1,43 @@
 [project]
-name = "trebnic" 
-version = "1.0.0"
-description = "Trebnic"
+name = "trebnic"
+version = "0.1.0"
+description = "Privacy-first task manager with timer tracking, recurring tasks, and calendar view"
 authors = [
-    {name = "alex-stoica",email = "alexstoica@protonmail.com"}
+    {name = "Alex Stoica", email = "alexstoica@protonmail.com"}
 ]
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.12"
+keywords = ["task-manager", "todo", "timer", "productivity", "flet", "privacy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Other Environment",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Utilities",
+]
 dependencies = [
     "flet[build] (>=0.28.3,<0.29.0)",
     "aiosqlite (>=0.19.0,<1.0.0)",
     "cryptography (>=46.0.3,<47.0.0)",
     "argon2-cffi (>=25.1.0,<26.0.0)",
+    "httpx (>=0.28.0,<1.0.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "resend (>=2.21.0,<3.0.0)",
 ]
 
+[project.urls]
+Homepage = "https://github.com/alex-stoica/trebnic"
+Repository = "https://github.com/alex-stoica/trebnic"
+Issues = "https://github.com/alex-stoica/trebnic/issues"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api" 
+build-backend = "poetry.core.masonry.api"
 
 [tool.flet]
 org = "ai.stoica"
@@ -25,4 +45,10 @@ product = "Trebnic"
 
 [tool.flet.app]
 module = "main"
-source_dir = "trebnic" 
+source_dir = "trebnic"
+
+[tool.flet.android]
+dependencies = ["pyjnius", "android-notify==1.60.8.dev0"]
+
+[tool.flet.android.permission]
+"android.permission.POST_NOTIFICATIONS" = true
