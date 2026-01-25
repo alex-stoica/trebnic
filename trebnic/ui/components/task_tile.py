@@ -2,8 +2,9 @@ import flet as ft
 
 from config import COLORS, BORDER_RADIUS
 from models.entities import Task
+from services.crypto import LOCKED_PLACEHOLDER
 from ui.controller import UIController
-from ui.presenters.task_presenter import TaskPresenter, TaskDisplayData 
+from ui.presenters.task_presenter import TaskPresenter, TaskDisplayData
 from ui.dialogs.base import create_option_item
 
 
@@ -26,39 +27,59 @@ class TaskTile:
         elif not self.is_done and e.control.value:
             self.ctrl.complete(self.task)
 
+    def _build_project_tag_content(self) -> ft.Control:
+        """Build the project tag content, showing lock icon if project name is locked."""
+        is_project_locked = self.display.project_name == LOCKED_PLACEHOLDER
+        if is_project_locked:
+            return ft.Row(
+                [
+                    ft.Icon(ft.Icons.LOCK, color=COLORS["white"], size=10),
+                    ft.Text("Encrypted", size=10, color=COLORS["white"], italic=True),
+                ],
+                spacing=4,
+                tight=True,
+            )
+        return ft.Row(
+            [
+                ft.Text(self.display.project_icon, size=10),
+                ft.Text(self.display.project_name, size=10, color=COLORS["white"]),
+            ],
+            spacing=4,
+            tight=True,
+        )
+
     def _tags(self) -> ft.Control:
+        is_project_locked = self.display.project_name == LOCKED_PLACEHOLDER
         if self.is_done:
-            parts = [self.display.project_name or "Unassigned"] 
-            if self.display.due_date_display: 
-                parts.append(self.display.due_date_display) 
+            project_display = "Encrypted" if is_project_locked else (self.display.project_name or "Unassigned")
+            parts = [project_display]
+            if self.display.due_date_display:
+                parts.append(self.display.due_date_display)
+            content = ft.Row(
+                [
+                    ft.Icon(ft.Icons.LOCK, color=COLORS["done_text"], size=10) if is_project_locked else ft.Container(),
+                    ft.Text(" - ".join(parts), size=10, color=COLORS["done_text"]),
+                ],
+                spacing=4,
+                tight=True,
+            ) if is_project_locked else ft.Text(" - ".join(parts), size=10, color=COLORS["done_text"])
             return ft.Container(
-                content=ft.Text( 
-                    " • ".join(parts), 
-                    size=10, 
-                    color=COLORS["done_text"], 
-                ), 
+                content=content,
                 bgcolor=COLORS["done_tag"],
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
-            ) 
+            )
 
         tags = []
-        if self.display.project_name: 
+        if self.display.project_name:
             project_tag = ft.Container(
-                content=ft.Row(
-                    [ 
-                        ft.Text(self.display.project_icon, size=10), 
-                        ft.Text(self.display.project_name, size=10, color=COLORS["white"]), 
-                    ], 
-                    spacing=4, 
-                    tight=True, 
-                ), 
-                bgcolor=self.display.project_color, 
+                content=self._build_project_tag_content(),
+                bgcolor=self.display.project_color,
                 padding=ft.padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
                 on_click=lambda e: self.ctrl.assign_project(self.task),
                 ink=True,
-            ) 
+            )
             tags.append(project_tag)
         else:
             unassigned_tag = ft.Container(
@@ -166,17 +187,44 @@ class TaskTile:
             items=items, 
         ) 
 
+    def _build_title_row(self, title_color, title_style, size: int = None) -> ft.Control:
+        """Build the title display, including lock icon if locked."""
+        if self.display.is_locked:
+            return ft.Row(
+                [
+                    ft.Icon(ft.Icons.LOCK, color=COLORS["done_text"], size=16),
+                    ft.Text(
+                        "Encrypted",
+                        weight="bold",
+                        color=title_color or COLORS["done_text"],
+                        style=title_style,
+                        size=size,
+                        italic=True,
+                    ),
+                ],
+                spacing=4,
+                tight=True,
+            )
+        return ft.Text(
+            self.display.title,
+            weight="bold",
+            color=title_color,
+            style=title_style,
+            size=size,
+            expand=True if size else False,
+        )
+
     def build(self) -> ft.Container:
         cb = ft.Checkbox(value=self.is_done, on_change=self._on_check)
         title_style = (
-            ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH) 
-            if self.is_done else None 
-        ) 
+            ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH)
+            if self.is_done else None
+        )
         title_color = COLORS["done_text"] if self.is_done else None
         bg = COLORS["done_bg"] if self.is_done else COLORS["card"]
 
         time_txt = ft.Text(
-            f"{self.display.spent_display} / {self.display.estimated_display}", 
+            f"{self.display.spent_display} / {self.display.estimated_display}",
             font_family="monospace",
             color=COLORS["done_text"],
             visible=not self.ctrl.state.is_mobile,
@@ -191,20 +239,15 @@ class TaskTile:
                 content=ft.Row([
                     cb,
                     ft.Column(
-                        [ 
-                            ft.Text( 
-                                self.display.title, 
-                                weight="bold", 
-                                color=title_color, 
-                                style=title_style, 
-                            ), 
-                            self._tags(), 
-                        ], 
+                        [
+                            self._build_title_row(title_color, title_style),
+                            self._tags(),
+                        ],
                         expand=True,
                         spacing=2,
-                    ), 
+                    ),
                     time_txt,
-                ]), 
+                ]),
             ) 
 
         if self.ctrl.state.is_mobile:
@@ -214,31 +257,26 @@ class TaskTile:
                 border_radius=BORDER_RADIUS,
                 data=self.task,
                 content=ft.Column(
-                    [ 
-                        ft.Row([ 
-                            cb, 
-                            ft.Text( 
-                                self.display.title, 
-                                weight="bold", 
-                                expand=True, 
-                                size=14, 
-                            ), 
-                            self._menu(), 
-                        ]), 
-                        self._tags(), 
-                    ], 
+                    [
+                        ft.Row([
+                            cb,
+                            self._build_title_row(title_color, title_style, size=14),
+                            self._menu(),
+                        ]),
+                        self._tags(),
+                    ],
                     spacing=2,
                     tight=True,
-                ), 
+                ),
             ) 
 
-        # Desktop layout 
+        # Desktop layout
         timer_btn = ft.IconButton(
-            ft.Icons.PLAY_ARROW, 
-            icon_color=COLORS["accent"], 
-            tooltip="Start timer", 
-            on_click=lambda e: self.ctrl.start_timer(self.task), 
-        ) 
+            ft.Icons.PLAY_ARROW,
+            icon_color=COLORS["accent"],
+            tooltip="Start timer",
+            on_click=lambda e: self.ctrl.start_timer(self.task),
+        )
 
         return ft.Container(
             padding=15,
@@ -249,20 +287,15 @@ class TaskTile:
                 ft.Icon(ft.Icons.DRAG_INDICATOR, color=ft.Colors.GREY),
                 cb,
                 ft.Column(
-                    [ 
-                        ft.Text( 
-                            self.display.title,  
-                            weight="bold", 
-                            color=title_color, 
-                            style=title_style, 
-                        ), 
-                        ft.Row([self._tags()], tight=True), 
-                    ], 
+                    [
+                        self._build_title_row(title_color, title_style),
+                        ft.Row([self._tags()], tight=True),
+                    ],
                     expand=True,
                     spacing=2,
-                ), 
+                ),
                 timer_btn,
                 time_txt,
                 self._menu(),
-            ]), 
+            ]),
         )

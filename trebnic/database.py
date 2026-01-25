@@ -68,88 +68,43 @@ def _is_encrypted(value: Optional[str]) -> bool:
 
 
 class Database:
+    """Async SQLite database with connection-per-operation pattern.
+
+    Uses connection-per-operation to avoid event loop binding issues.
+    Each operation opens a fresh connection, which is safe with aiosqlite
+    and SQLite's WAL mode for concurrent access.
+    """
     _instance: Optional["Database"] = None
     _instance_lock = threading.Lock()
 
     def __new__(cls) -> "Database":
         if cls._instance is None:
             with cls._instance_lock:
-                # Double-check locking pattern
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
                     cls._instance._init_lock = threading.Lock()
-                    cls._instance._connection: Optional[aiosqlite.Connection] = None
-                    cls._instance._conn_lock: Optional[asyncio.Lock] = None
-                    cls._instance._bound_loop: Optional[asyncio.AbstractEventLoop] = None
         return cls._instance
-
-    def _get_lock(self) -> asyncio.Lock:
-        """Get or create the async lock (lazy initialization for correct event loop)."""
-        current_loop = asyncio.get_running_loop()
-        # Reset lock if event loop changed (prevents cross-loop lock usage)
-        if self._conn_lock is None or self._bound_loop != current_loop:
-            self._conn_lock = asyncio.Lock()
-        return self._conn_lock
-
-    async def _ensure_connection(self) -> aiosqlite.Connection:
-        """Get or create a persistent database connection.
-
-        The connection is bound to the event loop where it was created.
-        If the event loop changes (e.g., from asyncio.run() to page.loop),
-        the old connection is closed and a new one is created.
-        """
-        current_loop = asyncio.get_running_loop()
-
-        # Check if we need to create a new connection due to event loop change
-        needs_new_connection = (
-            self._connection is None
-            or not self._connection._running
-            or self._bound_loop != current_loop
-        )
-
-        if needs_new_connection:
-            # Close old connection if it exists (it's bound to a different/dead loop)
-            if self._connection is not None:
-                try:
-                    # Don't await close() if the loop is different - just abandon it
-                    if self._bound_loop == current_loop:
-                        await self._connection.close()
-                except Exception as e:
-                    logger.warning(f"Error closing old database connection: {e}")
-                self._connection = None
-
-            # Create new connection on current event loop
-            self._connection = await aiosqlite.connect(DB_PATH)
-            self._connection.row_factory = aiosqlite.Row
-            self._bound_loop = current_loop
-            # Enable WAL mode for better concurrent access
-            await self._connection.execute("PRAGMA journal_mode=WAL")
-            await self._connection.execute("PRAGMA busy_timeout=5000")
-
-        return self._connection
 
     @asynccontextmanager
     async def _get_connection(self) -> AsyncIterator[aiosqlite.Connection]:
         """Get a database connection with row_factory pre-configured.
 
-        Uses a persistent connection to avoid high-frequency open/close overhead.
+        Creates a fresh connection per operation to avoid event loop binding
+        issues. SQLite with WAL mode handles concurrent access efficiently.
         """
-        async with self._get_lock():
-            conn = await self._ensure_connection()
+        conn = await aiosqlite.connect(DB_PATH)
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        try:
             yield conn
+        finally:
+            await conn.close()
 
     async def close(self) -> None:
-        """Close the persistent database connection."""
-        if self._connection is not None:
-            try:
-                await self._connection.close()
-            except Exception as e:
-                logger.warning(f"Error closing database connection: {e}")
-            finally:
-                self._connection = None
-                self._bound_loop = None
-                self._conn_lock = None
+        """No-op for compatibility. Connections are closed per-operation."""
+        pass
 
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
@@ -914,9 +869,6 @@ class Database:
         with cls._instance_lock:
             if cls._instance is not None:
                 cls._instance._initialized = False
-                cls._instance._connection = None
-                cls._instance._conn_lock = None
-                cls._instance._bound_loop = None
                 cls._instance = None
 
 

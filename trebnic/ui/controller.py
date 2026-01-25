@@ -8,6 +8,22 @@ from ui.presenters.task_presenter import TaskPresenter
 
 
 class UIController:
+    """Facade for UI components to trigger application actions.
+
+    This controller uses a callback-wiring pattern to decouple UI components
+    from specific service/dialog implementations. UI components call methods
+    like ctrl.rename(task), and the actual handler (e.g., task_dialogs.rename)
+    is wired at app initialization time.
+
+    This pattern allows:
+    - UI components to be tested in isolation with mock callbacks
+    - Swapping implementations without changing UI code
+    - Centralized action dispatching for logging/metrics if needed
+
+    The trade-off is indirection - methods like delete(), rename(), etc.
+    are pass-throughs to wired callbacks rather than direct implementations.
+    """
+
     def __init__(
         self,
         page: ft.Page,
@@ -18,18 +34,21 @@ class UIController:
         self.state = state
         self.service = service
         self._callbacks: Dict[str, Callable[..., Any]] = {}
-        self._nav_manager = None  
+        self._nav_manager = None
 
     def set_nav_manager(self, nav_manager: Any) -> None:
         """Set the navigation manager reference."""
         self._nav_manager = nav_manager
 
     def wire(self, **callbacks: Callable[..., Any]) -> None:
+        """Wire action callbacks. Called once at app initialization."""
         self._callbacks = callbacks
 
     def _call(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        if name in self._callbacks:
-            return self._callbacks[name](*args, **kwargs)
+        """Dispatch to a wired callback by name."""
+        cb = self._callbacks.get(name)
+        if cb:
+            return cb(*args, **kwargs)
         return None
 
     def get_project(self, project_id: Optional[str]) -> Optional[Project]:

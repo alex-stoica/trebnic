@@ -36,13 +36,6 @@ class TaskService:
         DEPRECATED: Use page.run_task() or await instead. This method is kept
         for backwards compatibility but should not be used in new code.
 
-        IMPORTANT: This method has limitations:
-        - When page is available: Uses page.loop via run_coroutine_threadsafe (safe)
-        - When no page and no running loop: Falls back to asyncio.run() which
-          creates a new event loop - this may cause issues with database
-          connections bound to other loops
-        - When called from async context without page: Raises RuntimeError
-
         Args:
             coro: The coroutine to execute
             wait: If True, block and return result. If False, fire-and-forget.
@@ -51,51 +44,36 @@ class TaskService:
             The result of the coroutine when wait=True, None otherwise.
 
         Raises:
-            RuntimeError: If called from an async context without a page reference.
+            RuntimeError: If no page reference is available or if called from async context.
             TimeoutError: If wait=True and the coroutine times out after 30 seconds.
         """
-        # Best case: we have a page with an event loop
-        if self._page is not None:
-            try:
-                future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
-                if not wait:
-                    return None
-                return future.result(timeout=30.0)
-            except asyncio.TimeoutError:
-                logger.error("run_sync timed out after 30s - possible deadlock")
-                raise TimeoutError("Async operation timed out after 30 seconds")
-            except RuntimeError as e:
-                # Event loop might be closed or in an invalid state
-                logger.warning(f"run_sync failed with page loop: {e}")
-                # Fall through to try other methods
-
-        # Check if we're already in an async context
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop is not None and loop.is_running():
-            # We're inside a running event loop without a page reference
-            # This is a programming error - can't block in async context
+        if self._page is None:
             coro.close()
             raise RuntimeError(
-                "Cannot call run_sync from async context without page reference. "
-                "Use 'await' directly or pass page via set_page() before calling. "
-                "This typically happens when calling run_sync from an event handler."
+                "run_sync requires a page reference. Call set_page() first or use "
+                "page.run_task() / await directly. This method is deprecated."
             )
 
-        # Last resort: create a new event loop
-        # This is only safe during initial app startup before the main loop exists
-        logger.debug("run_sync falling back to asyncio.run() - no page loop available")
+        # Check if we're in an async context - can't block there
         try:
-            return asyncio.run(coro)
-        except RuntimeError as e:
-            logger.error(f"asyncio.run() failed in run_sync: {e}")
-            raise RuntimeError(
-                f"Failed to execute async code synchronously: {e}. "
-                "Ensure the app is fully initialized before calling database methods."
-            ) from e
+            loop = asyncio.get_running_loop()
+            if loop is not None and loop.is_running():
+                coro.close()
+                raise RuntimeError(
+                    "Cannot call run_sync from async context. "
+                    "Use 'await' directly instead of run_sync."
+                )
+        except RuntimeError:
+            pass  # No running loop, which is fine
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
+            if not wait:
+                return None
+            return future.result(timeout=30.0)
+        except asyncio.TimeoutError:
+            logger.error("run_sync timed out after 30s - possible deadlock")
+            raise TimeoutError("Async operation timed out after 30 seconds")
 
     @staticmethod
     async def load_state_async() -> AppState:
@@ -313,18 +291,18 @@ class TaskService:
 
         return task.create_next_occurrence(next_date)
 
-    async def _advance_overdue_recurring_tasks(
-        self, tasks: List[Task], today: date
-    ) -> List[Task]:
-        """Auto-advance recurring tasks whose due_date has passed or isn't a scheduled day.
+    def _filter_recurring_tasks_for_today(self, tasks: List[Task], today: date) -> List[Task]:
+        """Filter recurring tasks to show only those that should appear today.
 
-        For recurring tasks with due_date < today, update their due_date
-        to the next valid occurrence. This ensures recurring tasks only
-        appear on their scheduled days, not every day after their original date.
+        This is a pure filter - it never modifies task due_dates. Recurring tasks
+        with overdue due_dates will still appear in the Today view if today matches
+        their recurrence pattern (e.g., "every Monday" should show on Mondays).
 
-        Also handles tasks where due_date == today but today isn't a scheduled weekday.
+        Non-recurring tasks are included as-is. Recurring tasks are included only if:
+        - due_date == today, OR
+        - due_date < today AND today is a valid day per the recurrence pattern
 
-        Returns the filtered list (excluding tasks that were advanced to a future date).
+        Returns the filtered list.
         """
         result = []
         for task in tasks:
@@ -338,33 +316,14 @@ class TaskService:
                 result.append(task)
                 continue
 
-            # Check if today is a valid day for recurring tasks with weekday constraints
-            if task.due_date == today and task.recurrence_weekdays:
-                if today.weekday() not in task.recurrence_weekdays:
-                    # Today is not a scheduled day - advance to next occurrence
-                    next_date = calculate_next_recurrence_from_date(task, today)
-                    if next_date and next_date != task.due_date:
-                        task.due_date = next_date
-                        await db.save_task(task.to_dict(is_done=False))
-                    # Don't include in today's list (it's now a future task)
-                    continue
-                # Today is a valid weekday - include it
-                result.append(task)
-                continue
-
-            # Calculate next occurrence from yesterday to include today if valid
-            next_date = calculate_next_recurrence_from_date(task, today - timedelta(days=1))
-
-            if next_date and next_date != task.due_date:
-                # Update the task's due_date
-                task.due_date = next_date
-                await db.save_task(task.to_dict(is_done=False))
-
-                # Only include if next date is today (otherwise it's a future task)
-                if next_date == today:
+            # Task is due today or overdue - check if today is a valid recurrence day
+            if task.recurrence_weekdays:
+                # Has weekday constraints - only include if today matches
+                if today.weekday() in task.recurrence_weekdays:
                     result.append(task)
+                # Otherwise skip (today is not a scheduled day)
             else:
-                # No next occurrence or same date - keep as is
+                # No weekday constraints - include it (daily/weekly/monthly without specific days)
                 result.append(task)
 
         return result
@@ -456,10 +415,10 @@ class TaskService:
         pending = [Task.from_dict(d) for d in pending_dicts]
         done = [Task.from_dict(d) for d in done_dicts]
 
-        # Auto-advance recurring tasks whose due_date has passed
+        # Filter recurring tasks to only show those scheduled for today
         # This ensures recurring tasks only appear on their scheduled days
         if nav == NavItem.TODAY:
-            pending = await self._advance_overdue_recurring_tasks(pending, today)
+            pending = self._filter_recurring_tasks_for_today(pending, today)
 
         return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
 

@@ -11,6 +11,7 @@ from config import (
     NavItem,
     PageType,
     ANIMATION_DELAY,
+    FONT_SIZE_LG,
 )
 from database import db, DatabaseError
 from events import event_bus, AppEvent, Subscription
@@ -382,14 +383,14 @@ class TrebnicApp:
         """Build navigation list tiles."""
         self.nav_inbox = ft.ListTile(
             leading=ft.Icon(ft.Icons.INBOX),
-            title=ft.Text("Inbox"),
+            title=ft.Text("Inbox", size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_inbox_click,
         )
 
         self.nav_today = ft.ListTile(
             leading=ft.Icon(ft.Icons.TODAY),
-            title=ft.Text("Today"),
+            title=ft.Text("Today", size=FONT_SIZE_LG),
             selected=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_today_click,
@@ -397,14 +398,14 @@ class TrebnicApp:
 
         self.nav_calendar = ft.ListTile(
             leading=ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK),
-            title=ft.Text("Calendar"),
+            title=ft.Text("Calendar", size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_calendar_click,
         )
 
         self.nav_upcoming = ft.ListTile(
             leading=ft.Icon(ft.Icons.UPCOMING),
-            title=ft.Text("Upcoming"),
+            title=ft.Text("Upcoming", size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_upcoming_click,
         )
@@ -425,7 +426,7 @@ class TrebnicApp:
 
         self.nav_projects = ft.ListTile(
             leading=ft.Icon(ft.Icons.FOLDER_OUTLINED),
-            title=ft.Text("Projects"),
+            title=ft.Text("Projects", size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             trailing=ft.Row(
                 [self.projects_arrow, add_project_btn],

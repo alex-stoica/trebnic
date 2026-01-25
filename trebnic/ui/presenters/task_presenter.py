@@ -4,6 +4,7 @@ from datetime import date
 
 from config import COLORS
 from models.entities import Task, Project
+from services.crypto import LOCKED_PLACEHOLDER
 from ui.formatters import TimeFormatter
 
 
@@ -11,6 +12,7 @@ from ui.formatters import TimeFormatter
 class TaskDisplayData:
     """Computed display data for a task, separating logic from presentation."""
     title: str
+    is_locked: bool
     is_recurrent: bool
     project_name: Optional[str]
     project_icon: Optional[str]
@@ -27,8 +29,15 @@ class TaskPresenter:
     """Computes display values for tasks without rendering."""
 
     @staticmethod
+    def is_locked(task: Task) -> bool:
+        """Check if the task title is locked (encrypted but app not unlocked)."""
+        return task.title == LOCKED_PLACEHOLDER
+
+    @staticmethod
     def get_display_title(task: Task) -> str:
         """Get the display title with recurrence prefix if applicable."""
+        if task.title == LOCKED_PLACEHOLDER:
+            return task.title  # Don't add recurrence prefix to locked placeholder
         return f"↻ {task.title}" if task.recurrent else task.title
 
     @staticmethod
@@ -74,11 +83,15 @@ class TaskPresenter:
         project: Optional[Project],
     ) -> TaskDisplayData:
         """Create complete display data for a task."""
+        is_task_locked = cls.is_locked(task)
+        # Project name may also be locked
+        is_project_locked = project and project.name == LOCKED_PLACEHOLDER
         return TaskDisplayData(
             title=cls.get_display_title(task),
+            is_locked=is_task_locked,
             is_recurrent=task.recurrent,
             project_name=project.name if project else None,
-            project_icon=project.icon if project else None,
+            project_icon=project.icon if project and not is_project_locked else None,
             project_color=project.color if project else COLORS["unassigned"],
             due_date_display=cls.format_due_date(task.due_date),
             is_overdue=cls.is_overdue(task.due_date),
