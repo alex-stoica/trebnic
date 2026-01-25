@@ -2,10 +2,12 @@ import os
 from enum import Enum
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-# Load .env from the same directory as config.py
-load_dotenv(Path(__file__).parent / ".env")
+# Load .env if available (desktop only - not bundled in mobile builds)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass  # dotenv not available on mobile, skip loading .env
 
 
 class RecurrenceFrequency(Enum): 
@@ -153,8 +155,9 @@ PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
 PAGE_HELP = PageType.HELP
 # Resend email API for feedback (free: 100 emails/day)
 # Get your API key at https://resend.com/api-keys
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "")
+# Fallback values for mobile (env vars not available)
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "") or "re_HnHAZnqJ_2UmbtCVJDF8ChFmTfj8WTJU3"
+FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "") or "alexstoica@protonmail.com"
 
 # ============================================================================
 # Encryption & Authentication

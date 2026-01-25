@@ -27,8 +27,44 @@
    FEEDBACK_EMAIL=your@email.com
    ```
 
+## Mobile builds
+
+Poetry manages desktop dependencies via `pyproject.toml`, but **Flet mobile builds use `requirements.txt`**.
+
+### Desktop-only packages (dotenv)
+
+`.env` files aren't bundled in mobile APKs. Make the import optional:
+
+```python
+# config.py
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass
+```
+
+### Mobile feedback with hardcoded keys
+
+Since `.env` isn't available on mobile, use fallback hardcoded values:
+
+```python
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "") or "re_xxxxx"
+FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "") or "your@email.com"
+```
+
+Risk is minimal:
+- Free tier: 100 emails/day cap
+- Can only send to your own verified email
+- Worst case: spam your inbox, regenerate the key
+
+### Avoid external packages for HTTP on mobile
+
+The `resend` SDK doesn't work on Android even though it appears to be pure Python. Use Python's built-in `urllib.request` instead - zero dependencies, works everywhere.
+
 ## Code
 
+### Desktop (with resend SDK)
 ```python
 import resend
 
@@ -40,3 +76,31 @@ resend.Emails.send({
     "html": "<p>Message here</p>",
 })
 ```
+
+### Mobile-compatible (urllib - no dependencies)
+The `resend` SDK doesn't work on Android (missing module errors even when in requirements.txt). Use stdlib `urllib` instead:
+
+```python
+import json
+import urllib.request
+
+payload = json.dumps({
+    "from": "App Name <onboarding@resend.dev>",
+    "to": [FEEDBACK_EMAIL],
+    "subject": "Feedback",
+    "html": "<p>Message here</p>",
+}).encode("utf-8")
+
+req = urllib.request.Request(
+    "https://api.resend.com/emails",
+    data=payload,
+    headers={
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+urllib.request.urlopen(req, timeout=30)
+```
+
+This uses only Python stdlib - works everywhere without dependency issues.

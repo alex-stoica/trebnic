@@ -1,5 +1,7 @@
 import flet as ft
-import resend
+import json
+import urllib.request
+import urllib.error
 from typing import Callable
 
 from config import (
@@ -25,12 +27,10 @@ class FeedbackPage:
         self.snack = snack
 
     def _send_feedback_sync(self, category: str, message: str, message_field: ft.TextField) -> None:
-        """Send feedback via Resend email API."""
+        """Send feedback via Resend email API using urllib (no external dependencies)."""
         if not RESEND_API_KEY or not FEEDBACK_EMAIL:
             self.snack.show("Feedback not configured. Check .env file.", COLORS["danger"])
             return
-
-        resend.api_key = RESEND_API_KEY
 
         # Format message with line breaks preserved
         formatted_message = message.replace("\n", "<br>")
@@ -54,18 +54,35 @@ class FeedbackPage:
         </div>
         """
 
+        payload = json.dumps({
+            "from": "Trebnic <onboarding@resend.dev>",
+            "to": [FEEDBACK_EMAIL],
+            "subject": f"[{category}] Trebnic feedback",
+            "html": html_content,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
         try:
-            resend.Emails.send({
-                "from": "Trebnic <onboarding@resend.dev>",
-                "to": [FEEDBACK_EMAIL],
-                "subject": f"[{category}] Trebnic feedback",
-                "html": html_content,
-            })
-            self.snack.show("Feedback sent, thank you!", COLORS["green"])
-            message_field.value = ""
-            message_field.update()
-        except resend.exceptions.ResendError as e:
-            self.snack.show(f"Failed: {e}", COLORS["danger"])
+            with urllib.request.urlopen(req, timeout=30) as response:
+                if response.status == 200:
+                    self.snack.show("Feedback sent, thank you!", COLORS["green"])
+                    message_field.value = ""
+                    message_field.update()
+                else:
+                    self.snack.show(f"Failed: HTTP {response.status}", COLORS["danger"])
+        except urllib.error.HTTPError as e:
+            self.snack.show(f"Failed: {e.code} {e.reason}", COLORS["danger"])
+        except urllib.error.URLError as e:
+            self.snack.show(f"Network error: {e.reason}", COLORS["danger"])
 
     def _send_feedback(self, category: str, message: str, message_field: ft.TextField) -> None:
         """Validate and send feedback."""
