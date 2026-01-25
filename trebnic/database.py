@@ -9,19 +9,7 @@ from pathlib import Path
 from typing import Optional, Any, Callable, Dict, List, AsyncIterator, Tuple
 
 from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
-
-# Lazy import to avoid circular dependency (crypto -> database -> crypto)
-# crypto module is imported at runtime when encryption helpers are called
-_crypto = None
-
-
-def _get_crypto():
-    """Lazy import of crypto service to avoid circular imports."""
-    global _crypto
-    if _crypto is None:
-        from services.crypto import crypto
-        _crypto = crypto
-    return _crypto
+from registry import registry, Services
 
 DB_PATH = Path("trebnic.db")
 
@@ -47,7 +35,9 @@ def _encrypt_field(value: Optional[str]) -> Optional[str]:
     """
     if not value:
         return value
-    crypto = _get_crypto()
+    crypto = registry.get(Services.CRYPTO)
+    if crypto is None:
+        return value
     return crypto.encrypt_if_unlocked(value)
 
 
@@ -61,7 +51,9 @@ def _decrypt_field(value: Optional[str]) -> Optional[str]:
     """
     if not value:
         return value
-    crypto = _get_crypto()
+    crypto = registry.get(Services.CRYPTO)
+    if crypto is None:
+        return value
     return crypto.decrypt_if_encrypted(value)
 
 
@@ -69,7 +61,9 @@ def _is_encrypted(value: Optional[str]) -> bool:
     """Check if a value is in encrypted format."""
     if not value:
         return False
-    crypto = _get_crypto()
+    crypto = registry.get(Services.CRYPTO)
+    if crypto is None:
+        return False
     return crypto.is_encrypted(value)
 
 
@@ -406,21 +400,31 @@ class Database:
         """Delete all recurring tasks with the given title.
 
         This deletes both pending and completed instances of a recurring task series.
+        Since titles are encrypted with random nonces, we cannot match in SQL.
+        Instead, we fetch all recurring tasks, decrypt in memory, and filter.
 
         Args:
-            title: The exact title of the recurring tasks to delete
+            title: The exact plaintext title of the recurring tasks to delete
 
         Returns:
             Number of tasks deleted
         """
         try:
             async with self._get_connection() as conn:
-                # First get the IDs of tasks to delete (for time_entries cleanup)
+                # Fetch ALL recurring tasks (both pending and completed)
+                # We must decrypt in memory because encrypted titles with random
+                # nonces cannot be matched in SQL
                 async with conn.execute(
-                    "SELECT id FROM tasks WHERE title = ? AND recurrent = 1",
-                    (title,)
+                    "SELECT id, title FROM tasks WHERE recurrent = 1"
                 ) as cursor:
-                    task_ids = [row[0] async for row in cursor]
+                    rows = [dict(row) async for row in cursor]
+
+                # Decrypt titles and find matches
+                task_ids = []
+                for row in rows:
+                    decrypted_title = _decrypt_field(row.get("title", ""))
+                    if decrypted_title == title:
+                        task_ids.append(row["id"])
 
                 if not task_ids:
                     return 0
@@ -898,6 +902,22 @@ class Database:
         except Exception as e:
             logger.error(f"Error re-encrypting data: {e}")
             raise DatabaseError(f"Failed to re-encrypt data: {e}") from e
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance.
+
+        Note: This method is primarily used for testing to ensure
+        a fresh Database instance between test cases. Not typically
+        called in production code.
+        """
+        with cls._instance_lock:
+            if cls._instance is not None:
+                cls._instance._initialized = False
+                cls._instance._connection = None
+                cls._instance._conn_lock = None
+                cls._instance._bound_loop = None
+                cls._instance = None
 
 
 db = Database()

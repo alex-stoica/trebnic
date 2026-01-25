@@ -72,6 +72,7 @@ class TrebnicApp:
         self.time_entries_view = c.time_entries_view
         self.profile_page = c.profile_page
         self.prefs_page = c.prefs_page
+        self.help_page = c.help_page
         self.task_dialogs = c.task_dialogs
         self.project_dialogs = c.project_dialogs
         self._pending_error = c.pending_error
@@ -128,9 +129,11 @@ class TrebnicApp:
 
         # Set up callback for when app is unlocked
         async def on_unlocked() -> None:
-            # Reload data with decryption enabled
-            self.service.reload_state()
-            self.tasks_view.refresh()
+            # Reload data with decryption enabled - use async version
+            # This emits REFRESH_UI which triggers UI rebuild with fresh Task objects
+            await self.service.reload_state_async()
+            # Also rebuild sidebar in case project names were encrypted
+            self.rebuild_sidebar()
             self.page.update()
 
         self.auth_ctrl.set_unlock_callback(on_unlocked)
@@ -287,6 +290,8 @@ class TrebnicApp:
             self.page_content.content = self.profile_page.build()
         elif self.state.current_page == PageType.PREFERENCES:
             self.page_content.content = self.prefs_page.build()
+        elif self.state.current_page == PageType.HELP:
+            self.page_content.content = self.help_page.build()
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NavItem.CALENDAR:
@@ -306,6 +311,10 @@ class TrebnicApp:
         """Handle encryption settings menu item click."""
         if self.auth_ctrl:
             self.auth_ctrl.show_encryption_settings()
+
+    def _on_help_click(self, e: ft.ControlEvent) -> None: 
+        """Handle help menu item click.""" 
+        self.nav_manager.navigate_to(PageType.HELP)
 
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""

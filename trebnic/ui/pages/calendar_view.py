@@ -25,7 +25,7 @@ class CalendarView:
                 content=ft.Text(
                     task.title,
                     size=9,
-                    max_lines=2,
+                    max_lines=3,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH),
                     color=COLORS["done_text"], 
@@ -40,7 +40,7 @@ class CalendarView:
             content=ft.Text(
                 task.title,
                 size=9,
-                max_lines=2,
+                max_lines=3,
                 overflow=ft.TextOverflow.ELLIPSIS,
                 color=COLORS["white"], 
             ), 

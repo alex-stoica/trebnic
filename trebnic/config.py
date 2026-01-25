@@ -24,7 +24,7 @@ class PageType(Enum):
     PROFILE = "profile"
     PREFERENCES = "preferences"
     TIME_ENTRIES = "time_entries"
-
+    HELP = "help"
 
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
@@ -128,8 +128,9 @@ SIDEBAR_WIDTH = 250
 SIDEBAR_ITEM_PADDING_LEFT = 50
 PROJECT_NAME_MAX_LENGTH = 50
 
-GAP_THRESHOLD_SECONDS = 60  
-TIME_ENTRY_ROW_HEIGHT = 60   
+GAP_THRESHOLD_SECONDS = 60
+TIME_ENTRY_ROW_HEIGHT = 60
+MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes   
  
 NAV_INBOX = NavItem.INBOX
 NAV_TODAY = NavItem.TODAY

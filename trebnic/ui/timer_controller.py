@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from config import COLORS
+from config import COLORS, MIN_TIMER_SECONDS
 from models.entities import Task, TimeEntry, AppState
 from services.timer import TimerService
 from services.logic import TaskService
@@ -19,7 +19,11 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 
 
 class TimerController:
-    """Controller for timer-related operations, extracted from TrebnicApp."""
+    """Controller for timer-related operations.
+
+    All DB operations are async and use page.run_task() to schedule
+    work on Flet's event loop. No sync wrappers needed.
+    """
 
     def __init__(
         self,
@@ -35,7 +39,7 @@ class TimerController:
         self.snack = snack
         self.timer_widget = timer_widget
         self._timer_task: Optional[asyncio.Task] = None
-        self._stop_event: asyncio.Event = asyncio.Event()  # Proper async synchronization
+        self._stop_event: asyncio.Event = asyncio.Event()
         self._last_heartbeat_seconds: int = 0
 
     def _reset_stop_flag(self) -> None:
@@ -45,14 +49,6 @@ class TimerController:
     def _signal_stop(self) -> None:
         """Signal the timer loop to stop (async-safe)."""
         self._stop_event.set()
-
-    def _save_time_entry_sync(self, entry: TimeEntry) -> int:
-        """Save a time entry synchronously (for TimerService callback)."""
-        return self.service.run_sync(self.service.save_time_entry(entry))
-
-    def _persist_task_sync(self, task: Task) -> None:
-        """Persist a task synchronously (for TimerService callback)."""
-        self.service.run_sync(self.service.persist_task(task))
 
     async def _save_heartbeat_async(self) -> None:
         """Save current timer state to DB for crash recovery.
@@ -125,13 +121,22 @@ class TimerController:
             self.snack.show("Stop current timer first", COLORS["danger"])
             return
 
-        self.timer_svc.start(task, self._persist_task_sync, self._save_time_entry_sync)
+        # Start timer (creates entry in memory)
+        self.timer_svc.start(task)
         self.timer_widget.start(task.title)
         event_bus.emit(AppEvent.TIMER_STARTED, task)
 
         # Reset for new timer session
         self._last_heartbeat_seconds = 0
         self._reset_stop_flag()
+
+        # Save initial time entry async - schedule and continue
+        async def save_initial_entry() -> None:
+            if self.timer_svc.current_entry is not None:
+                entry_id = await self.service.save_time_entry(self.timer_svc.current_entry)
+                self.timer_svc.current_entry.id = entry_id
+
+        self.page.run_task(save_initial_entry)
 
         # Use page.run_task to run on Flet's event loop
         self._timer_task = self.page.run_task(self._create_tick_loop())
@@ -154,13 +159,41 @@ class TimerController:
             self._timer_task.cancel()
         self._timer_task = None
 
-        task, elapsed = self.timer_svc.stop()
-        if task and elapsed > 0:
-            self.snack.show(
-                f"Added {format_timer_display(elapsed)} to '{task.title}'"
-            )
-            event_bus.emit(AppEvent.REFRESH_UI)
-            event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
+        # Get current entry before stop() clears it
+        entry_to_save = self.timer_svc.current_entry
+        task_to_save = self.timer_svc.active_task
+
+        task, elapsed, should_save, entry_to_delete = self.timer_svc.stop()
+
+        if task:
+            if should_save:
+                # Schedule async persistence
+                async def persist_timer_data() -> None:
+                    if entry_to_save is not None:
+                        await self.service.save_time_entry(entry_to_save)
+                    if task_to_save is not None:
+                        await self.service.persist_task(task_to_save)
+
+                self.page.run_task(persist_timer_data)
+
+                self.snack.show(
+                    f"Added {format_timer_display(elapsed)} to '{task.title}'"
+                )
+                event_bus.emit(AppEvent.REFRESH_UI)
+                event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
+            else:
+                # Delete the incomplete entry if one was saved
+                if entry_to_delete is not None:
+                    async def delete_entry() -> None:
+                        await self.service.delete_time_entry(entry_to_delete)
+
+                    self.page.run_task(delete_entry)
+
+                min_minutes = MIN_TIMER_SECONDS // 60
+                self.snack.show(
+                    f"Timer discarded - minimum recorded time is {min_minutes} minutes",
+                    COLORS["danger"]
+                )
 
         self.timer_widget.stop()
         self.page.update()
@@ -177,9 +210,13 @@ class TimerController:
         task = state.get_task_by_id(entry.task_id)
 
         if task is None:
-            # Task was deleted, complete the orphaned entry
+            # Task was deleted, complete the orphaned entry async
             entry.end_time = datetime.now()
-            self._save_time_entry_sync(entry)
+
+            async def save_orphaned_entry() -> None:
+                await self.service.save_time_entry(entry)
+
+            self.page.run_task(save_orphaned_entry)
             state.recovered_timer_entry = None
             return
 
@@ -190,8 +227,6 @@ class TimerController:
         self.timer_svc.active_task = task
         self.timer_svc.seconds = elapsed
         self.timer_svc.running = True
-        self.timer_svc._persist_fn = self._persist_task_sync
-        self.timer_svc._save_entry_fn = self._save_time_entry_sync
         self.timer_svc.current_entry = entry
         self.timer_svc.start_time = entry.start_time
 
@@ -212,7 +247,11 @@ class TimerController:
         state.recovered_timer_entry = None
 
     def cleanup(self) -> None:
-        """Clean up timer resources and save running entry to prevent data loss."""
+        """Clean up timer resources and save running entry to prevent data loss.
+
+        Note: During app shutdown, async saves are best-effort. The heartbeat
+        mechanism ensures minimal data loss (max 30 seconds of timer data).
+        """
         # Signal the async loop to stop first (thread-safe)
         self._signal_stop()
 
@@ -222,16 +261,28 @@ class TimerController:
 
         # Save running time entry before cleanup to prevent data loss
         if self.timer_svc.running and self.timer_svc.current_entry is not None:
+            entry = self.timer_svc.current_entry
+            task = self.timer_svc.active_task
+            elapsed = self.timer_svc.seconds
+
             # Complete the entry with current time
-            self.timer_svc.current_entry.end_time = datetime.now()
+            entry.end_time = datetime.now()
+
+            async def save_on_cleanup() -> None:
+                try:
+                    await self.service.save_time_entry(entry)
+                    if task is not None and elapsed > 0:
+                        task.spent_seconds += elapsed
+                        await self.service.persist_task(task)
+                except Exception as e:
+                    logger.warning(f"Failed to save timer on cleanup: {e}")
+
+            # Best-effort async save - may not complete before app exits
+            # but heartbeat ensures we don't lose more than 30 seconds
             try:
-                self._save_time_entry_sync(self.timer_svc.current_entry)
-                # Also update task's spent time
-                if self.timer_svc.active_task and self.timer_svc.seconds > 0:
-                    self.timer_svc.active_task.spent_seconds += self.timer_svc.seconds
-                    self._persist_task_sync(self.timer_svc.active_task)
+                self.page.run_task(save_on_cleanup)
             except Exception:
-                pass  # Best effort save on cleanup
+                pass  # Page may be closing
 
         # Reset timer service state
         self.timer_svc.running = False

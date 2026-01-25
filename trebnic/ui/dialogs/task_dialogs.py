@@ -29,6 +29,10 @@ class RecurrenceDialogController:
 
     WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]
 
+    # Class-level DatePicker to reuse across instances and prevent memory leak
+    _shared_date_picker: Optional[ft.DatePicker] = None
+    _shared_picker_page: Optional[ft.Page] = None
+
     def __init__(
         self,
         page: ft.Page,
@@ -40,7 +44,6 @@ class RecurrenceDialogController:
         self.state = state
         self.on_save = on_save
         self.on_close = on_close
-        self._date_picker: Optional[ft.DatePicker] = None
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -170,17 +173,34 @@ class RecurrenceDialogController:
         self.state.from_completion = e.control.value
 
     def _open_end_date_picker(self, e: ft.ControlEvent) -> None:
-        """Open the end date picker."""
-        if self._date_picker is None:
-            self._date_picker = ft.DatePicker(
+        """Open the end date picker.
+
+        Uses a class-level shared DatePicker to prevent overlay memory leaks.
+        The picker is reused across dialog instances and only added to overlay once.
+        """
+        cls = RecurrenceDialogController
+
+        # Check if we need to create a new picker (first time or page changed)
+        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
+            # Remove old picker from previous page's overlay if exists
+            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
+                try:
+                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
+                except ValueError:
+                    pass  # Already removed
+
+            # Create new picker for current page
+            cls._shared_date_picker = ft.DatePicker(
                 first_date=date.today(),
                 last_date=date.today() + timedelta(days=365 * 5),
-                on_change=self._on_end_date_change,
             )
-            self.page.overlay.append(self._date_picker)
+            self.page.overlay.append(cls._shared_date_picker)
+            cls._shared_picker_page = self.page
 
-        self._date_picker.value = self.state.end_date or date.today()
-        self._date_picker.open = True
+        # Update handler for this specific dialog instance
+        cls._shared_date_picker.on_change = self._on_end_date_change
+        cls._shared_date_picker.value = self.state.end_date or date.today()
+        cls._shared_date_picker.open = True
         self.page.update()
 
     def _on_end_date_change(self, e: ft.ControlEvent) -> None:
@@ -240,20 +260,23 @@ class RecurrenceDialogController:
 
 
 class TaskDialogs:
+    # Class-level DatePicker to reuse across instances and prevent memory leak
+    _shared_date_picker: Optional[ft.DatePicker] = None
+    _shared_picker_page: Optional[ft.Page] = None
+
     def __init__(
         self,
         page: ft.Page,
         state: AppState,
         service: TaskService,
         snack: SnackService,
-        navigate: Callable[[PageType], None] = None,  
+        navigate: Callable[[PageType], None] = None,
     ) -> None:
         self.page = page
         self.state = state
         self.service = service
         self.snack = snack
         self.navigate = navigate
-        self._date_picker: Optional[ft.DatePicker] = None
 
     def rename(self, task: Task) -> None:
         error = ft.Text("", color=COLORS["danger"], size=12, visible=False)
@@ -358,6 +381,33 @@ class TaskDialogs:
             lambda c: [ft.TextButton("Cancel", on_click=c)],
         )
 
+    def _ensure_date_picker(self) -> ft.DatePicker:
+        """Get or create the shared DatePicker, managing overlay lifecycle.
+
+        Uses a class-level shared DatePicker to prevent overlay memory leaks.
+        The picker is reused across dialog instances and only added to overlay once.
+        """
+        cls = TaskDialogs
+
+        # Check if we need to create a new picker (first time or page changed)
+        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
+            # Remove old picker from previous page's overlay if exists
+            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
+                try:
+                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
+                except ValueError:
+                    pass  # Already removed
+
+            # Create new picker for current page
+            cls._shared_date_picker = ft.DatePicker(
+                first_date=date.today(),
+                last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
+            )
+            self.page.overlay.append(cls._shared_date_picker)
+            cls._shared_picker_page = self.page
+
+        return cls._shared_date_picker
+
     def date_picker(self, task: Task) -> None:
         if task.recurrent:
             content = ft.Container(
@@ -386,19 +436,14 @@ class TaskDialogs:
             )
             return
 
-        if self._date_picker is None:
-            self._date_picker = ft.DatePicker(
-                first_date=date.today(),
-                last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
-            )
-            self.page.overlay.append(self._date_picker)
+        picker = self._ensure_date_picker()
 
         picker_value = (
             task.due_date
             if task.due_date and task.due_date >= date.today()
             else date.today()
         )
-        self._date_picker.value = picker_value
+        picker.value = picker_value
 
         def handle_change(e: ft.ControlEvent) -> None:
             if e.control.value:
@@ -410,7 +455,7 @@ class TaskDialogs:
                     event_bus.emit(AppEvent.REFRESH_UI)
                 self.page.run_task(_handle)
 
-        self._date_picker.on_change = handle_change
+        picker.on_change = handle_change
 
         def preset(days: int) -> None:
             new_date = date.today() + timedelta(days=days)
@@ -431,7 +476,7 @@ class TaskDialogs:
             self.page.run_task(_clear)
 
         def pick(e: ft.ControlEvent) -> None:
-            self._date_picker.open = True
+            picker.open = True
             self.page.update()
 
         content = ft.Container(
@@ -517,17 +562,27 @@ class TaskDialogs:
         temp_controller.on_close = close
 
     def stats(self, task: Task) -> None:
+        """Show task statistics dialog.
+
+        Loads time entries asynchronously then displays the dialog.
+        """
+        async def load_and_show() -> None:
+            time_entries = (
+                await self.service.load_time_entries_for_task(task.id)
+                if task.id else []
+            )
+            self._show_stats_dialog(task, time_entries)
+
+        self.page.run_task(load_and_show)
+
+    def _show_stats_dialog(self, task: Task, time_entries: List[TimeEntry]) -> None:
+        """Internal: Build and show the stats dialog with loaded data."""
         project = self.state.get_project_by_id(task.project_id)
         pct = (
             (task.spent_seconds / task.estimated_seconds * 100)
             if task.estimated_seconds > 0 else 0
         )
         remaining = max(0, task.estimated_seconds - task.spent_seconds)
-
-        time_entries = (
-            self.service.run_sync(self.service.load_time_entries_for_task(task.id))
-            if task.id else []
-        )
 
         def stat_card(
             icon: str,

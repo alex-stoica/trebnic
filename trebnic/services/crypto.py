@@ -25,6 +25,7 @@ import hmac
 import logging
 import os
 import secrets
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -191,8 +192,9 @@ class CryptoService:
     from the master password at app startup (unlock).
 
     Thread Safety:
-        This class is NOT thread-safe. The key should be set once
-        during app initialization and not modified during operation.
+        Uses double-check locking for thread-safe singleton initialization.
+        The key should be set once during app initialization and not modified
+        during operation.
 
     Example:
         crypto = CryptoService()
@@ -214,13 +216,17 @@ class CryptoService:
     """
 
     _instance: Optional["CryptoService"] = None
+    _instance_lock = threading.Lock()
 
     def __new__(cls) -> "CryptoService":
         """Singleton pattern - one crypto service for the app."""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._key: Optional[bytes] = None
-            cls._instance._aesgcm: Optional[AESGCM] = None
+            with cls._instance_lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._key: Optional[bytes] = None
+                    cls._instance._aesgcm: Optional[AESGCM] = None
         return cls._instance
 
     @property
@@ -377,6 +383,19 @@ class CryptoService:
             # Decryption failed (wrong key, corrupted data) - return placeholder
             return LOCKED_PLACEHOLDER
         return value
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance.
+
+        Note: This method is primarily used for testing to ensure
+        a fresh CryptoService instance between test cases. Not typically
+        called in production code.
+        """
+        with cls._instance_lock:
+            if cls._instance is not None:
+                cls._instance.lock()
+                cls._instance = None
 
 
 # ============================================================================

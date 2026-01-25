@@ -449,16 +449,19 @@ class ProjectDialogs:
             return
 
         def do_delete(e: ft.ControlEvent) -> None:
-            count = self.service.delete_project(project.id)
-            self.state.editing_project_id = None
-            close()
-            self.page.close(self._dialog)
-            self.snack.show(
-                f"Project '{project.name}' deleted ({count} tasks removed)",
-                COLORS["danger"],
-            )
-            event_bus.emit(AppEvent.SIDEBAR_REBUILD)
-            event_bus.emit(AppEvent.REFRESH_UI)
+            async def _delete_async() -> None:
+                count = await self.service.delete_project(project.id)
+                self.state.editing_project_id = None
+                close()
+                self.page.close(self._dialog)
+                self.snack.show(
+                    f"Project '{project.name}' deleted ({count} tasks removed)",
+                    COLORS["danger"],
+                )
+                event_bus.emit(AppEvent.SIDEBAR_REBUILD)
+                event_bus.emit(AppEvent.REFRESH_UI)
+
+            self.page.run_task(_delete_async)
 
         content = ft.Text(f"Delete '{project.name}' and all its tasks?")
         _, close = open_dialog(

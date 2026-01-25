@@ -2,6 +2,9 @@ import flet as ft
 from typing import Dict, Optional
 
 from database import DatabaseError
+from events import event_bus
+from registry import registry, Services
+from services.crypto import crypto
 from services.logic import TaskService
 from services.timer import TimerService
 from models.entities import AppState
@@ -65,6 +68,7 @@ class AppInitializer:
     
     def initialize(self) -> AppComponents:
         """Initialize all application components and return them."""
+        self._register_core_services()
         self._setup_page()
         self._init_auth()
         self._init_services()
@@ -73,6 +77,15 @@ class AppInitializer:
         self._init_timer_controller()
         self._subscribe_to_events()
         return self.components
+
+    def _register_core_services(self) -> None:
+        """Register core services in the registry before any component initialization.
+
+        This must run first to ensure services are available to other modules
+        that depend on them via the registry (e.g., database.py uses crypto).
+        """
+        registry.register(Services.CRYPTO, crypto)
+        registry.register(Services.EVENT_BUS, event_bus)
 
     def _init_auth(self) -> None:
         """Initialize authentication controller.

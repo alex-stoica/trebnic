@@ -19,6 +19,7 @@ Security Model:
 """
 import base64
 import logging
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Awaitable
@@ -200,7 +201,7 @@ class AuthService:
     - Database settings (stored configuration)
 
     Usage:
-        auth = AuthService(get_setting, set_setting)
+        auth = get_auth_service(get_setting, set_setting)
 
         # First-time setup
         await auth.setup_master_password("user_password")
@@ -216,18 +217,22 @@ class AuthService:
     """
 
     _instance: Optional["AuthService"] = None
+    _instance_lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs) -> "AuthService":
-        """Singleton pattern."""
+        """Singleton pattern with double-check locking."""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._instance_lock:
+                # Double-check locking pattern
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(
         self,
-        get_setting: Callable[[str, any], Awaitable[any]],
-        set_setting: Callable[[str, any], Awaitable[None]]
+        get_setting: Callable[[str, Any], Awaitable[Any]],
+        set_setting: Callable[[str, Any], Awaitable[None]]
     ) -> None:
         """Initialize the auth service.
 
@@ -582,12 +587,24 @@ class AuthService:
         logger.info("Passkey disabled")
         return True
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance.
+
+        Note: This method is primarily used for testing to ensure
+        a fresh AuthService instance between test cases. Not typically
+        called in production code.
+        """
+        with cls._instance_lock:
+            if cls._instance is not None:
+                cls._instance.lock()
+                cls._instance._initialized = False
+                cls._instance = None
+
 
 # ============================================================================
 # Module-level factory (lazy initialization)
 # ============================================================================
-
-_auth_instance: Optional[AuthService] = None
 
 
 def get_auth_service(
@@ -603,7 +620,4 @@ def get_auth_service(
     Returns:
         The AuthService singleton instance
     """
-    global _auth_instance
-    if _auth_instance is None:
-        _auth_instance = AuthService(get_setting, set_setting)
-    return _auth_instance
+    return AuthService(get_setting, set_setting)

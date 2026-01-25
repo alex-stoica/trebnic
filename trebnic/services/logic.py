@@ -1,24 +1,25 @@
 import uuid
 import asyncio
+import logging
 from datetime import date, timedelta
-from typing import List, Tuple, Optional, TYPE_CHECKING
+from typing import List, Tuple, Optional
 
 import flet as ft
 
 from config import NavItem
 from database import db
 from models.entities import AppState, Task, Project, TimeEntry
+from registry import registry, Services
 from services.recurrence import calculate_next_recurrence, calculate_next_recurrence_from_date
 
-if TYPE_CHECKING:
-    pass
+logger = logging.getLogger(__name__)
 
 
 class TaskService:
     """Service for task and project operations.
 
-    All data operations are async. For sync contexts (e.g., cleanup, callbacks),
-    use run_sync() to bridge. Prefer async patterns with page.run_task() or await.
+    All data operations are async. Use page.run_task() or await for async calls.
+    The run_sync() method is deprecated and kept only for backwards compatibility.
     """
 
     def __init__(self, state: AppState, page: Optional[ft.Page] = None) -> None:
@@ -32,8 +33,15 @@ class TaskService:
     def run_sync(self, coro, wait: bool = True):
         """Execute an async coroutine synchronously.
 
-        Use sparingly - prefer async handlers with page.run_task() or await.
-        This is for sync contexts that must call async methods (e.g., cleanup).
+        DEPRECATED: Use page.run_task() or await instead. This method is kept
+        for backwards compatibility but should not be used in new code.
+
+        IMPORTANT: This method has limitations:
+        - When page is available: Uses page.loop via run_coroutine_threadsafe (safe)
+        - When no page and no running loop: Falls back to asyncio.run() which
+          creates a new event loop - this may cause issues with database
+          connections bound to other loops
+        - When called from async context without page: Raises RuntimeError
 
         Args:
             coro: The coroutine to execute
@@ -44,15 +52,24 @@ class TaskService:
 
         Raises:
             RuntimeError: If called from an async context without a page reference.
+            TimeoutError: If wait=True and the coroutine times out after 30 seconds.
         """
-        # If we have a page, use its event loop
+        # Best case: we have a page with an event loop
         if self._page is not None:
-            future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
-            if not wait:
-                return None
-            return future.result(timeout=30.0)
+            try:
+                future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
+                if not wait:
+                    return None
+                return future.result(timeout=30.0)
+            except asyncio.TimeoutError:
+                logger.error("run_sync timed out after 30s - possible deadlock")
+                raise TimeoutError("Async operation timed out after 30 seconds")
+            except RuntimeError as e:
+                # Event loop might be closed or in an invalid state
+                logger.warning(f"run_sync failed with page loop: {e}")
+                # Fall through to try other methods
 
-        # No page available - check if we're in an async context
+        # Check if we're already in an async context
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -64,11 +81,21 @@ class TaskService:
             coro.close()
             raise RuntimeError(
                 "Cannot call run_sync from async context without page reference. "
-                "Use 'await' directly or ensure page is set via set_page()."
+                "Use 'await' directly or pass page via set_page() before calling. "
+                "This typically happens when calling run_sync from an event handler."
             )
 
-        # No running loop - safe to create a new one
-        return asyncio.run(coro)
+        # Last resort: create a new event loop
+        # This is only safe during initial app startup before the main loop exists
+        logger.debug("run_sync falling back to asyncio.run() - no page loop available")
+        try:
+            return asyncio.run(coro)
+        except RuntimeError as e:
+            logger.error(f"asyncio.run() failed in run_sync: {e}")
+            raise RuntimeError(
+                f"Failed to execute async code synchronously: {e}. "
+                "Ensure the app is fully initialized before calling database methods."
+            ) from e
 
     @staticmethod
     async def load_state_async() -> AppState:
@@ -113,13 +140,15 @@ class TaskService:
         """Create an empty state without loading from database."""
         return AppState()
 
-    def reload_state(self) -> None:
-        """Reload state from database.
+    async def reload_state_async(self) -> None:
+        """Reload state from database asynchronously.
 
         This is useful after encryption unlock when decrypted data becomes available.
         Reloads all tasks and projects with decryption enabled.
+
+        Emits REFRESH_UI event to notify UI components to rebuild with fresh data.
         """
-        new_state = TaskService.load_state()
+        new_state = await TaskService.load_state_async()
 
         # Update the existing state object in place to preserve references
         self.state.tasks.clear()
@@ -128,6 +157,43 @@ class TaskService:
         self.state.done_tasks.extend(new_state.done_tasks)
         self.state.projects.clear()
         self.state.projects.extend(new_state.projects)
+
+        # Notify UI to rebuild via registry
+        from events import AppEvent  # AppEvent enum is safe to import
+        event_bus = registry.get(Services.EVENT_BUS)
+        if event_bus:
+            event_bus.emit(AppEvent.REFRESH_UI)
+
+    def reload_state(self) -> None:
+        """Reload state from database (sync wrapper).
+
+        This is useful after encryption unlock when decrypted data becomes available.
+        Reloads all tasks and projects with decryption enabled.
+
+        Prefer reload_state_async() when in an async context to avoid event loop conflicts.
+        """
+        if self._page is not None:
+            # Use the page's event loop - safer than asyncio.run()
+            future = asyncio.run_coroutine_threadsafe(
+                self.reload_state_async(),
+                self._page.loop
+            )
+            future.result(timeout=30.0)
+        else:
+            # Fallback for testing or early init
+            new_state = TaskService.load_state()
+
+            self.state.tasks.clear()
+            self.state.tasks.extend(new_state.tasks)
+            self.state.done_tasks.clear()
+            self.state.done_tasks.extend(new_state.done_tasks)
+            self.state.projects.clear()
+            self.state.projects.extend(new_state.projects)
+
+            from events import AppEvent  # AppEvent enum is safe to import
+            event_bus = registry.get(Services.EVENT_BUS)
+            if event_bus:
+                event_bus.emit(AppEvent.REFRESH_UI)
 
     async def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
         """Add a new task. UI should call refresh() after this."""
