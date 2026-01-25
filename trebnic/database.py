@@ -6,7 +6,7 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Any, Dict, List, AsyncIterator
+from typing import Optional, Any, Callable, Dict, List, AsyncIterator, Tuple
 
 from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
 
@@ -63,6 +63,14 @@ def _decrypt_field(value: Optional[str]) -> Optional[str]:
         return value
     crypto = _get_crypto()
     return crypto.decrypt_if_encrypted(value)
+
+
+def _is_encrypted(value: Optional[str]) -> bool:
+    """Check if a value is in encrypted format."""
+    if not value:
+        return False
+    crypto = _get_crypto()
+    return crypto.is_encrypted(value)
 
 
 class Database:
@@ -792,6 +800,104 @@ class Database:
         except Exception as e:
             logger.error(f"Error loading filtered tasks: {e}")
             raise DatabaseError(f"Failed to load filtered tasks: {e}") from e
+
+    async def load_all_encrypted_data_raw(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Load all tasks and projects with encrypted fields as-is (no decryption).
+
+        Returns:
+            Tuple of (tasks, projects) with raw encrypted data for re-encryption.
+        """
+        try:
+            async with self._get_connection() as conn:
+                # Load tasks without decryption
+                async with conn.execute("SELECT id, title, notes FROM tasks") as cursor:
+                    tasks = [dict(r) async for r in cursor]
+
+                # Load projects without decryption
+                async with conn.execute("SELECT id, name FROM projects") as cursor:
+                    projects = [dict(r) async for r in cursor]
+
+                return tasks, projects
+        except Exception as e:
+            logger.error(f"Error loading encrypted data: {e}")
+            raise DatabaseError(f"Failed to load encrypted data: {e}") from e
+
+    async def reencrypt_all_data(
+        self,
+        decrypt_fn: Callable[[str], Optional[str]],
+        encrypt_fn: Callable[[str], str]
+    ) -> Tuple[int, int]:
+        """Re-encrypt all sensitive fields with a new key.
+
+        This is used during password change to migrate data from old key to new key.
+
+        Args:
+            decrypt_fn: Function to decrypt with OLD key (value) -> plaintext
+            encrypt_fn: Function to encrypt with NEW key (plaintext) -> encrypted
+
+        Returns:
+            Tuple of (tasks_updated, projects_updated) counts.
+        """
+        try:
+            async with self._get_connection() as conn:
+                tasks_updated = 0
+                projects_updated = 0
+
+                # Re-encrypt task titles and notes
+                async with conn.execute("SELECT id, title, notes FROM tasks") as cursor:
+                    tasks = [dict(r) async for r in cursor]
+
+                for task in tasks:
+                    old_title = task.get("title", "")
+                    old_notes = task.get("notes", "")
+
+                    # Decrypt with old key, encrypt with new key
+                    new_title = old_title
+                    new_notes = old_notes
+
+                    if old_title and _is_encrypted(old_title):
+                        decrypted_title = decrypt_fn(old_title)
+                        if decrypted_title is not None:
+                            new_title = encrypt_fn(decrypted_title)
+
+                    if old_notes and _is_encrypted(old_notes):
+                        decrypted_notes = decrypt_fn(old_notes)
+                        if decrypted_notes is not None:
+                            new_notes = encrypt_fn(decrypted_notes)
+
+                    if new_title != old_title or new_notes != old_notes:
+                        await conn.execute(
+                            "UPDATE tasks SET title = ?, notes = ? WHERE id = ?",
+                            (new_title, new_notes, task["id"])
+                        )
+                        tasks_updated += 1
+
+                # Re-encrypt project names
+                async with conn.execute("SELECT id, name FROM projects") as cursor:
+                    projects = [dict(r) async for r in cursor]
+
+                for project in projects:
+                    old_name = project.get("name", "")
+                    new_name = old_name
+
+                    if old_name and _is_encrypted(old_name):
+                        decrypted_name = decrypt_fn(old_name)
+                        if decrypted_name is not None:
+                            new_name = encrypt_fn(decrypted_name)
+
+                    if new_name != old_name:
+                        await conn.execute(
+                            "UPDATE projects SET name = ? WHERE id = ?",
+                            (new_name, project["id"])
+                        )
+                        projects_updated += 1
+
+                await conn.commit()
+                return tasks_updated, projects_updated
+
+        except Exception as e:
+            logger.error(f"Error re-encrypting data: {e}")
+            raise DatabaseError(f"Failed to re-encrypt data: {e}") from e
 
 
 db = Database()

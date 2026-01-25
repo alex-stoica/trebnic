@@ -401,40 +401,80 @@ class AuthService:
         else:
             self._state = AuthState.NOT_CONFIGURED
 
-    async def change_master_password(self, old_password: str, new_password: str) -> bool:
+    async def change_master_password(
+        self,
+        old_password: str,
+        new_password: str,
+        reencrypt_data_fn: Optional[Callable[
+            [Callable[[str], Optional[str]], Callable[[str], str]],
+            Awaitable[tuple]
+        ]] = None
+    ) -> bool:
         """Change the master password.
 
-        This requires re-encrypting all data with the new key.
+        This re-encrypts all data with the new key.
 
         Args:
             old_password: Current master password (for verification)
             new_password: New master password to set
+            reencrypt_data_fn: Optional async function to re-encrypt data.
+                              Signature: (decrypt_fn, encrypt_fn) -> (tasks_count, projects_count)
+                              If not provided, only password is changed (data loss warning!).
 
         Returns:
             True if password changed successfully, False if old password wrong
         """
-        # Verify old password
+        # Verify old password and derive old key
         if not await self.unlock_with_password(old_password):
             return False
 
-        # TODO: Re-encrypt all data with new key
-        # This is complex because we need to:
-        # 1. Load all encrypted data
-        # 2. Decrypt with old key
-        # 3. Generate new salt and key
-        # 4. Re-encrypt with new key
-        # 5. Save everything in a transaction
-        #
-        # For now, just update the password without re-encryption
-        # (assumes no data has been encrypted yet, or user accepts data loss)
+        # Store old key reference for decryption during re-encryption
+        old_key = crypto._key
+        old_aesgcm = crypto._aesgcm
 
-        # Generate new salt and key
+        # Create decrypt function that uses the old key
+        def decrypt_with_old_key(encrypted: str) -> Optional[str]:
+            """Decrypt a value using the old key."""
+            from services.crypto import EncryptedData, CRYPTO_AVAILABLE
+            if not CRYPTO_AVAILABLE or old_aesgcm is None:
+                return None
+            data = EncryptedData.from_string(encrypted)
+            if data is None:
+                return None
+            try:
+                plaintext_bytes = old_aesgcm.decrypt(data.nonce, data.ciphertext, None)
+                return plaintext_bytes.decode('utf-8')
+            except Exception as e:
+                logger.warning(f"Decryption with old key failed: {e}")
+                return None
+
+        # Generate new salt and derive new key
         salt = generate_salt()
         crypto.derive_key_from_password(new_password, salt)
         key_hash = crypto.get_key_verification_hash()
         kdf_method = "argon2" if crypto.uses_argon2 else "pbkdf2"
 
-        # Save to settings
+        # Create encrypt function that uses the new key
+        def encrypt_with_new_key(plaintext: str) -> str:
+            """Encrypt a value using the new key."""
+            return crypto.encrypt_field(plaintext)
+
+        # Re-encrypt all data if function provided
+        if reencrypt_data_fn is not None:
+            try:
+                tasks_count, projects_count = await reencrypt_data_fn(
+                    decrypt_with_old_key,
+                    encrypt_with_new_key
+                )
+                logger.info(f"Re-encrypted {tasks_count} tasks and {projects_count} projects")
+            except Exception as e:
+                # Rollback: restore old key
+                crypto._key = old_key
+                crypto._aesgcm = old_aesgcm
+                logger.error(f"Re-encryption failed, rolled back: {e}")
+                raise
+
+        # Save new credentials to settings
         await self._set_setting(SETTING_ENCRYPTION_SALT, base64.b64encode(salt).decode('utf-8'))
         await self._set_setting(SETTING_KEY_VERIFICATION, key_hash)
         await self._set_setting(SETTING_KDF_METHOD, kdf_method)
@@ -447,13 +487,23 @@ class AuthService:
         logger.info("Master password changed successfully")
         return True
 
-    async def disable_encryption(self, password: str) -> bool:
+    async def disable_encryption(
+        self,
+        password: str,
+        decrypt_data_fn: Optional[Callable[
+            [Callable[[str], Optional[str]], Callable[[str], str]],
+            Awaitable[tuple]
+        ]] = None
+    ) -> bool:
         """Disable encryption and remove master password.
 
-        WARNING: This will make encrypted data unreadable!
+        This decrypts all data before disabling encryption so data is preserved.
 
         Args:
             password: Master password for verification
+            decrypt_data_fn: Optional async function to decrypt all data.
+                            Signature: (decrypt_fn, identity_fn) -> (tasks_count, projects_count)
+                            If not provided, encrypted data will become unreadable.
 
         Returns:
             True if disabled successfully, False if password wrong
@@ -462,8 +512,21 @@ class AuthService:
         if not await self.unlock_with_password(password):
             return False
 
-        # TODO: Decrypt all data before disabling
-        # For now, just disable (data loss warning should be shown to user)
+        # Decrypt all data if function provided
+        if decrypt_data_fn is not None:
+            def decrypt_fn(encrypted: str) -> Optional[str]:
+                return crypto.decrypt_field(encrypted)
+
+            def identity_fn(plaintext: str) -> str:
+                """Return plaintext as-is (no encryption)."""
+                return plaintext
+
+            try:
+                tasks_count, projects_count = await decrypt_data_fn(decrypt_fn, identity_fn)
+                logger.info(f"Decrypted {tasks_count} tasks and {projects_count} projects")
+            except Exception as e:
+                logger.error(f"Failed to decrypt data: {e}")
+                raise
 
         await self._set_setting(SETTING_ENCRYPTION_ENABLED, False)
         await self._set_setting(SETTING_ENCRYPTION_SALT, None)

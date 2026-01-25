@@ -33,12 +33,14 @@ class ProfilePage:
         self.snack = snack
         self.navigate = navigate
 
-    def _open_reset_dialog(self, e: ft.ControlEvent) -> None: 
+    def _open_reset_dialog(self, e: ft.ControlEvent) -> None:
         def confirm(e: ft.ControlEvent) -> None:
-            self.service.reset()
-            close()
-            event_bus.emit(AppEvent.DATA_RESET)
-            self.snack.show("All data has been reset", COLORS["danger"])
+            async def _reset() -> None:
+                await self.service.reset()
+                close()
+                event_bus.emit(AppEvent.DATA_RESET)
+                self.snack.show("All data has been reset", COLORS["danger"])
+            self.page.run_task(_reset)
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
@@ -247,18 +249,20 @@ class PreferencesPage:
             label="Email weekly stats", 
         ) 
 
-        def save(e: ft.ControlEvent) -> None: 
-            self.state.default_estimated_minutes = (
-                int(slider.value) * DURATION_SLIDER_STEP 
-            ) 
-            self.state.email_weekly_stats = email_cb.value
-            self.service.save_settings()
-            self.tasks_view.pending_details["estimated_minutes"] = (
-                self.state.default_estimated_minutes 
-            ) 
-            self.tasks_view.details_btn.content.controls[1].value = "Add details"
-            self.snack.show("Preferences saved")
-            self.navigate(PageType.TASKS)
+        def save(e: ft.ControlEvent) -> None:
+            async def _save() -> None:
+                self.state.default_estimated_minutes = (
+                    int(slider.value) * DURATION_SLIDER_STEP
+                )
+                self.state.email_weekly_stats = email_cb.value
+                await self.service.save_settings()
+                self.tasks_view.pending_details["estimated_minutes"] = (
+                    self.state.default_estimated_minutes
+                )
+                self.tasks_view.details_btn.content.controls[1].value = "Add details"
+                self.snack.show("Preferences saved")
+                self.navigate(PageType.TASKS)
+            self.page.run_task(_save)
 
         back_btn = ft.IconButton(
             ft.Icons.ARROW_BACK, 

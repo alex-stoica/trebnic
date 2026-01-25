@@ -267,22 +267,25 @@ class TimeEntriesView:
         
         error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
 
-        def save(e: ft.ControlEvent) -> None:
+        async def save_async() -> None:
             duration_minutes = knob.value
             new_end = entry.start_time + timedelta(minutes=duration_minutes)
-             
+
             entry.end_time = new_end
-             
+
             task = self._get_task_for_entry(entry)
             if task:
-                self.service.save_time_entry(entry)
-                self.service.recalculate_task_time_from_entries(task)
+                await self.service.save_time_entry(entry)
+                await self.service.recalculate_task_time_from_entries(task)
             else:
-                self.service.save_time_entry(entry)
-            
-            close(e)
+                await self.service.save_time_entry(entry)
+
+            close(None)
             self.snack.show("Time entry updated")
-            self.refresh()
+            await self._refresh_async()
+
+        def save(e: ft.ControlEvent) -> None:
+            self.page.run_task(save_async)
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD + 50,
@@ -651,31 +654,34 @@ class TimeEntriesView:
         )
 
     def _delete_entry(self, entry_id: int) -> None:
-        """Delete a time entry.""" 
-        entries = [] 
-        task_id = self.state.viewing_task_id 
-        if task_id: 
-            entries = self.service.load_time_entries_for_task(task_id) 
-        
-        self.service.delete_time_entry(entry_id)
-         
-        if task_id: 
-            task = self.state.get_task_by_id(task_id)
-            if task:
-                remaining_entries = [e for e in entries if e.id != entry_id]
-                task.spent_seconds = sum(e.duration_seconds for e in remaining_entries if e.end_time)
-                self.service.persist_task(task)
-        
-        self.snack.show("Time entry deleted", COLORS["danger"])
-        self.refresh()
+        """Delete a time entry."""
+        async def _delete_async() -> None:
+            entries = []
+            task_id = self.state.viewing_task_id
+            if task_id:
+                entries = await self.service.load_time_entries_for_task(task_id)
+
+            await self.service.delete_time_entry(entry_id)
+
+            if task_id:
+                task = self.state.get_task_by_id(task_id)
+                if task:
+                    remaining_entries = [e for e in entries if e.id != entry_id]
+                    task.spent_seconds = sum(e.duration_seconds for e in remaining_entries if e.end_time)
+                    await self.service.persist_task(task)
+
+            self.snack.show("Time entry deleted", COLORS["danger"])
+            await self._refresh_async()
+
+        self.page.run_task(_delete_async)
 
     def _go_back(self, e: ft.ControlEvent) -> None:
         """Navigate back to tasks."""
         self.state.viewing_task_id = None
         self.navigate(PageType.TASKS)
 
-    def refresh(self) -> None:
-        """Refresh the time entries display."""
+    async def _refresh_async(self) -> None:
+        """Refresh the time entries display (async)."""
         if self._entries_container is None:
             return
 
@@ -683,9 +689,17 @@ class TimeEntriesView:
         task = self.state.get_task_by_id(task_id)
 
         if task_id:
-            entries = self.service.load_time_entries_for_task(task_id)
+            entries = await self.service.load_time_entries_for_task(task_id)
         else:
             entries = []
+
+        self._update_entries_display(entries, task)
+        self.page.update()
+
+    def _update_entries_display(self, entries: List[TimeEntry], task: Optional[Task]) -> None:
+        """Update the entries container with the given entries."""
+        if self._entries_container is None:
+            return
 
         self._entries_container.controls.clear()
 
@@ -767,7 +781,9 @@ class TimeEntriesView:
             task_title = task.title if task else "Unknown task"
             self._header_text.value = f"Time entries: {task_title}"
 
-        self.page.update()
+    def refresh(self) -> None:
+        """Refresh the time entries display (sync wrapper)."""
+        self.page.run_task(self._refresh_async)
 
     def build(self) -> ft.Column:
         """Build the time entries view."""

@@ -23,11 +23,11 @@ class CalendarView:
         if is_done:
             return ft.Container(
                 content=ft.Text(
-                    task.title, 
-                    size=9, 
-                    max_lines=1, 
-                    overflow=ft.TextOverflow.ELLIPSIS, 
-                    style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH), 
+                    task.title,
+                    size=9,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH),
                     color=COLORS["done_text"], 
                 ), 
                 bgcolor=COLORS["done_bg"],
@@ -38,10 +38,10 @@ class CalendarView:
 
         return ft.Container(
             content=ft.Text(
-                task.title, 
-                size=9, 
-                max_lines=1, 
-                overflow=ft.TextOverflow.ELLIPSIS, 
+                task.title,
+                size=9,
+                max_lines=2,
+                overflow=ft.TextOverflow.ELLIPSIS,
                 color=COLORS["white"], 
             ), 
             bgcolor=color,
@@ -119,12 +119,6 @@ class CalendarView:
         if self.on_update:
             self.on_update()
 
-    def _go_to_today(self) -> None:
-        """Reset to current week."""
-        self.state.calendar_week_offset = 0
-        if self.on_update:
-            self.on_update()
-
     def build(self) -> ft.Column:
         today = date.today()
         week_start = today - timedelta(days=today.weekday())
@@ -132,13 +126,6 @@ class CalendarView:
         days = [start + timedelta(days=i) for i in range(7)]
 
         date_range = f"{days[0].strftime('%b %d')} - {days[6].strftime('%b %d, %Y')}"
-
-        # Show "Today" button only when not viewing current week
-        today_btn = ft.TextButton(
-            "Today",
-            on_click=lambda e: self._go_to_today(),
-            visible=self.state.calendar_week_offset != 0,
-        )
 
         # Navigation controls grouped together to prevent overflow on mobile
         nav_controls = ft.Row(
@@ -165,7 +152,6 @@ class CalendarView:
                 ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
                 ft.Text("Calendar", size=16, weight="bold"),
                 ft.Container(expand=True),
-                today_btn,
                 ft.Text(date_range, color=COLORS["done_text"], size=11),
                 nav_controls,
             ],

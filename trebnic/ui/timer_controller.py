@@ -46,9 +46,13 @@ class TimerController:
         """Signal the timer loop to stop (async-safe)."""
         self._stop_event.set()
 
-    def _save_time_entry(self, entry: TimeEntry) -> int:
-        """Save a time entry to the database."""
-        return self.service.save_time_entry(entry)
+    def _save_time_entry_sync(self, entry: TimeEntry) -> int:
+        """Save a time entry synchronously (for TimerService callback)."""
+        return self.service.run_sync(self.service.save_time_entry(entry))
+
+    def _persist_task_sync(self, task: Task) -> None:
+        """Persist a task synchronously (for TimerService callback)."""
+        self.service.run_sync(self.service.persist_task(task))
 
     async def _save_heartbeat_async(self) -> None:
         """Save current timer state to DB for crash recovery.
@@ -68,7 +72,7 @@ class TimerController:
         try:
             entry = self.timer_svc.current_entry
             entry.end_time = datetime.now()
-            await self.service.save_time_entry_async(entry)
+            await self.service.save_time_entry(entry)
             # Clear end_time in memory so timer continues as "running"
             entry.end_time = None
             self._last_heartbeat_seconds = self.timer_svc.seconds
@@ -121,7 +125,7 @@ class TimerController:
             self.snack.show("Stop current timer first", COLORS["danger"])
             return
 
-        self.timer_svc.start(task, self.service.persist_task, self._save_time_entry)
+        self.timer_svc.start(task, self._persist_task_sync, self._save_time_entry_sync)
         self.timer_widget.start(task.title)
         event_bus.emit(AppEvent.TIMER_STARTED, task)
 
@@ -175,7 +179,7 @@ class TimerController:
         if task is None:
             # Task was deleted, complete the orphaned entry
             entry.end_time = datetime.now()
-            self.service.save_time_entry(entry)
+            self._save_time_entry_sync(entry)
             state.recovered_timer_entry = None
             return
 
@@ -186,8 +190,8 @@ class TimerController:
         self.timer_svc.active_task = task
         self.timer_svc.seconds = elapsed
         self.timer_svc.running = True
-        self.timer_svc._persist_fn = self.service.persist_task
-        self.timer_svc._save_entry_fn = self._save_time_entry
+        self.timer_svc._persist_fn = self._persist_task_sync
+        self.timer_svc._save_entry_fn = self._save_time_entry_sync
         self.timer_svc.current_entry = entry
         self.timer_svc.start_time = entry.start_time
 
@@ -221,11 +225,11 @@ class TimerController:
             # Complete the entry with current time
             self.timer_svc.current_entry.end_time = datetime.now()
             try:
-                self.service.save_time_entry(self.timer_svc.current_entry)
+                self._save_time_entry_sync(self.timer_svc.current_entry)
                 # Also update task's spent time
                 if self.timer_svc.active_task and self.timer_svc.seconds > 0:
                     self.timer_svc.active_task.spent_seconds += self.timer_svc.seconds
-                    self.service.persist_task(self.timer_svc.active_task)
+                    self._persist_task_sync(self.timer_svc.active_task)
             except Exception:
                 pass  # Best effort save on cleanup
 

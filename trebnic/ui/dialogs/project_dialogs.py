@@ -405,39 +405,43 @@ class ProjectDialogs:
             self.page.update()
             return
 
-        if self.state.editing_project_id:
-            for p in self.state.projects:
-                if p.id == self.state.editing_project_id:
-                    p.name = name
-                    p.icon = self._icon
-                    p.color = self._color
-                    self.service.save_project(p)
-                    break
-            msg = f"Project '{name}' updated"
-        else:
-            new_id = self.service.generate_project_id(name)
-            new_p = Project(
-                id=new_id,
-                name=name,
-                icon=self._icon,
-                color=self._color,
-            )
-            self.state.projects.append(new_p)
-            self.service.save_project(new_p)
-            msg = f"Project '{name}' created"
+        async def _save_async() -> None:
+            nonlocal name
+            if self.state.editing_project_id:
+                for p in self.state.projects:
+                    if p.id == self.state.editing_project_id:
+                        p.name = name
+                        p.icon = self._icon
+                        p.color = self._color
+                        await self.service.save_project(p)
+                        break
+                msg = f"Project '{name}' updated"
+            else:
+                new_id = self.service.generate_project_id(name)
+                new_p = Project(
+                    id=new_id,
+                    name=name,
+                    icon=self._icon,
+                    color=self._color,
+                )
+                self.state.projects.append(new_p)
+                await self.service.save_project(new_p)
+                msg = f"Project '{name}' created"
 
-        self._name_field.value = ""
-        self._icon = PROJECT_ICONS[0]
-        self._color = PROJECT_COLORS[0]["value"]
-        self._icon_display.value = self._icon
-        self._color_display.bgcolor = self._color
-        self.state.editing_project_id = None
-        self._error.visible = False
-        self.page.close(self._dialog)
-        self.snack.show(msg)
-        event_bus.emit(AppEvent.SIDEBAR_REBUILD)
-        event_bus.emit(AppEvent.REFRESH_UI)
-        self.page.update()
+            self._name_field.value = ""
+            self._icon = PROJECT_ICONS[0]
+            self._color = PROJECT_COLORS[0]["value"]
+            self._icon_display.value = self._icon
+            self._color_display.bgcolor = self._color
+            self.state.editing_project_id = None
+            self._error.visible = False
+            self.page.close(self._dialog)
+            self.snack.show(msg)
+            event_bus.emit(AppEvent.SIDEBAR_REBUILD)
+            event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.update()
+
+        self.page.run_task(_save_async)
 
     def _confirm_delete(self, e: ft.ControlEvent) -> None:
         project = self.state.get_project_by_id(self.state.editing_project_id)

@@ -273,11 +273,14 @@ class TaskDialogs:
                 error.value = "A task with this name already exists"
                 error.visible = True
                 self.page.update()
-                return 
-            self.service.rename_task(task, name)
-            self.snack.show(f"Renamed to '{name}'")
-            close(e)
-            event_bus.emit(AppEvent.REFRESH_UI)
+                return
+
+            async def _save() -> None:
+                await self.service.rename_task(task, name)
+                self.snack.show(f"Renamed to '{name}'")
+                close(e)
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_save)
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
@@ -293,11 +296,13 @@ class TaskDialogs:
 
     def assign_project(self, task: Task) -> None:
         def select(pid: Optional[str]) -> None:
-            self.service.assign_project(task, pid)
-            p = self.state.get_project_by_id(pid)
-            self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
-            close()
-            event_bus.emit(AppEvent.REFRESH_UI)
+            async def _select() -> None:
+                await self.service.assign_project(task, pid)
+                p = self.state.get_project_by_id(pid)
+                self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
+                close()
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_select)
 
         opts: List[ft.Control] = []
         for p in self.state.projects:
@@ -396,24 +401,34 @@ class TaskDialogs:
         self._date_picker.value = picker_value
 
         def handle_change(e: ft.ControlEvent) -> None:
-            if e.control.value: 
-                self.service.set_task_due_date(task, e.control.value.date())
-                self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
-                event_bus.emit(AppEvent.REFRESH_UI)
+            if e.control.value:
+                new_date = e.control.value.date()
+
+                async def _handle() -> None:
+                    await self.service.set_task_due_date(task, new_date)
+                    self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                    event_bus.emit(AppEvent.REFRESH_UI)
+                self.page.run_task(_handle)
 
         self._date_picker.on_change = handle_change
 
-        def preset(days: int) -> None: 
-            self.service.set_task_due_date(task, date.today() + timedelta(days=days))
-            self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
-            close()
-            event_bus.emit(AppEvent.REFRESH_UI)
+        def preset(days: int) -> None:
+            new_date = date.today() + timedelta(days=days)
 
-        def clear(e: ft.ControlEvent) -> None: 
-            self.service.set_task_due_date(task, None)
-            self.snack.show("Date cleared")
-            close()
-            event_bus.emit(AppEvent.REFRESH_UI)
+            async def _preset() -> None:
+                await self.service.set_task_due_date(task, new_date)
+                self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                close()
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_preset)
+
+        def clear(e: ft.ControlEvent) -> None:
+            async def _clear() -> None:
+                await self.service.set_task_due_date(task, None)
+                self.snack.show("Date cleared")
+                close()
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_clear)
 
         def pick(e: ft.ControlEvent) -> None:
             self._date_picker.open = True
@@ -460,10 +475,12 @@ class TaskDialogs:
         recurrence_state = RecurrenceState.from_task(task)
 
         def on_save() -> None:
-            self.service.persist_task(task)
-            msg = "Recurrence updated" if task.recurrent else "Recurrence disabled"
-            self.snack.show(msg)
-            event_bus.emit(AppEvent.REFRESH_UI)  
+            async def _save() -> None:
+                await self.service.persist_task(task)
+                msg = "Recurrence updated" if task.recurrent else "Recurrence disabled"
+                self.snack.show(msg)
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_save)  
 
         controller: Optional[RecurrenceDialogController] = None
 
@@ -507,7 +524,10 @@ class TaskDialogs:
         )
         remaining = max(0, task.estimated_seconds - task.spent_seconds)
 
-        time_entries = self.service.load_time_entries_for_task(task.id) if task.id else []
+        time_entries = (
+            self.service.run_sync(self.service.load_time_entries_for_task(task.id))
+            if task.id else []
+        )
 
         def stat_card(
             icon: str,
@@ -702,10 +722,12 @@ class TaskDialogs:
 
         toggle_btn.on_click = toggle
 
-        def save(e: ft.ControlEvent) -> None: 
-            self.service.set_task_notes(task, field.value)
-            close(e)
-            self.snack.show("Notes saved")
+        def save(e: ft.ControlEvent) -> None:
+            async def _save() -> None:
+                await self.service.set_task_notes(task, field.value)
+                close(e)
+                self.snack.show("Notes saved")
+            self.page.run_task(_save)
 
         content = ft.Container(
             width=DIALOG_WIDTH_XL,
@@ -811,18 +833,20 @@ class TaskDialogs:
         knob = DurationKnob(initial_minutes=initial_minutes, size=220)
 
         def save(e: ft.ControlEvent) -> None:
-            duration_seconds = knob.value * 60
-            # Create time entry: end_time = now, start_time = now - duration
-            end_time = datetime.now()
-            start_time = end_time - timedelta(seconds=duration_seconds)
-            entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
-            self.service.save_time_entry(entry)
-            # Update task spent time
-            task.spent_seconds += duration_seconds
-            self.service.persist_task(task, wait_for_result=True)
-            close(e)
-            # Now complete the task
-            on_complete(task)
+            async def _save() -> None:
+                duration_seconds = knob.value * 60
+                # Create time entry: end_time = now, start_time = now - duration
+                end_time = datetime.now()
+                start_time = end_time - timedelta(seconds=duration_seconds)
+                entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
+                await self.service.save_time_entry(entry)
+                # Update task spent time
+                task.spent_seconds += duration_seconds
+                await self.service.persist_task(task)
+                close(None)
+                # Now complete the task
+                on_complete(task)
+            self.page.run_task(_save)
 
         def skip(e: ft.ControlEvent) -> None:
             # Complete without setting time

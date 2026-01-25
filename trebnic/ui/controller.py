@@ -67,7 +67,7 @@ class UIController:
         # Check if task has time entries
         has_time_entries = False
         if task.id:
-            entries = await self.service.load_time_entries_for_task_async(task.id)
+            entries = await self.service.load_time_entries_for_task(task.id)
             has_time_entries = len(entries) > 0
 
         if not has_time_entries and task.spent_seconds == 0:
@@ -84,7 +84,7 @@ class UIController:
 
     async def _do_complete_async(self, task: Task) -> None:
         """Actually complete the task after any duration entry."""
-        new_task = await self.service.complete_task_async(task)
+        new_task = await self.service.complete_task(task)
         if new_task:
             self._call(
                 "show_snack",
@@ -100,7 +100,7 @@ class UIController:
 
     async def uncomplete_async(self, task: Task) -> None:
         """Uncomplete a task - async version."""
-        if await self.service.uncomplete_task_async(task):
+        if await self.service.uncomplete_task(task):
             self._call("refresh")
 
     def uncomplete(self, task: Task) -> None:

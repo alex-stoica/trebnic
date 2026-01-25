@@ -72,6 +72,9 @@ GCM_TAG_SIZE = 16             # 128-bit authentication tag
 # Encrypted field format prefix (for identification)
 ENCRYPTED_PREFIX = "ENC:1:"   # Version 1 encryption format
 
+# Placeholder shown when app is locked and encrypted data can't be decrypted
+LOCKED_PLACEHOLDER = "[Locked]"
+
 
 # ============================================================================
 # Data Classes
@@ -361,14 +364,18 @@ class CryptoService:
         """Decrypt if the value is encrypted, otherwise return as-is.
 
         This allows reading both encrypted and plaintext values during migration.
+        When the app is locked or decryption fails, returns LOCKED_PLACEHOLDER
+        instead of gibberish encrypted data.
         """
         if self.is_encrypted(value):
+            # If app is locked, return placeholder immediately
+            if not self.is_unlocked:
+                return LOCKED_PLACEHOLDER
             decrypted = self.decrypt_field(value)
             if decrypted is not None:
                 return decrypted
-            # Decryption failed - return the encrypted value
-            # The UI should indicate this is encrypted but not readable
-            return value
+            # Decryption failed (wrong key, corrupted data) - return placeholder
+            return LOCKED_PLACEHOLDER
         return value
 
 

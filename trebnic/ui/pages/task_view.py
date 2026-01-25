@@ -126,7 +126,7 @@ class TasksView:
             if len(self.state.selected_projects) == 1 else None
         )
 
-        await self.service.add_task_async(
+        await self.service.add_task(
             title=title,
             project_id=project_id,
             estimated_seconds=self.pending_details["estimated_minutes"] * 60,
@@ -163,7 +163,7 @@ class TasksView:
         ui_task_ids.insert(new_idx, moved_id)
 
         # Get fresh tasks from DB
-        filtered, _ = await self.service.get_filtered_tasks_async()
+        filtered, _ = await self.service.get_filtered_tasks()
         task_map = {t.id: t for t in filtered}
 
         # Assign sort_order based on desired UI order
@@ -172,7 +172,7 @@ class TasksView:
                 task_map[task_id].sort_order = i
 
         # Persist using efficient batch update (single transaction)
-        await self.service.persist_reordered_tasks_async(list(task_map.values()))
+        await self.service.persist_reordered_tasks(list(task_map.values()))
 
         # Refresh UI from DB
         self.refresh()
@@ -244,7 +244,7 @@ class TasksView:
 
     async def _refresh_async(self) -> None:
         """Async implementation of refresh - queries DB directly."""
-        pending, done = await self.service.get_filtered_tasks_async()
+        pending, done = await self.service.get_filtered_tasks()
 
         # Update section label based on current navigation
         if self._section_label is not None:

@@ -209,34 +209,32 @@ class TrebnicApp:
 
     def _do_delete_single_task(self, task: Task) -> None:
         """Delete a single task instance."""
-        title = task.title
+        async def _delete() -> None:
+            title = task.title
+            try:
+                await self.service.delete_task(task)
+            except DatabaseError as e:
+                self.snack.show(f"Failed to delete task: {e}", COLORS["danger"])
+                return
 
-        try:
-            self.service.delete_task(task)
-        except DatabaseError as e:
-            self.snack.show(f"Failed to delete task: {e}", COLORS["danger"])
-            return
-
-        async def delayed() -> None:
             await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(f"'{title}' deleted", COLORS["danger"], update=False)
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_DELETED, task)
             self.page.update()
 
-        self.page.run_task(delayed)
+        self.page.run_task(_delete)
 
     def _do_delete_all_recurring(self, task: Task) -> None:
         """Delete all recurring instances of a task."""
-        title = task.title
+        async def _delete() -> None:
+            title = task.title
+            try:
+                count = await self.service.delete_all_recurring_tasks(task)
+            except DatabaseError as e:
+                self.snack.show(f"Failed to delete tasks: {e}", COLORS["danger"])
+                return
 
-        try:
-            count = self.service.delete_all_recurring_tasks(task)
-        except DatabaseError as e:
-            self.snack.show(f"Failed to delete tasks: {e}", COLORS["danger"])
-            return
-
-        async def delayed() -> None:
             await asyncio.sleep(ANIMATION_DELAY)
             msg = f"Deleted {count} '{title}' occurrence{'s' if count != 1 else ''}"
             self.snack.show(msg, COLORS["danger"], update=False)
@@ -244,36 +242,34 @@ class TrebnicApp:
             self.event_bus.emit(AppEvent.TASK_DELETED, task)
             self.page.update()
 
-        self.page.run_task(delayed)
+        self.page.run_task(_delete)
 
     def _duplicate_task(self, task: Task) -> None:
         """Duplicate a task with error handling."""
-        try:
-            new_task = self.service.duplicate_task(task)
-        except DatabaseError as e:
-            self.snack.show(f"Failed to duplicate task: {e}", COLORS["danger"])
-            return
+        async def _duplicate() -> None:
+            try:
+                new_task = await self.service.duplicate_task(task)
+            except DatabaseError as e:
+                self.snack.show(f"Failed to duplicate task: {e}", COLORS["danger"])
+                return
 
-        async def delayed() -> None:
             await asyncio.sleep(ANIMATION_DELAY)
-            self.snack.show(
-                f"Task duplicated as '{new_task.title}'", update=False
-            )
+            self.snack.show(f"Task duplicated as '{new_task.title}'", update=False)
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_DUPLICATED, new_task)
             self.page.update()
 
-        self.page.run_task(delayed)
+        self.page.run_task(_duplicate)
 
     def _postpone_task(self, task: Task) -> None:
         """Postpone a task by one day with error handling."""
-        try:
-            new_date = self.service.postpone_task(task)
-        except DatabaseError as e:
-            self.snack.show(f"Failed to postpone task: {e}", COLORS["danger"])
-            return
+        async def _postpone() -> None:
+            try:
+                new_date = await self.service.postpone_task(task)
+            except DatabaseError as e:
+                self.snack.show(f"Failed to postpone task: {e}", COLORS["danger"])
+                return
 
-        async def delayed() -> None:
             await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(
                 f"'{task.title}' postponed to {new_date.strftime('%b %d')}",
@@ -283,7 +279,7 @@ class TrebnicApp:
             self.event_bus.emit(AppEvent.TASK_POSTPONED, task)
             self.page.update()
 
-        self.page.run_task(delayed)
+        self.page.run_task(_postpone)
 
     def update_content(self) -> None:
         """Update the main content area based on current state.""" 

@@ -164,7 +164,11 @@ class AuthController:
             return
 
         async def handle_change(old_password: str, new_password: str) -> bool:
-            return await self._auth.change_master_password(old_password, new_password)
+            return await self._auth.change_master_password(
+                old_password,
+                new_password,
+                reencrypt_data_fn=db.reencrypt_all_data
+            )
 
         open_change_password_dialog(self.page, on_change=handle_change)
 
