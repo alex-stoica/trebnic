@@ -1,6 +1,9 @@
 import flet as ft
 import asyncio
+import logging
 from typing import Optional, Any, List
+
+logger = logging.getLogger(__name__)
 
 from config import (
     COLORS,
@@ -48,7 +51,10 @@ class TrebnicApp:
         # Register cleanup on page close
         self.page.on_close = self._on_page_close
 
-    def _extract_components(self) -> None:  
+        # Initialize auth and check if unlock needed
+        self.page.run_task(self._init_auth)
+
+    def _extract_components(self) -> None:
         """Extract components from initializer for class-level access."""
         c = self._components
         self.state = c.state
@@ -59,6 +65,7 @@ class TrebnicApp:
         self.nav_manager = c.nav_manager
         self.nav_handler = c.nav_handler
         self.timer_ctrl = c.timer_ctrl
+        self.auth_ctrl = c.auth_ctrl
         self.project_btns = c.project_btns
         self.tasks_view = c.tasks_view
         self.calendar_view = c.calendar_view
@@ -100,11 +107,37 @@ class TrebnicApp:
         if self.timer_ctrl:
             self.timer_ctrl.cleanup()
 
-        # Close database connection
+        # Close database connection on the page's event loop
+        async def close_db() -> None:
+            try:
+                await db.close()
+            except Exception as e:
+                logger.warning(f"Error closing database on cleanup: {e}")
+
         try:
-            asyncio.run(db.close())
+            self.page.run_task(close_db)
         except Exception:
             pass  # Best effort on cleanup
+
+    async def _init_auth(self) -> None:
+        """Initialize authentication and show unlock dialog if needed."""
+        if self.auth_ctrl is None:
+            return
+
+        await self.auth_ctrl.initialize()
+
+        # Set up callback for when app is unlocked
+        async def on_unlocked() -> None:
+            # Reload data with decryption enabled
+            self.service.reload_state()
+            self.tasks_view.refresh()
+            self.page.update()
+
+        self.auth_ctrl.set_unlock_callback(on_unlocked)
+
+        # Show unlock dialog if app is locked
+        if self.auth_ctrl.needs_unlock:
+            self.auth_ctrl.show_unlock_dialog(allow_cancel=True)
 
     def _on_refresh_ui(self, data: Any) -> None:
         """Handle UI refresh events."""
@@ -160,7 +193,22 @@ class TrebnicApp:
         self.timer_ctrl.on_timer_stop(e)
 
     def _delete_task(self, task: Task) -> None:
-        """Delete a task with animation delay and error handling."""
+        """Delete a task with animation delay and error handling.
+
+        For recurring tasks, shows a dialog to choose between deleting
+        just this occurrence or all recurring instances.
+        """
+        if task.recurrent:
+            self.task_dialogs.delete_recurrence(
+                task,
+                on_delete_this=self._do_delete_single_task,
+                on_delete_all=self._do_delete_all_recurring,
+            )
+        else:
+            self._do_delete_single_task(task)
+
+    def _do_delete_single_task(self, task: Task) -> None:
+        """Delete a single task instance."""
         title = task.title
 
         try:
@@ -172,6 +220,26 @@ class TrebnicApp:
         async def delayed() -> None:
             await asyncio.sleep(ANIMATION_DELAY)
             self.snack.show(f"'{title}' deleted", COLORS["danger"], update=False)
+            self.tasks_view.refresh()
+            self.event_bus.emit(AppEvent.TASK_DELETED, task)
+            self.page.update()
+
+        self.page.run_task(delayed)
+
+    def _do_delete_all_recurring(self, task: Task) -> None:
+        """Delete all recurring instances of a task."""
+        title = task.title
+
+        try:
+            count = self.service.delete_all_recurring_tasks(task)
+        except DatabaseError as e:
+            self.snack.show(f"Failed to delete tasks: {e}", COLORS["danger"])
+            return
+
+        async def delayed() -> None:
+            await asyncio.sleep(ANIMATION_DELAY)
+            msg = f"Deleted {count} '{title}' occurrence{'s' if count != 1 else ''}"
+            self.snack.show(msg, COLORS["danger"], update=False)
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_DELETED, task)
             self.page.update()
@@ -236,7 +304,12 @@ class TrebnicApp:
 
     def _on_preferences_click(self, e: ft.ControlEvent) -> None:
         """Handle preferences menu item click."""
-        self.nav_manager.navigate_to(PageType.PREFERENCES) 
+        self.nav_manager.navigate_to(PageType.PREFERENCES)
+
+    def _on_encryption_click(self, e: ft.ControlEvent) -> None:
+        """Handle encryption settings menu item click."""
+        if self.auth_ctrl:
+            self.auth_ctrl.show_encryption_settings()
 
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""
@@ -250,6 +323,11 @@ class TrebnicApp:
                 text="Preferences",
                 icon=ft.Icons.TUNE,
                 on_click=self._on_preferences_click,
+            ),
+            ft.PopupMenuItem(
+                text="Encryption",
+                icon=ft.Icons.LOCK,
+                on_click=self._on_encryption_click,
             ),
         ]
 

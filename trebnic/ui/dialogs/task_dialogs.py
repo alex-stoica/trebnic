@@ -728,6 +728,72 @@ class TaskDialogs:
             lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
         )
 
+    def delete_recurrence(
+        self,
+        task: Task,
+        on_delete_this: Callable[[Task], None],
+        on_delete_all: Callable[[Task], None],
+    ) -> None:
+        """Show dialog for deleting a recurring task.
+
+        Args:
+            task: The recurring task to delete
+            on_delete_this: Callback for deleting just this occurrence
+            on_delete_all: Callback for deleting all recurring instances
+        """
+        def delete_this(e: ft.ControlEvent) -> None:
+            close(e)
+            on_delete_this(task)
+
+        def delete_all(e: ft.ControlEvent) -> None:
+            close(e)
+            on_delete_all(task)
+
+        content = ft.Container(
+            width=DIALOG_WIDTH_MD,
+            content=ft.Column(
+                [
+                    ft.Text(
+                        f"'{task.title}' is a recurring task.",
+                        size=14,
+                    ),
+                    ft.Divider(height=15, color="transparent"),
+                    create_option_item(
+                        ft.Icons.DELETE_OUTLINE,
+                        "Delete this occurrence only",
+                        delete_this,
+                        color=COLORS["orange"],
+                    ),
+                    ft.Text(
+                        "Removes only this instance. Future occurrences will still be created when you complete tasks.",
+                        size=11,
+                        color=COLORS["done_text"],
+                    ),
+                    ft.Divider(height=10, color="transparent"),
+                    create_option_item(
+                        ft.Icons.DELETE_FOREVER,
+                        "Delete all occurrences",
+                        delete_all,
+                        color=COLORS["danger"],
+                    ),
+                    ft.Text(
+                        "Removes this task and all other pending/completed instances with the same recurrence.",
+                        size=11,
+                        color=COLORS["done_text"],
+                    ),
+                ],
+                spacing=5,
+                tight=True,
+            ),
+        )
+
+        _, close = open_dialog(
+            self.page,
+            "Delete recurring task",
+            content,
+            lambda c: [ft.TextButton("Cancel", on_click=c)],
+        )
+
     def duration_completion(
         self,
         task: Task,

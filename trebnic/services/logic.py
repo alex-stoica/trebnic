@@ -24,7 +24,10 @@ class TaskService:
         self._page = page
 
     def _schedule_async(self, coro, need_result: bool = True):
-        """Schedule an async coroutine properly based on context.
+        """Schedule an async coroutine on the page's event loop.
+
+        This is a compatibility bridge for sync code that needs to call async methods.
+        For new code, prefer using async handlers with page.run_task() or direct await.
 
         Args:
             coro: The coroutine to schedule
@@ -32,38 +35,23 @@ class TaskService:
 
         Returns:
             The result of the coroutine when need_result=True, None otherwise.
-            Always returns the actual result, never a Future.
         """
         if self._page is not None:
-            # Schedule on page's event loop - this is the correct path for UI operations
+            # Schedule on page's event loop - the standard path for UI operations
             future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
             if not need_result:
-                # Fire-and-forget - but still check for immediate errors
                 return None
-            # Need result - wait with timeout
-            try:
-                return future.result(timeout=30.0)
-            except TimeoutError:
-                future.cancel()
-                raise RuntimeError("Database operation timed out")
+            return future.result(timeout=30.0)
 
+        # No page available - use asyncio.run() for standalone context (e.g., initial load)
         try:
             loop = asyncio.get_running_loop()
+            if loop.is_running():
+                coro.close()
+                raise RuntimeError("Cannot schedule: already in async context without page reference")
         except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # Already in async context without page reference - this is a configuration error.
-            # We cannot safely create a new thread/loop because the database connection
-            # is bound to a specific event loop. Close the coroutine to prevent warnings.
-            coro.close()
-            raise RuntimeError(
-                "Cannot schedule database operation: already in async context but no page reference set. "
-                "Ensure TaskService.set_page() is called before database operations."
-            )
-        else:
-            # No running loop - safe to use asyncio.run()
-            return asyncio.run(coro)
+            pass  # No running loop is fine
+        return asyncio.run(coro)
 
     @staticmethod
     async def load_state_async() -> AppState:
@@ -108,6 +96,22 @@ class TaskService:
         """Create an empty state without loading from database."""
         return AppState()
 
+    def reload_state(self) -> None:
+        """Reload state from database.
+
+        This is useful after encryption unlock when decrypted data becomes available.
+        Reloads all tasks and projects with decryption enabled.
+        """
+        new_state = TaskService.load_state()
+
+        # Update the existing state object in place to preserve references
+        self.state.tasks.clear()
+        self.state.tasks.extend(new_state.tasks)
+        self.state.done_tasks.clear()
+        self.state.done_tasks.extend(new_state.done_tasks)
+        self.state.projects.clear()
+        self.state.projects.extend(new_state.projects)
+
     async def add_task_async(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
         # Determine default due date based on current view
         if self.state.selected_nav == NavItem.TODAY:
@@ -117,18 +121,21 @@ class TaskService:
         else:
             default_due_date = None
 
+        # Get current max sort_order from DB for accurate ordering
+        all_tasks = await db.load_tasks_filtered(is_done=False, limit=1)
+        max_order = max((t.get("sort_order", 0) for t in all_tasks), default=-1) if all_tasks else -1
+
         task = Task(
             title=title,
             project_id=project_id,
             estimated_seconds=estimated_seconds,
             spent_seconds=0,
             due_date=default_due_date,
-            sort_order=len(self.state.tasks)
+            sort_order=max_order + 1
         )
-        # Save to DB first
+        # Save to DB - this is the single source of truth
         task.id = await db.save_task(task.to_dict())
-        # Only modify state after DB success
-        self.state.tasks.append(task)
+        # Note: UI should call refresh() after this to update from DB
         return task
 
     def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
@@ -189,34 +196,37 @@ class TaskService:
             raise
 
     async def complete_task_async(self, task: Task) -> Optional[Task]:
-        # Find task in state by ID (object identity may differ)
-        state_task = next((t for t in self.state.tasks if t.id == task.id), None)
-        if state_task is None:
+        """Complete a task and optionally create next recurrence.
+
+        DB is the single source of truth. In-memory state is updated for
+        backward compatibility but UI should call refresh() after this.
+        """
+        # Load fresh task from DB to avoid stale data issues
+        all_tasks = await db.load_tasks_filtered(is_done=False)
+        db_task_dict = next((t for t in all_tasks if t.get("id") == task.id), None)
+        if db_task_dict is None:
             return None
 
-        # Copy over any updated fields from the passed task (e.g., spent_seconds)
-        state_task.spent_seconds = task.spent_seconds
+        # Apply any updates from the passed task (e.g., spent_seconds from timer)
+        db_task_dict["spent_seconds"] = task.spent_seconds
 
-        # Save to DB first
-        await db.save_task(state_task.to_dict(is_done=True))
-
-        # Only modify state after DB success
-        self.state.tasks.remove(state_task)
-        self.state.done_tasks.append(state_task)
+        # Save completed status to DB - single source of truth
+        db_task_dict["is_done"] = 1
+        await db.save_task(db_task_dict)
 
         # Handle recurrence - create next occurrence if applicable
-        new_task = self._create_next_recurrence(state_task)
+        completed_task = Task.from_dict(db_task_dict)
+        new_task = await self._create_next_recurrence_async(completed_task)
         if new_task:
             new_task.id = await db.save_task(new_task.to_dict())
-            self.state.tasks.append(new_task)
             return new_task
         return None
 
-    def _create_next_recurrence(self, task: Task) -> Optional[Task]:
+    async def _create_next_recurrence_async(self, task: Task) -> Optional[Task]:
         """Create the next occurrence of a recurring task.
 
         Returns None if task is not recurring, recurrence has ended, or
-        a task with the same title and due date already exists.
+        a task with the same title and due date already exists in DB.
         """
         if not task.recurrent:
             return None
@@ -229,10 +239,10 @@ class TaskService:
         if not next_date:
             return None
 
-        # Check if a task with the same title and due date already exists
-        # This prevents duplicates when completing/uncompleting a recurring task
-        for existing in self.state.tasks:
-            if existing.title == task.title and existing.due_date == next_date:
+        # Check DB for duplicate - query tasks with same due date
+        existing_tasks = await db.load_tasks_filtered(is_done=False, due_date_eq=next_date)
+        for existing in existing_tasks:
+            if existing.get("title") == task.title:
                 return None
 
         return task.create_next_occurrence(next_date)
@@ -240,18 +250,39 @@ class TaskService:
     async def _advance_overdue_recurring_tasks(
         self, tasks: List[Task], today: date
     ) -> List[Task]:
-        """Auto-advance recurring tasks whose due_date has passed.
+        """Auto-advance recurring tasks whose due_date has passed or isn't a scheduled day.
 
         For recurring tasks with due_date < today, update their due_date
         to the next valid occurrence. This ensures recurring tasks only
         appear on their scheduled days, not every day after their original date.
 
+        Also handles tasks where due_date == today but today isn't a scheduled weekday.
+
         Returns the filtered list (excluding tasks that were advanced to a future date).
         """
         result = []
         for task in tasks:
-            # Only process recurring tasks with past due dates
-            if not task.recurrent or not task.due_date or task.due_date >= today:
+            # Non-recurring tasks or tasks without due_date pass through unchanged
+            if not task.recurrent or not task.due_date:
+                result.append(task)
+                continue
+
+            # Future tasks pass through unchanged
+            if task.due_date > today:
+                result.append(task)
+                continue
+
+            # Check if today is a valid day for recurring tasks with weekday constraints
+            if task.due_date == today and task.recurrence_weekdays:
+                if today.weekday() not in task.recurrence_weekdays:
+                    # Today is not a scheduled day - advance to next occurrence
+                    next_date = calculate_next_recurrence_from_date(task, today)
+                    if next_date and next_date != task.due_date:
+                        task.due_date = next_date
+                        await db.save_task(task.to_dict(is_done=False))
+                    # Don't include in today's list (it's now a future task)
+                    continue
+                # Today is a valid weekday - include it
                 result.append(task)
                 continue
 
@@ -276,44 +307,66 @@ class TaskService:
         return self._schedule_async(self.complete_task_async(task))
 
     async def uncomplete_task_async(self, task: Task) -> bool:
-        # Find task in state by ID (object identity may differ)
-        state_task = next((t for t in self.state.done_tasks if t.id == task.id), None)
-        if state_task is None:
+        """Mark a completed task as not done.
+
+        DB is the single source of truth. UI should call refresh() after this.
+        """
+        # Load fresh task from DB to avoid stale data issues
+        all_done = await db.load_tasks_filtered(is_done=True)
+        db_task_dict = next((t for t in all_done if t.get("id") == task.id), None)
+        if db_task_dict is None:
             return False
 
-        # Save to DB first
-        await db.save_task(state_task.to_dict(is_done=False))
-
-        # Only modify state after DB success
-        self.state.done_tasks.remove(state_task)
-        self.state.tasks.append(state_task)
+        # Save uncompleted status to DB - single source of truth
+        db_task_dict["is_done"] = 0
+        await db.save_task(db_task_dict)
         return True
 
     def uncomplete_task(self, task: Task) -> bool:
         return self._schedule_async(self.uncomplete_task_async(task))
 
     async def delete_task_async(self, task: Task) -> None:
-        # Delete from DB first
+        """Delete a task from the database.
+
+        DB is the single source of truth. UI should call refresh() after this.
+        """
         if task.id:
             await db.delete_task(task.id)
-
-        # Only modify state after DB success
-        if task in self.state.tasks:
-            self.state.tasks.remove(task)
-        elif task in self.state.done_tasks:
-            self.state.done_tasks.remove(task)
+        # Note: In-memory state will be updated when UI calls refresh()
 
     def delete_task(self, task: Task) -> None:
         self._schedule_async(self.delete_task_async(task), need_result=False)
 
+    async def delete_all_recurring_tasks_async(self, task: Task) -> int:
+        """Delete all recurring tasks with the same title as the given task.
+
+        This removes the entire recurrence series (pending and completed instances).
+
+        Args:
+            task: A recurring task whose series should be deleted
+
+        Returns:
+            Number of tasks deleted
+        """
+        if not task.recurrent:
+            # Not a recurring task, just delete this one
+            await self.delete_task_async(task)
+            return 1
+        return await db.delete_recurring_tasks_by_title(task.title)
+
+    def delete_all_recurring_tasks(self, task: Task) -> int:
+        return self._schedule_async(self.delete_all_recurring_tasks_async(task))
+
     async def duplicate_task_async(self, task: Task) -> Task:
+        """Duplicate a task.
+
+        DB is the single source of truth. UI should call refresh() after this.
+        """
         new_task = Task.from_dict(task.to_dict())
         new_task.id = None
         new_task.title = f"{task.title} (copy)"
-        # Save to DB first
+        # Save to DB - single source of truth
         new_task.id = await db.save_task(new_task.to_dict())
-        # Then add to state
-        self.state.tasks.append(new_task)
         return new_task
 
     def duplicate_task(self, task: Task) -> Task:
@@ -496,13 +549,15 @@ class TaskService:
         self._schedule_async(self.save_project_async(project), need_result=False)
 
     async def delete_project_async(self, project_id: str) -> int:
-        # Delete from DB first
-        count = await db.delete_project(project_id)
+        """Delete a project and all its tasks.
 
-        # Only modify state after DB success
+        DB is the single source of truth. UI should call refresh() after this.
+        Returns the count of tasks that were deleted.
+        """
+        # Delete from DB - single source of truth
+        count = await db.delete_project(project_id)
+        # Update projects list (needed for sidebar rebuild)
         self.state.projects = [p for p in self.state.projects if p.id != project_id]
-        self.state.tasks = [t for t in self.state.tasks if t.project_id != project_id]
-        self.state.done_tasks = [t for t in self.state.done_tasks if t.project_id != project_id]
         return count
 
     def delete_project(self, project_id: str) -> int:
@@ -549,17 +604,22 @@ class TaskService:
             raise
 
     async def persist_task_order_async(self) -> None:
-        for i, task in enumerate(self.state.tasks):
-            task.sort_order = i
-            await self.persist_task_async(task)
+        """Persist sort order for all tasks in state using batch update."""
+        task_orders = [(task.id, i) for i, task in enumerate(self.state.tasks) if task.id is not None]
+        if task_orders:
+            await db.update_task_sort_orders(task_orders)
 
     def persist_task_order(self) -> None:
         self._schedule_async(self.persist_task_order_async(), need_result=False)
 
     async def persist_reordered_tasks_async(self, tasks: List[Task]) -> None:
-        """Persist sort_order for a list of tasks (from fresh DB objects)."""
-        for task in tasks:
-            await self.persist_task_async(task)
+        """Persist sort_order for a list of tasks using efficient batch update.
+
+        Uses a single SQL transaction instead of N separate UPDATE statements.
+        """
+        task_orders = [(task.id, task.sort_order) for task in tasks if task.id is not None]
+        if task_orders:
+            await db.update_task_sort_orders(task_orders)
 
     def persist_reordered_tasks(self, tasks: List[Task]) -> None:
         """Persist reordered tasks. Use this instead of persist_task_order when

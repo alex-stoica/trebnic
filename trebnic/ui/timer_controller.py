@@ -50,7 +50,7 @@ class TimerController:
         """Save a time entry to the database."""
         return self.service.save_time_entry(entry)
 
-    def _save_heartbeat(self) -> None:
+    async def _save_heartbeat_async(self) -> None:
         """Save current timer state to DB for crash recovery.
 
         Saves a checkpoint of the time entry with current end_time. If the app
@@ -59,6 +59,8 @@ class TimerController:
 
         Note: Task spent_seconds is NOT updated here to avoid double-counting
         when stop() adds the full elapsed time.
+
+        This method is async to avoid blocking the UI tick loop.
         """
         if not self.timer_svc.running or self.timer_svc.current_entry is None:
             return
@@ -66,10 +68,11 @@ class TimerController:
         try:
             entry = self.timer_svc.current_entry
             entry.end_time = datetime.now()
-            self.service.save_time_entry(entry)
+            await self.service.save_time_entry_async(entry)
             # Clear end_time in memory so timer continues as "running"
             entry.end_time = None
             self._last_heartbeat_seconds = self.timer_svc.seconds
+            logger.debug(f"Heartbeat saved at {self.timer_svc.seconds}s")
         except Exception as e:
             # Log heartbeat failures instead of silently swallowing
             logger.warning(f"Failed to save timer heartbeat: {e}")
@@ -80,6 +83,10 @@ class TimerController:
         Includes heartbeat saves every HEARTBEAT_INTERVAL_SECONDS to minimize
         data loss on unexpected app termination.
         Uses asyncio.Event for proper async-safe stop signaling.
+
+        Performance optimization: Updates only the TimerWidget control instead
+        of calling page.update() which would refresh the entire page layout.
+        This significantly reduces UI stuttering in complex layouts.
         """
         async def tick_loop():
             try:
@@ -95,16 +102,18 @@ class TimerController:
 
                         # Heartbeat: save to DB periodically for crash recovery
                         if self.timer_svc.seconds - self._last_heartbeat_seconds >= HEARTBEAT_INTERVAL_SECONDS:
-                            self._save_heartbeat()
+                            await self._save_heartbeat_async()
 
                         try:
-                            self.page.update()
+                            # Only update the timer widget, not the entire page
+                            # This prevents UI stuttering in complex layouts
+                            self.timer_widget.update()
                         except Exception:
                             break
             except asyncio.CancelledError:
                 pass
 
-        return tick_loop()
+        return tick_loop
 
     def start_timer(self, task: Task) -> None:
         """Start the timer for a task."""

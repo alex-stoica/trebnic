@@ -1,7 +1,7 @@
 import flet as ft
 from typing import Dict, Optional
- 
-from database import DatabaseError 
+
+from database import DatabaseError
 from services.logic import TaskService
 from services.timer import TimerService
 from models.entities import AppState
@@ -12,11 +12,12 @@ from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
 from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView
 from ui.timer_controller import TimerController
+from ui.auth_controller import AuthController
 
 
 class AppComponents:
     """Container for initialized application components."""
-    
+
     def __init__(self) -> None:
         self.state: Optional[AppState] = None
         self.service: Optional[TaskService] = None
@@ -26,6 +27,7 @@ class AppComponents:
         self.nav_manager: Optional[NavigationManager] = None
         self.nav_handler: Optional[NavigationHandler] = None
         self.timer_ctrl: Optional[TimerController] = None
+        self.auth_ctrl: Optional[AuthController] = None
         
         # UI Components
         self.project_btns: Dict[str, ProjectSidebarItem] = {}
@@ -64,12 +66,22 @@ class AppInitializer:
     def initialize(self) -> AppComponents:
         """Initialize all application components and return them."""
         self._setup_page()
+        self._init_auth()
         self._init_services()
         self._init_navigation()
         self._init_ui_components()
         self._init_timer_controller()
         self._subscribe_to_events()
         return self.components
+
+    def _init_auth(self) -> None:
+        """Initialize authentication controller.
+
+        Note: Auth initialization is async but we need to run it synchronously
+        during app init. The actual auth check (unlock dialog) happens after
+        the main UI is built.
+        """
+        self.components.auth_ctrl = AuthController(self.page)
     
     def _setup_page(self) -> None:
         """Configure the Flet page settings."""

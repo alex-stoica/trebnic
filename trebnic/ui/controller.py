@@ -62,22 +62,29 @@ class UIController:
             self._call("update_content")
             self.page.update()
 
-    def complete(self, task: Task) -> None:
+    async def complete_async(self, task: Task) -> None:
+        """Complete a task - async version for direct DB access."""
         # Check if task has time entries
         has_time_entries = False
         if task.id:
-            entries = self.service.load_time_entries_for_task(task.id)
+            entries = await self.service.load_time_entries_for_task_async(task.id)
             has_time_entries = len(entries) > 0
 
         if not has_time_entries and task.spent_seconds == 0:
             # Show duration knob dialog for tasks without time entries
             self._call("duration_completion", task, self._do_complete)
         else:
-            self._do_complete(task)
+            await self._do_complete_async(task)
 
-    def _do_complete(self, task: Task) -> None:
+    def complete(self, task: Task) -> None:
+        """Complete a task - sync wrapper that schedules async work."""
+        async def _coro() -> None:
+            await self.complete_async(task)
+        self.page.run_task(_coro)
+
+    async def _do_complete_async(self, task: Task) -> None:
         """Actually complete the task after any duration entry."""
-        new_task = self.service.complete_task(task)
+        new_task = await self.service.complete_task_async(task)
         if new_task:
             self._call(
                 "show_snack",
@@ -85,9 +92,22 @@ class UIController:
             )
         self._call("refresh")
 
-    def uncomplete(self, task: Task) -> None:
-        if self.service.uncomplete_task(task):
+    def _do_complete(self, task: Task) -> None:
+        """Sync wrapper for _do_complete_async - used by duration dialog callback."""
+        async def _coro() -> None:
+            await self._do_complete_async(task)
+        self.page.run_task(_coro)
+
+    async def uncomplete_async(self, task: Task) -> None:
+        """Uncomplete a task - async version."""
+        if await self.service.uncomplete_task_async(task):
             self._call("refresh")
+
+    def uncomplete(self, task: Task) -> None:
+        """Uncomplete a task - sync wrapper."""
+        async def _coro() -> None:
+            await self.uncomplete_async(task)
+        self.page.run_task(_coro)
 
     def delete(self, task: Task) -> None:
         self._call("delete_task", task)

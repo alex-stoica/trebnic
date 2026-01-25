@@ -115,21 +115,22 @@ class TasksView:
             visible=False, 
         ) 
 
-    def _on_submit(self, e: ft.ControlEvent) -> None: 
+    async def _on_submit(self, e: ft.ControlEvent) -> None:
+        """Handle task submission - async for direct DB access."""
         title = self.task_input.value.strip()
         if not title:
             return
 
         project_id = (
-            list(self.state.selected_projects)[0] 
-            if len(self.state.selected_projects) == 1 else None 
-        ) 
+            list(self.state.selected_projects)[0]
+            if len(self.state.selected_projects) == 1 else None
+        )
 
-        self.service.add_task(
-            title=title, 
-            project_id=project_id, 
-            estimated_seconds=self.pending_details["estimated_minutes"] * 60, 
-        ) 
+        await self.service.add_task_async(
+            title=title,
+            project_id=project_id,
+            estimated_seconds=self.pending_details["estimated_minutes"] * 60,
+        )
 
         self.pending_details["estimated_minutes"] = self.state.default_estimated_minutes
         self.details_btn.content.controls[1].value = "Add details"
@@ -141,53 +142,40 @@ class TasksView:
         self.details_btn.visible = bool(self.task_input.value.strip())
         self.page.update()
 
-    def _on_reorder(self, e: ft.OnReorderEvent) -> None:
+    async def _on_reorder(self, e: ft.OnReorderEvent) -> None:
+        """Handle task reorder - async for efficient batch DB update."""
         old_idx, new_idx = e.old_index, e.new_index
         n = len(self.task_list.controls)
 
-        print(f"[REORDER] Event: old_idx={old_idx}, new_idx={new_idx}, n_controls={n}")
-
         # Validate indices
         if old_idx < 0 or old_idx >= n:
-            print(f"[REORDER] SKIP: old_idx {old_idx} out of range [0, {n})")
             return
         if new_idx < 0 or new_idx > n:
-            print(f"[REORDER] SKIP: new_idx {new_idx} out of range [0, {n}]")
             return
         if old_idx == new_idx:
-            print("[REORDER] SKIP: same index")
             return
 
         # Get task IDs from current UI order (draggables have task.id in data)
         ui_task_ids = [ctrl.data for ctrl in self.task_list.controls]
-        print(f"[REORDER] UI order before: {ui_task_ids}")
 
         # Apply the reorder to get desired order
         moved_id = ui_task_ids.pop(old_idx)
         ui_task_ids.insert(new_idx, moved_id)
-        print(f"[REORDER] Desired order: {ui_task_ids}")
 
         # Get fresh tasks from DB
-        filtered, _ = self.service.get_filtered_tasks()
-        db_order = [t.id for t in filtered]
-        print(f"[REORDER] DB order: {db_order}")
-
-        # Create a map of task_id -> task for quick lookup
+        filtered, _ = await self.service.get_filtered_tasks_async()
         task_map = {t.id: t for t in filtered}
 
         # Assign sort_order based on desired UI order
         for i, task_id in enumerate(ui_task_ids):
             if task_id in task_map:
                 task_map[task_id].sort_order = i
-                print(f"[REORDER] Task {task_id} -> sort_order {i}")
 
-        # Persist all tasks with updated sort_order
-        self.service.persist_reordered_tasks(list(task_map.values()))
-        print(f"[REORDER] Persisted {len(task_map)} tasks")
+        # Persist using efficient batch update (single transaction)
+        await self.service.persist_reordered_tasks_async(list(task_map.values()))
 
-        # Full refresh to rebuild UI from DB (now in correct order)
+        # Refresh UI from DB
         self.refresh()
-        print(f"[REORDER] Refreshed")
 
     def _open_details(self, e: ft.ControlEvent) -> None: 
         label = ft.Text(
@@ -248,7 +236,15 @@ class TasksView:
         ) 
 
     def refresh(self) -> None:
-        pending, done = self.service.get_filtered_tasks()
+        """Refresh the task list from database.
+
+        Uses page.run_task to schedule async refresh on the page's event loop.
+        """
+        self.page.run_task(self._refresh_async)
+
+    async def _refresh_async(self) -> None:
+        """Async implementation of refresh - queries DB directly."""
+        pending, done = await self.service.get_filtered_tasks_async()
 
         # Update section label based on current navigation
         if self._section_label is not None:

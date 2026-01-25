@@ -4,11 +4,24 @@ import json
 import logging
 import threading
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional, Any, Dict, List, AsyncIterator
 
 from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
+
+# Lazy import to avoid circular dependency (crypto -> database -> crypto)
+# crypto module is imported at runtime when encryption helpers are called
+_crypto = None
+
+
+def _get_crypto():
+    """Lazy import of crypto service to avoid circular imports."""
+    global _crypto
+    if _crypto is None:
+        from services.crypto import crypto
+        _crypto = crypto
+    return _crypto
 
 DB_PATH = Path("trebnic.db")
 
@@ -18,6 +31,38 @@ logger = logging.getLogger(__name__)
 class DatabaseError(Exception):
     """Custom exception for database operations."""
     pass
+
+
+# ============================================================================
+# Encryption Helpers
+# ============================================================================
+
+def _encrypt_field(value: Optional[str]) -> Optional[str]:
+    """Encrypt a field value if encryption is enabled and unlocked.
+
+    Returns the original value if:
+    - Value is None or empty
+    - Encryption is not available
+    - App is not unlocked
+    """
+    if not value:
+        return value
+    crypto = _get_crypto()
+    return crypto.encrypt_if_unlocked(value)
+
+
+def _decrypt_field(value: Optional[str]) -> Optional[str]:
+    """Decrypt a field value if it's encrypted.
+
+    Returns the original value if:
+    - Value is None or empty
+    - Value is not in encrypted format
+    - Decryption fails (wrong key, corrupted)
+    """
+    if not value:
+        return value
+    crypto = _get_crypto()
+    return crypto.decrypt_if_encrypted(value)
 
 
 class Database:
@@ -34,22 +79,52 @@ class Database:
                     cls._instance._init_lock = threading.Lock()
                     cls._instance._connection: Optional[aiosqlite.Connection] = None
                     cls._instance._conn_lock: Optional[asyncio.Lock] = None
+                    cls._instance._bound_loop: Optional[asyncio.AbstractEventLoop] = None
         return cls._instance
 
     def _get_lock(self) -> asyncio.Lock:
         """Get or create the async lock (lazy initialization for correct event loop)."""
-        if self._conn_lock is None:
+        current_loop = asyncio.get_running_loop()
+        # Reset lock if event loop changed (prevents cross-loop lock usage)
+        if self._conn_lock is None or self._bound_loop != current_loop:
             self._conn_lock = asyncio.Lock()
         return self._conn_lock
 
     async def _ensure_connection(self) -> aiosqlite.Connection:
-        """Get or create a persistent database connection."""
-        if self._connection is None or not self._connection._running:
+        """Get or create a persistent database connection.
+
+        The connection is bound to the event loop where it was created.
+        If the event loop changes (e.g., from asyncio.run() to page.loop),
+        the old connection is closed and a new one is created.
+        """
+        current_loop = asyncio.get_running_loop()
+
+        # Check if we need to create a new connection due to event loop change
+        needs_new_connection = (
+            self._connection is None
+            or not self._connection._running
+            or self._bound_loop != current_loop
+        )
+
+        if needs_new_connection:
+            # Close old connection if it exists (it's bound to a different/dead loop)
+            if self._connection is not None:
+                try:
+                    # Don't await close() if the loop is different - just abandon it
+                    if self._bound_loop == current_loop:
+                        await self._connection.close()
+                except Exception as e:
+                    logger.warning(f"Error closing old database connection: {e}")
+                self._connection = None
+
+            # Create new connection on current event loop
             self._connection = await aiosqlite.connect(DB_PATH)
             self._connection.row_factory = aiosqlite.Row
+            self._bound_loop = current_loop
             # Enable WAL mode for better concurrent access
             await self._connection.execute("PRAGMA journal_mode=WAL")
             await self._connection.execute("PRAGMA busy_timeout=5000")
+
         return self._connection
 
     @asynccontextmanager
@@ -71,6 +146,8 @@ class Database:
                 logger.warning(f"Error closing database connection: {e}")
             finally:
                 self._connection = None
+                self._bound_loop = None
+                self._conn_lock = None
 
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
@@ -173,12 +250,11 @@ class Database:
             default_projects = [
                 {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},
                 {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},
-                {"id": "sport", "name": "Sport", "icon": "🏋️", "color": "#ff5722"},
+                {"id": "sport", "name": "Sport", "icon": "🏋️", "color": "#4caf50"},
             ]
             for project in default_projects:
                 await self.save_project(project)
 
-            from datetime import datetime, timedelta
             now = datetime.now()
 
             welcome_task = {
@@ -218,19 +294,29 @@ class Database:
                 "end_time": entry2_end.isoformat(),
             })
 
-            # Recurring gym task - Mon/Wed/Fri
+            # Recurring gym task - Tue/Thu/Sat
+            # Calculate next valid weekday (Tue=1, Thu=3, Sat=5)
+            gym_weekdays = [1, 3, 5]
+            gym_due_date = date.today()
+            if gym_due_date.weekday() not in gym_weekdays:
+                # Find next valid weekday
+                for offset in range(1, 8):
+                    candidate = gym_due_date + timedelta(days=offset)
+                    if candidate.weekday() in gym_weekdays:
+                        gym_due_date = candidate
+                        break
             gym_task = {
                 "id": None,
                 "title": "Gym",
                 "spent_seconds": 0,
                 "estimated_seconds": 3600,  # 1 hour
                 "project_id": "sport",
-                "due_date": date.today().isoformat(),
+                "due_date": gym_due_date.isoformat(),
                 "is_done": 0,
                 "recurrent": 1,
                 "recurrence_interval": 1,
                 "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
-                "recurrence_weekdays": [0, 2, 4],  # Mon, Wed, Fri
+                "recurrence_weekdays": [1, 3, 5],  # Tue, Thu, Sat
                 "notes": "",
                 "sort_order": 1,
                 "recurrence_end_type": "never",
@@ -251,8 +337,12 @@ class Database:
         if isinstance(recurrence_end_date, date):
             recurrence_end_date = recurrence_end_date.isoformat()
 
+        # Encrypt sensitive fields
+        title = _encrypt_field(t["title"])
+        notes = _encrypt_field(t.get("notes", ""))
+
         params = (
-            t["title"],
+            title,
             t["spent_seconds"],
             t["estimated_seconds"],
             t["project_id"],
@@ -262,7 +352,7 @@ class Database:
             t.get("recurrence_interval", 1),
             t.get("recurrence_frequency", RecurrenceFrequency.WEEKS.value),
             weekdays,
-            t.get("notes", ""),
+            notes,
             t.get("sort_order", 0),
             t.get("recurrence_end_type", "never"),
             recurrence_end_date,
@@ -304,6 +394,69 @@ class Database:
             logger.error(f"Error deleting task {task_id}: {e}")
             raise DatabaseError(f"Failed to delete task: {e}") from e
 
+    async def delete_recurring_tasks_by_title(self, title: str) -> int:
+        """Delete all recurring tasks with the given title.
+
+        This deletes both pending and completed instances of a recurring task series.
+
+        Args:
+            title: The exact title of the recurring tasks to delete
+
+        Returns:
+            Number of tasks deleted
+        """
+        try:
+            async with self._get_connection() as conn:
+                # First get the IDs of tasks to delete (for time_entries cleanup)
+                async with conn.execute(
+                    "SELECT id FROM tasks WHERE title = ? AND recurrent = 1",
+                    (title,)
+                ) as cursor:
+                    task_ids = [row[0] async for row in cursor]
+
+                if not task_ids:
+                    return 0
+
+                # Delete time entries for these tasks
+                placeholders = ",".join("?" * len(task_ids))
+                await conn.execute(
+                    f"DELETE FROM time_entries WHERE task_id IN ({placeholders})",
+                    tuple(task_ids)
+                )
+
+                # Delete the tasks
+                await conn.execute(
+                    f"DELETE FROM tasks WHERE id IN ({placeholders})",
+                    tuple(task_ids)
+                )
+                await conn.commit()
+                return len(task_ids)
+        except Exception as e:
+            logger.error(f"Error deleting recurring tasks '{title}': {e}")
+            raise DatabaseError(f"Failed to delete recurring tasks: {e}") from e
+
+    async def update_task_sort_orders(self, task_orders: List[tuple]) -> None:
+        """Update sort_order for multiple tasks in a single transaction.
+
+        Args:
+            task_orders: List of (task_id, sort_order) tuples.
+
+        This is much more efficient than calling save_task() for each task
+        when reordering, as it uses a single transaction instead of N.
+        """
+        if not task_orders:
+            return
+        try:
+            async with self._get_connection() as conn:
+                await conn.executemany(
+                    "UPDATE tasks SET sort_order = ? WHERE id = ?",
+                    [(order, task_id) for task_id, order in task_orders]
+                )
+                await conn.commit()
+        except Exception as e:
+            logger.error(f"Error updating task sort orders: {e}")
+            raise DatabaseError(f"Failed to update task sort orders: {e}") from e
+
     async def load_tasks(self) -> List[Dict[str, Any]]:
         try:
             async with self._get_connection() as conn:
@@ -311,6 +464,9 @@ class Database:
                     result = []
                     async for r in cursor:
                         task_dict = dict(r)
+                        # Decrypt sensitive fields
+                        task_dict["title"] = _decrypt_field(task_dict.get("title", ""))
+                        task_dict["notes"] = _decrypt_field(task_dict.get("notes", ""))
                         task_dict["recurrence_weekdays"] = json.loads(
                             task_dict.get("recurrence_weekdays", "[]")
                         )
@@ -335,10 +491,12 @@ class Database:
 
     async def save_project(self, p: Dict[str, str]) -> None:
         try:
+            # Encrypt project name
+            name = _encrypt_field(p["name"])
             async with self._get_connection() as conn:
                 await conn.execute(
                     "INSERT OR REPLACE INTO projects (id,name,icon,color) VALUES (?,?,?,?)",
-                    (p["id"], p["name"], p["icon"], p["color"])
+                    (p["id"], name, p["icon"], p["color"])
                 )
                 await conn.commit()
         except Exception as e:
@@ -372,7 +530,13 @@ class Database:
         try:
             async with self._get_connection() as conn:
                 async with conn.execute("SELECT * FROM projects") as cursor:
-                    return [dict(r) async for r in cursor]
+                    result = []
+                    async for r in cursor:
+                        project = dict(r)
+                        # Decrypt project name
+                        project["name"] = _decrypt_field(project.get("name", ""))
+                        result.append(project)
+                    return result
         except Exception as e:
             logger.error(f"Error loading projects: {e}")
             raise DatabaseError(f"Failed to load projects: {e}") from e
@@ -605,6 +769,9 @@ class Database:
                     result = []
                     async for r in cursor:
                         task_dict = dict(r)
+                        # Decrypt sensitive fields
+                        task_dict["title"] = _decrypt_field(task_dict.get("title", ""))
+                        task_dict["notes"] = _decrypt_field(task_dict.get("notes", ""))
                         task_dict["recurrence_weekdays"] = json.loads(
                             task_dict.get("recurrence_weekdays", "[]")
                         )

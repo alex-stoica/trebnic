@@ -143,6 +143,32 @@ PAGE_PROFILE = PageType.PROFILE
 PAGE_PREFERENCES = PageType.PREFERENCES
 PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
 
+# ============================================================================
+# Encryption & Authentication
+# ============================================================================
+
+# Fields that should be encrypted when encryption is enabled
+# Format: (table_name, column_name)
+ENCRYPTED_FIELDS = [
+    ("tasks", "title"),
+    ("tasks", "notes"),
+    ("projects", "name"),
+    # Time entries are sensitive but timestamps can't be easily encrypted
+    # without breaking date queries. Consider SQLCipher for full-db encryption.
+]
+
+# Minimum password requirements
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+
+# Auto-lock timeout (seconds) - 0 to disable
+# TODO: Make this a user setting
+AUTO_LOCK_TIMEOUT = 0  # Disabled by default
+
+# Session timeout after app goes to background (mobile)
+BACKGROUND_LOCK_TIMEOUT = 300  # 5 minutes
+
+
 COLORS = {
     "bg": "#1e1e1e",
     "sidebar": "#121212",
