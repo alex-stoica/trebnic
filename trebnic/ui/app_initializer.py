@@ -13,7 +13,7 @@ from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
-from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView, HelpPage, FeedbackPage 
+from ui.pages import TasksView, CalendarView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage, StatsPage 
 from ui.timer_controller import TimerController
 from ui.auth_controller import AuthController
 
@@ -38,9 +38,9 @@ class AppComponents:
         self.calendar_view: Optional[CalendarView] = None
         self.time_entries_view: Optional[TimeEntriesView] = None
         self.profile_page: Optional[ProfilePage] = None
-        self.prefs_page: Optional[PreferencesPage] = None
         self.help_page: Optional[HelpPage] = None
         self.feedback_page: Optional[FeedbackPage] = None
+        self.stats_page: Optional[StatsPage] = None
         self.task_dialogs: Optional[TaskDialogs] = None
         self.project_dialogs: Optional[ProjectDialogs] = None
         self.timer_widget: Optional[TimerWidget] = None
@@ -154,10 +154,6 @@ class AppInitializer:
 
         self.components.profile_page = ProfilePage(
             self.page, state, service, snack, nav_manager.navigate_to,
-        )
-
-        self.components.prefs_page = PreferencesPage(
-            self.page, state, service, snack, nav_manager.navigate_to,
             self.components.tasks_view,
         )
 
@@ -167,6 +163,10 @@ class AppInitializer:
 
         self.components.feedback_page = FeedbackPage(
             self.page, nav_manager.navigate_to, snack
+        )
+
+        self.components.stats_page = StatsPage(
+            self.page, state, nav_manager.navigate_to, service.load_time_entries,
         )
 
         self.components.task_dialogs = TaskDialogs(

@@ -399,6 +399,82 @@ class CryptoService:
 
 
 # ============================================================================
+# Key Wrapping for Biometric Storage
+# ============================================================================
+
+def wrap_key_for_biometric(encryption_key: bytes, biometric_secret: bytes, salt: bytes) -> str:
+    """Wrap (encrypt) the encryption key for secure biometric storage.
+
+    Instead of storing the raw encryption key in the OS keyring, we:
+    1. Derive a wrapping key from the biometric secret + salt
+    2. Encrypt the encryption key with AES-GCM using the wrapping key
+    3. Store the wrapped key in the database (not the raw key)
+
+    This way, compromising the keyring alone doesn't reveal the encryption key.
+
+    Args:
+        encryption_key: The AES-256 encryption key to wrap
+        biometric_secret: Random secret stored in OS keyring
+        salt: Salt stored in database
+
+    Returns:
+        Base64-encoded wrapped key (nonce + ciphertext)
+    """
+    if not CRYPTO_AVAILABLE:
+        raise RuntimeError("Encryption not available")
+
+    # Derive wrapping key from biometric secret
+    wrapping_key = derive_key_pbkdf2(biometric_secret.hex(), salt)
+
+    # Wrap the encryption key with AES-GCM
+    aesgcm = AESGCM(wrapping_key)
+    nonce = secrets.token_bytes(GCM_NONCE_SIZE)
+    wrapped = aesgcm.encrypt(nonce, encryption_key, None)
+
+    # Combine nonce + wrapped key
+    combined = nonce + wrapped
+    return base64.b64encode(combined).decode('utf-8')
+
+
+def unwrap_key_from_biometric(wrapped_key_b64: str, biometric_secret: bytes, salt: bytes) -> Optional[bytes]:
+    """Unwrap (decrypt) the encryption key from biometric storage.
+
+    Args:
+        wrapped_key_b64: Base64-encoded wrapped key from database
+        biometric_secret: Secret retrieved from OS keyring
+        salt: Salt stored in database
+
+    Returns:
+        The unwrapped encryption key, or None if unwrapping fails
+    """
+    if not CRYPTO_AVAILABLE:
+        return None
+
+    try:
+        combined = base64.b64decode(wrapped_key_b64)
+        if len(combined) < GCM_NONCE_SIZE + GCM_TAG_SIZE:
+            return None
+
+        nonce = combined[:GCM_NONCE_SIZE]
+        wrapped = combined[GCM_NONCE_SIZE:]
+
+        # Derive wrapping key from biometric secret
+        wrapping_key = derive_key_pbkdf2(biometric_secret.hex(), salt)
+
+        # Unwrap the encryption key
+        aesgcm = AESGCM(wrapping_key)
+        return aesgcm.decrypt(nonce, wrapped, None)
+    except Exception as e:
+        logger.warning(f"Key unwrapping failed: {e}")
+        return None
+
+
+def generate_biometric_secret() -> bytes:
+    """Generate a cryptographically secure random secret for biometric storage."""
+    return secrets.token_bytes(32)  # 256-bit secret
+
+
+# ============================================================================
 # Module-level singleton instance
 # ============================================================================
 

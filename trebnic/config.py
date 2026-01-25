@@ -22,10 +22,10 @@ class PageType(Enum):
     """Enum for page types."""
     TASKS = "tasks"
     PROFILE = "profile"
-    PREFERENCES = "preferences"
     TIME_ENTRIES = "time_entries"
     HELP = "help"
     FEEDBACK = "feedback"
+    STATS = "stats"
 
 PROJECT_ICONS = [ 
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
@@ -142,9 +142,8 @@ NAV_TIMESHEET = NavItem.TIMESHEET
 
 PAGE_TASKS = PageType.TASKS
 PAGE_PROFILE = PageType.PROFILE
-PAGE_PREFERENCES = PageType.PREFERENCES
 PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
-PAGE_HELP = PageType.HELP 
+PAGE_HELP = PageType.HELP
 FEEDBACK_EMAIL = "alexstoica@protonmail.com"
 
 # ============================================================================

@@ -281,8 +281,9 @@ class TimerController:
             # but heartbeat ensures we don't lose more than 30 seconds
             try:
                 self.page.run_task(save_on_cleanup)
-            except Exception:
-                pass  # Page may be closing
+            except RuntimeError as e:
+                # Page may be closing or event loop unavailable - expected during shutdown
+                logger.debug(f"Could not schedule timer save (page closing): {e}")
 
         # Reset timer service state
         self.timer_svc.running = False

@@ -104,8 +104,12 @@ class Database:
             await self._conn.execute("PRAGMA busy_timeout=5000")
         return self._conn
 
-    def _get_lock(self) -> asyncio.Lock:
-        """Get or create the async lock for connection serialization."""
+    async def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock for connection serialization.
+
+        Creates the lock in an async context to ensure it's bound to the
+        correct event loop.
+        """
         if self._conn_lock is None:
             self._conn_lock = asyncio.Lock()
         return self._conn_lock
@@ -118,7 +122,8 @@ class Database:
         (SQLite limitation). The connection is reused across operations
         to avoid the overhead of opening/closing for every query.
         """
-        async with self._get_lock():
+        lock = await self._get_lock()
+        async with lock:
             conn = await self._ensure_connection()
             yield conn
 

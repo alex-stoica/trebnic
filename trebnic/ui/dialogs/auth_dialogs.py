@@ -39,11 +39,25 @@ def _create_password_field(
 
 
 def _validate_password(password: str) -> Optional[str]:
-    """Validate password meets requirements. Returns error message or None."""
+    """Validate password meets security requirements. Returns error message or None.
+
+    Requirements:
+    - At least PASSWORD_MIN_LENGTH characters
+    - At most PASSWORD_MAX_LENGTH characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    """
     if len(password) < PASSWORD_MIN_LENGTH:
         return f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
     if len(password) > PASSWORD_MAX_LENGTH:
         return f"Password must be at most {PASSWORD_MAX_LENGTH} characters"
+    if not any(c.isupper() for c in password):
+        return "Password must contain at least one uppercase letter"
+    if not any(c.islower() for c in password):
+        return "Password must contain at least one lowercase letter"
+    if not any(c.isdigit() for c in password):
+        return "Password must contain at least one digit"
     return None
 
 
@@ -280,7 +294,7 @@ def open_setup_password_dialog(
 
         return actions
 
-    dialog, _ = open_dialog(page, "Set Up Encryption", content, make_actions)
+    dialog, _ = open_dialog(page, "Set up encryption", content, make_actions)
 
 
 def open_change_password_dialog(
@@ -512,7 +526,7 @@ def open_encryption_settings_dialog(
                 padding=SPACING_LG,
             ),
             ft.ElevatedButton(
-                "Set Up Encryption",
+                "Set up encryption",
                 icon=ft.Icons.LOCK,
                 bgcolor=COLORS["accent"],
                 color=COLORS["white"],

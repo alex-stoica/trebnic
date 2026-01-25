@@ -72,9 +72,9 @@ class TrebnicApp:
         self.calendar_view = c.calendar_view
         self.time_entries_view = c.time_entries_view
         self.profile_page = c.profile_page
-        self.prefs_page = c.prefs_page
         self.help_page = c.help_page
         self.feedback_page = c.feedback_page
+        self.stats_page = c.stats_page
         self.task_dialogs = c.task_dialogs
         self.project_dialogs = c.project_dialogs
         self._pending_error = c.pending_error
@@ -119,8 +119,9 @@ class TrebnicApp:
 
         try:
             self.page.run_task(close_db)
-        except Exception:
-            pass  # Best effort on cleanup
+        except RuntimeError as e:
+            # Page may be closing or event loop unavailable - expected during shutdown
+            logger.debug(f"Could not schedule db close (page closing): {e}")
 
     async def _init_auth(self) -> None:
         """Initialize authentication and show unlock dialog if needed."""
@@ -287,15 +288,15 @@ class TrebnicApp:
         self.page.run_task(_postpone)
 
     def update_content(self) -> None:
-        """Update the main content area based on current state.""" 
+        """Update the main content area based on current state."""
         if self.state.current_page == PageType.PROFILE:
             self.page_content.content = self.profile_page.build()
-        elif self.state.current_page == PageType.PREFERENCES:
-            self.page_content.content = self.prefs_page.build()
         elif self.state.current_page == PageType.HELP:
             self.page_content.content = self.help_page.build()
         elif self.state.current_page == PageType.FEEDBACK:
             self.page_content.content = self.feedback_page.build()
+        elif self.state.current_page == PageType.STATS:
+            self.page_content.content = self.stats_page.build()
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NavItem.CALENDAR:
@@ -305,20 +306,20 @@ class TrebnicApp:
 
     def _on_profile_click(self, e: ft.ControlEvent) -> None:
         """Handle profile menu item click."""
-        self.nav_manager.navigate_to(PageType.PROFILE) 
-
-    def _on_preferences_click(self, e: ft.ControlEvent) -> None:
-        """Handle preferences menu item click."""
-        self.nav_manager.navigate_to(PageType.PREFERENCES)
+        self.nav_manager.navigate_to(PageType.PROFILE)
 
     def _on_encryption_click(self, e: ft.ControlEvent) -> None:
         """Handle encryption settings menu item click."""
         if self.auth_ctrl:
             self.auth_ctrl.show_encryption_settings()
 
-    def _on_help_click(self, e: ft.ControlEvent) -> None: 
-        """Handle help menu item click.""" 
+    def _on_help_click(self, e: ft.ControlEvent) -> None:
+        """Handle help menu item click."""
         self.nav_manager.navigate_to(PageType.HELP)
+
+    def _on_stats_click(self, e: ft.ControlEvent) -> None:
+        """Handle stats menu item click."""
+        self.nav_manager.navigate_to(PageType.STATS)
 
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""
@@ -329,9 +330,9 @@ class TrebnicApp:
                 on_click=self._on_profile_click,
             ),
             ft.PopupMenuItem(
-                text="Preferences",
-                icon=ft.Icons.TUNE,
-                on_click=self._on_preferences_click,
+                text="Stats",
+                icon=ft.Icons.BAR_CHART,
+                on_click=self._on_stats_click,
             ),
             ft.PopupMenuItem(
                 text="Encryption",

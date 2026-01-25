@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional, List
+from weakref import WeakKeyDictionary
 
 from config import (
     COLORS,
@@ -24,14 +25,76 @@ from ui.components.duration_knob import DurationKnob
 from events import event_bus, AppEvent
 
 
+class DatePickerManager:
+    """Manages DatePicker instances to prevent overlay memory leaks.
+
+    Instead of creating new DatePickers for each dialog, this manager reuses
+    a single picker per page and properly cleans up when pages are disposed.
+    Uses WeakKeyDictionary with page objects as keys - this automatically
+    removes entries when pages are garbage collected, avoiding the fragile
+    id(page) approach where IDs can be reused after GC.
+    """
+
+    _instance: Optional["DatePickerManager"] = None
+    _pickers: WeakKeyDictionary  # page -> picker (auto-cleanup on page GC)
+
+    def __new__(cls) -> "DatePickerManager":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._pickers = WeakKeyDictionary()
+        return cls._instance
+
+    def get_picker(
+        self,
+        page: ft.Page,
+        first_date: Optional[date] = None,
+        last_date: Optional[date] = None,
+    ) -> ft.DatePicker:
+        """Get or create a DatePicker for the given page.
+
+        Args:
+            page: The Flet page
+            first_date: Minimum selectable date (default: today)
+            last_date: Maximum selectable date (default: 5 years from today)
+
+        Returns:
+            A DatePicker instance attached to the page's overlay
+        """
+        # Check if we have a valid picker for this page
+        picker = self._pickers.get(page)
+        if picker is not None:
+            # Verify the picker is still in the overlay
+            if picker in page.overlay:
+                return picker
+            # Picker was removed from overlay, create a new one
+
+        # Create new picker
+        picker = ft.DatePicker(
+            first_date=first_date or date.today(),
+            last_date=last_date or date.today() + timedelta(days=365 * 5),
+        )
+        page.overlay.append(picker)
+
+        # Store reference (auto-cleanup when page is GC'd via WeakKeyDictionary)
+        self._pickers[page] = picker
+
+        return picker
+
+    def remove_picker(self, page: ft.Page) -> None:
+        """Explicitly remove the picker for a page."""
+        picker = self._pickers.pop(page, None)
+        if picker and picker in page.overlay:
+            page.overlay.remove(picker)
+
+
+# Module-level singleton
+_picker_manager = DatePickerManager()
+
+
 class RecurrenceDialogController:
     """Controller for the recurrence dialog."""
 
     WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]
-
-    # Class-level DatePicker to reuse across instances and prevent memory leak
-    _shared_date_picker: Optional[ft.DatePicker] = None
-    _shared_picker_page: Optional[ft.Page] = None
 
     def __init__(
         self,
@@ -175,32 +238,18 @@ class RecurrenceDialogController:
     def _open_end_date_picker(self, e: ft.ControlEvent) -> None:
         """Open the end date picker.
 
-        Uses a class-level shared DatePicker to prevent overlay memory leaks.
-        The picker is reused across dialog instances and only added to overlay once.
+        Uses DatePickerManager to reuse pickers and prevent overlay memory leaks.
         """
-        cls = RecurrenceDialogController
-
-        # Check if we need to create a new picker (first time or page changed)
-        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
-            # Remove old picker from previous page's overlay if exists
-            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
-                try:
-                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
-                except ValueError:
-                    pass  # Already removed
-
-            # Create new picker for current page
-            cls._shared_date_picker = ft.DatePicker(
-                first_date=date.today(),
-                last_date=date.today() + timedelta(days=365 * 5),
-            )
-            self.page.overlay.append(cls._shared_date_picker)
-            cls._shared_picker_page = self.page
+        picker = _picker_manager.get_picker(
+            self.page,
+            first_date=date.today(),
+            last_date=date.today() + timedelta(days=365 * 5),
+        )
 
         # Update handler for this specific dialog instance
-        cls._shared_date_picker.on_change = self._on_end_date_change
-        cls._shared_date_picker.value = self.state.end_date or date.today()
-        cls._shared_date_picker.open = True
+        picker.on_change = self._on_end_date_change
+        picker.value = self.state.end_date or date.today()
+        picker.open = True
         self.page.update()
 
     def _on_end_date_change(self, e: ft.ControlEvent) -> None:
@@ -260,10 +309,6 @@ class RecurrenceDialogController:
 
 
 class TaskDialogs:
-    # Class-level DatePicker to reuse across instances and prevent memory leak
-    _shared_date_picker: Optional[ft.DatePicker] = None
-    _shared_picker_page: Optional[ft.Page] = None
-
     def __init__(
         self,
         page: ft.Page,
@@ -382,31 +427,15 @@ class TaskDialogs:
         )
 
     def _ensure_date_picker(self) -> ft.DatePicker:
-        """Get or create the shared DatePicker, managing overlay lifecycle.
+        """Get or create a DatePicker using the DatePickerManager.
 
-        Uses a class-level shared DatePicker to prevent overlay memory leaks.
-        The picker is reused across dialog instances and only added to overlay once.
+        Uses DatePickerManager to reuse pickers and prevent overlay memory leaks.
         """
-        cls = TaskDialogs
-
-        # Check if we need to create a new picker (first time or page changed)
-        if cls._shared_date_picker is None or cls._shared_picker_page != self.page:
-            # Remove old picker from previous page's overlay if exists
-            if cls._shared_date_picker is not None and cls._shared_picker_page is not None:
-                try:
-                    cls._shared_picker_page.overlay.remove(cls._shared_date_picker)
-                except ValueError:
-                    pass  # Already removed
-
-            # Create new picker for current page
-            cls._shared_date_picker = ft.DatePicker(
-                first_date=date.today(),
-                last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
-            )
-            self.page.overlay.append(cls._shared_date_picker)
-            cls._shared_picker_page = self.page
-
-        return cls._shared_date_picker
+        return _picker_manager.get_picker(
+            self.page,
+            first_date=date.today(),
+            last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
+        )
 
     def date_picker(self, task: Task) -> None:
         if task.recurrent:

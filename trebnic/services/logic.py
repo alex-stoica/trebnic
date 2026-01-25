@@ -19,7 +19,6 @@ class TaskService:
     """Service for task and project operations.
 
     All data operations are async. Use page.run_task() or await for async calls.
-    The run_sync() method is deprecated and kept only for backwards compatibility.
     """
 
     def __init__(self, state: AppState, page: Optional[ft.Page] = None) -> None:
@@ -29,51 +28,6 @@ class TaskService:
     def set_page(self, page: ft.Page) -> None:
         """Set the Flet page for async task scheduling."""
         self._page = page
-
-    def run_sync(self, coro, wait: bool = True):
-        """Execute an async coroutine synchronously.
-
-        DEPRECATED: Use page.run_task() or await instead. This method is kept
-        for backwards compatibility but should not be used in new code.
-
-        Args:
-            coro: The coroutine to execute
-            wait: If True, block and return result. If False, fire-and-forget.
-
-        Returns:
-            The result of the coroutine when wait=True, None otherwise.
-
-        Raises:
-            RuntimeError: If no page reference is available or if called from async context.
-            TimeoutError: If wait=True and the coroutine times out after 30 seconds.
-        """
-        if self._page is None:
-            coro.close()
-            raise RuntimeError(
-                "run_sync requires a page reference. Call set_page() first or use "
-                "page.run_task() / await directly. This method is deprecated."
-            )
-
-        # Check if we're in an async context - can't block there
-        try:
-            loop = asyncio.get_running_loop()
-            if loop is not None and loop.is_running():
-                coro.close()
-                raise RuntimeError(
-                    "Cannot call run_sync from async context. "
-                    "Use 'await' directly instead of run_sync."
-                )
-        except RuntimeError:
-            pass  # No running loop, which is fine
-
-        try:
-            future = asyncio.run_coroutine_threadsafe(coro, self._page.loop)
-            if not wait:
-                return None
-            return future.result(timeout=30.0)
-        except asyncio.TimeoutError:
-            logger.error("run_sync timed out after 30s - possible deadlock")
-            raise TimeoutError("Async operation timed out after 30 seconds")
 
     @staticmethod
     async def load_state_async() -> AppState:
@@ -437,6 +391,10 @@ class TaskService:
     async def load_time_entries_for_task(self, task_id: int) -> List[TimeEntry]:
         """Load all time entries for a task."""
         return [TimeEntry.from_dict(d) for d in await db.load_time_entries_for_task(task_id)]
+
+    async def load_time_entries(self, limit: Optional[int] = None) -> List[dict]:
+        """Load all time entries from the database."""
+        return await db.load_time_entries(limit)
 
     async def recalculate_task_time_from_entries(self, task: Task) -> None:
         """Recalculate task spent_seconds from its time entries."""

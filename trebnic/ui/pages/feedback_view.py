@@ -1,5 +1,5 @@
 import flet as ft
-import urllib.parse
+import httpx
 from typing import Callable
 
 from config import (
@@ -23,28 +23,44 @@ class FeedbackPage:
         self.navigate = navigate
         self.snack = snack
 
-    def _send_feedback(self, category: str, message: str) -> None:
-        """Launch default mail client with pre-filled feedback."""
+    async def _send_feedback_async(self, category: str, message: str, message_field: ft.TextField) -> None:
+        """Send feedback directly via formsubmit.co."""
+        subject = f"[{category}] Trebnic feedback"
+
+        data = {
+            "_subject": subject,
+            "message": message,
+            "_template": "table",
+            "_captcha": "false",
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://formsubmit.co/ajax/{FEEDBACK_EMAIL}",
+                    data=data,
+                    timeout=15.0,
+                )
+
+            if response.status_code == 200:
+                self.snack.show("Feedback sent, thank you!", COLORS["green"])
+                message_field.value = ""
+                message_field.update()
+            else:
+                self.snack.show("Failed to send feedback. Please try again.", COLORS["danger"])
+        except httpx.TimeoutException:
+            self.snack.show("Request timed out. Check your connection.", COLORS["danger"])
+        except httpx.RequestError as e:
+            self.snack.show(f"Network error: {e}", COLORS["danger"])
+
+    def _send_feedback(self, category: str, message: str, message_field: ft.TextField) -> None:
+        """Validate and trigger async feedback send."""
         if not message.strip():
             self.snack.show("Please enter a message", COLORS["danger"])
             return
 
-        subject = f"[{category}] Trebnic feedback"
-        body = f"{message}\n\n--\nSent from Trebnic app"
-
-        # URL encode parameters
-        params = {
-            "subject": subject,
-            "body": body
-        }
-        query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-        url = f"mailto:{FEEDBACK_EMAIL}?{query}"
-
-        try:
-            self.page.launch_url(url)
-            self.snack.show("Opening email client...", COLORS["green"])
-        except Exception as e:
-            self.snack.show(f"Could not open mail client: {e}", COLORS["danger"])
+        self.snack.show("Sending feedback...", COLORS["accent"])
+        self.page.run_task(self._send_feedback_async, category, message, message_field)
 
     def build(self) -> ft.Column:
         back_btn = ft.IconButton(
@@ -132,8 +148,8 @@ class FeedbackPage:
                     message_field,
                     ft.Container(
                         content=accent_btn(
-                            "Send Email",
-                            lambda e: self._send_feedback(category_dd.value, message_field.value)
+                            "Send feedback",
+                            lambda e: self._send_feedback(category_dd.value, message_field.value, message_field)
                         ),
                         alignment=ft.alignment.center_right,
                     )
