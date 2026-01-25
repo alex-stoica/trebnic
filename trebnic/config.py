@@ -143,6 +143,8 @@ PAGE_TASKS = PageType.TASKS
 PAGE_PROFILE = PageType.PROFILE
 PAGE_PREFERENCES = PageType.PREFERENCES
 PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
+PAGE_HELP = PageType.HELP 
+FEEDBACK_EMAIL = "alexstoica@protonmail.com"
 
 # ============================================================================
 # Encryption & Authentication
@@ -153,9 +155,7 @@ PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
 ENCRYPTED_FIELDS = [
     ("tasks", "title"),
     ("tasks", "notes"),
-    ("projects", "name"),
-    # Time entries are sensitive but timestamps can't be easily encrypted
-    # without breaking date queries. Consider SQLCipher for full-db encryption.
+    ("projects", "name"), 
 ]
 
 # Minimum password requirements

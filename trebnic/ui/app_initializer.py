@@ -13,7 +13,7 @@ from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
-from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView
+from ui.pages import TasksView, CalendarView, ProfilePage, PreferencesPage, TimeEntriesView, HelpPage 
 from ui.timer_controller import TimerController
 from ui.auth_controller import AuthController
 
@@ -39,6 +39,7 @@ class AppComponents:
         self.time_entries_view: Optional[TimeEntriesView] = None
         self.profile_page: Optional[ProfilePage] = None
         self.prefs_page: Optional[PreferencesPage] = None
+        self.help_page: Optional[HelpPage] = None
         self.task_dialogs: Optional[TaskDialogs] = None
         self.project_dialogs: Optional[ProjectDialogs] = None
         self.timer_widget: Optional[TimerWidget] = None
@@ -157,6 +158,10 @@ class AppInitializer:
         self.components.prefs_page = PreferencesPage(
             self.page, state, service, snack, nav_manager.navigate_to,
             self.components.tasks_view,
+        )
+
+        self.components.help_page = HelpPage( 
+            self.page, nav_manager.navigate_to, snack 
         )
 
         self.components.task_dialogs = TaskDialogs(

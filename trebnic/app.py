@@ -334,6 +334,11 @@ class TrebnicApp:
                 icon=ft.Icons.LOCK,
                 on_click=self._on_encryption_click,
             ),
+            ft.PopupMenuItem(
+                text="Help & feedback",
+                icon=ft.Icons.HELP_OUTLINE,
+                on_click=self._on_help_click,
+            )
         ]
 
         if len(self.state.selected_projects) == 1:
