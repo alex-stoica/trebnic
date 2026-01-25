@@ -1,9 +1,10 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, List
 
 from config import RecurrenceFrequency
 from models.entities import Task
+from services.recurrence import calculate_next_recurrence_from_date
 
 
 @dataclass
@@ -47,6 +48,14 @@ class RecurrenceState:
         self.task.recurrence_end_type = self.end_type
         self.task.recurrence_end_date = self.end_date
         self.task.recurrence_from_completion = self.from_completion
+
+        # When recurrence is enabled, update due_date to the next occurrence
+        if self.enabled:
+            # Calculate next occurrence from yesterday so today can be included if it matches
+            base_date = date.today() - timedelta(days=1)
+            next_date = calculate_next_recurrence_from_date(self.task, base_date)
+            if next_date:
+                self.task.due_date = next_date
 
 
 @dataclass

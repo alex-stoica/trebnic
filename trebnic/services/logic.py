@@ -189,18 +189,23 @@ class TaskService:
             raise
 
     async def complete_task_async(self, task: Task) -> Optional[Task]:
-        if task not in self.state.tasks:
+        # Find task in state by ID (object identity may differ)
+        state_task = next((t for t in self.state.tasks if t.id == task.id), None)
+        if state_task is None:
             return None
 
+        # Copy over any updated fields from the passed task (e.g., spent_seconds)
+        state_task.spent_seconds = task.spent_seconds
+
         # Save to DB first
-        await db.save_task(task.to_dict(is_done=True))
+        await db.save_task(state_task.to_dict(is_done=True))
 
         # Only modify state after DB success
-        self.state.tasks.remove(task)
-        self.state.done_tasks.append(task)
+        self.state.tasks.remove(state_task)
+        self.state.done_tasks.append(state_task)
 
         # Handle recurrence - create next occurrence if applicable
-        new_task = self._create_next_recurrence(task)
+        new_task = self._create_next_recurrence(state_task)
         if new_task:
             new_task.id = await db.save_task(new_task.to_dict())
             self.state.tasks.append(new_task)
@@ -210,7 +215,8 @@ class TaskService:
     def _create_next_recurrence(self, task: Task) -> Optional[Task]:
         """Create the next occurrence of a recurring task.
 
-        Returns None if task is not recurring or recurrence has ended.
+        Returns None if task is not recurring, recurrence has ended, or
+        a task with the same title and due date already exists.
         """
         if not task.recurrent:
             return None
@@ -223,21 +229,64 @@ class TaskService:
         if not next_date:
             return None
 
+        # Check if a task with the same title and due date already exists
+        # This prevents duplicates when completing/uncompleting a recurring task
+        for existing in self.state.tasks:
+            if existing.title == task.title and existing.due_date == next_date:
+                return None
+
         return task.create_next_occurrence(next_date)
+
+    async def _advance_overdue_recurring_tasks(
+        self, tasks: List[Task], today: date
+    ) -> List[Task]:
+        """Auto-advance recurring tasks whose due_date has passed.
+
+        For recurring tasks with due_date < today, update their due_date
+        to the next valid occurrence. This ensures recurring tasks only
+        appear on their scheduled days, not every day after their original date.
+
+        Returns the filtered list (excluding tasks that were advanced to a future date).
+        """
+        result = []
+        for task in tasks:
+            # Only process recurring tasks with past due dates
+            if not task.recurrent or not task.due_date or task.due_date >= today:
+                result.append(task)
+                continue
+
+            # Calculate next occurrence from yesterday to include today if valid
+            next_date = calculate_next_recurrence_from_date(task, today - timedelta(days=1))
+
+            if next_date and next_date != task.due_date:
+                # Update the task's due_date
+                task.due_date = next_date
+                await db.save_task(task.to_dict(is_done=False))
+
+                # Only include if next date is today (otherwise it's a future task)
+                if next_date == today:
+                    result.append(task)
+            else:
+                # No next occurrence or same date - keep as is
+                result.append(task)
+
+        return result
 
     def complete_task(self, task: Task) -> Optional[Task]:
         return self._schedule_async(self.complete_task_async(task))
 
     async def uncomplete_task_async(self, task: Task) -> bool:
-        if task not in self.state.done_tasks:
+        # Find task in state by ID (object identity may differ)
+        state_task = next((t for t in self.state.done_tasks if t.id == task.id), None)
+        if state_task is None:
             return False
 
         # Save to DB first
-        await db.save_task(task.to_dict(is_done=False))
+        await db.save_task(state_task.to_dict(is_done=False))
 
         # Only modify state after DB success
-        self.state.done_tasks.remove(task)
-        self.state.tasks.append(task)
+        self.state.done_tasks.remove(state_task)
+        self.state.tasks.append(state_task)
         return True
 
     def uncomplete_task(self, task: Task) -> bool:
@@ -299,6 +348,7 @@ class TaskService:
         pending_kwargs: dict = {"is_done": False}
         done_kwargs: dict = {"is_done": True, "limit": done_limit}
 
+        # Apply nav-based date filter
         if nav == NavItem.TODAY:
             pending_kwargs["due_date_lte"] = today
             done_kwargs["due_date_eq"] = today
@@ -308,14 +358,12 @@ class TaskService:
         elif nav == NavItem.INBOX:
             pending_kwargs["due_date_is_null"] = True
             done_kwargs["due_date_is_null"] = True
-        elif nav == NavItem.PROJECTS:
+
+        # Apply project filter if any projects selected (combines with nav filter)
+        if self.state.selected_projects:
             project_ids = list(self.state.selected_projects)
-            if project_ids:
-                pending_kwargs["project_ids"] = project_ids
-                done_kwargs["project_ids"] = project_ids
-            else:
-                # No projects selected - return empty
-                return [], []
+            pending_kwargs["project_ids"] = project_ids
+            done_kwargs["project_ids"] = project_ids
 
         # Query database with filters
         pending_dicts = await db.load_tasks_filtered(**pending_kwargs)
@@ -323,6 +371,11 @@ class TaskService:
 
         pending = [Task.from_dict(d) for d in pending_dicts]
         done = [Task.from_dict(d) for d in done_dicts]
+
+        # Auto-advance recurring tasks whose due_date has passed
+        # This ensures recurring tasks only appear on their scheduled days
+        if nav == NavItem.TODAY:
+            pending = await self._advance_overdue_recurring_tasks(pending, today)
 
         # Update in-memory state for pending tasks (these should be kept in sync)
         # Note: We don't update done_tasks here as we intentionally limit them
@@ -345,11 +398,29 @@ class TaskService:
         nav = self.state.selected_nav
         today = date.today()
 
-        pending = self.state.tasks
+        pending = list(self.state.tasks)
         done = self.state.done_tasks
 
+        # Apply nav-based date filter
         if nav == NavItem.TODAY:
-            pending = [t for t in pending if t.due_date and t.due_date <= today]
+            # For recurring tasks, only show if today matches their schedule
+            filtered_pending = []
+            for t in pending:
+                if not t.due_date:
+                    continue
+                if t.due_date > today:
+                    continue
+                # For recurring tasks with past due_date, advance to next occurrence
+                if t.recurrent and t.due_date < today:
+                    next_date = calculate_next_recurrence_from_date(t, today - timedelta(days=1))
+                    if next_date:
+                        t.due_date = next_date
+                        if next_date == today:
+                            filtered_pending.append(t)
+                    # If no next date, task recurrence ended - don't show
+                else:
+                    filtered_pending.append(t)
+            pending = filtered_pending
             done = [t for t in done if t.due_date == today]
         elif nav == NavItem.UPCOMING:
             pending = [t for t in pending if t.due_date and t.due_date > today]
@@ -357,7 +428,9 @@ class TaskService:
         elif nav == NavItem.INBOX:
             pending = [t for t in pending if not t.due_date]
             done = [t for t in done if not t.due_date]
-        elif nav == NavItem.PROJECTS:
+
+        # Apply project filter if any projects selected (combines with nav filter)
+        if self.state.selected_projects:
             pending = [t for t in pending if t.project_id in self.state.selected_projects]
             done = [t for t in done if t.project_id in self.state.selected_projects]
 
@@ -482,3 +555,14 @@ class TaskService:
 
     def persist_task_order(self) -> None:
         self._schedule_async(self.persist_task_order_async(), need_result=False)
+
+    async def persist_reordered_tasks_async(self, tasks: List[Task]) -> None:
+        """Persist sort_order for a list of tasks (from fresh DB objects)."""
+        for task in tasks:
+            await self.persist_task_async(task)
+
+    def persist_reordered_tasks(self, tasks: List[Task]) -> None:
+        """Persist reordered tasks. Use this instead of persist_task_order when
+        working with fresh DB objects from get_filtered_tasks().
+        """
+        self._schedule_async(self.persist_reordered_tasks_async(tasks), need_result=True)

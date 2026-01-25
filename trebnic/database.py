@@ -173,6 +173,7 @@ class Database:
             default_projects = [
                 {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},
                 {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},
+                {"id": "sport", "name": "Sport", "icon": "🏋️", "color": "#ff5722"},
             ]
             for project in default_projects:
                 await self.save_project(project)
@@ -216,6 +217,26 @@ class Database:
                 "start_time": entry2_start.isoformat(),
                 "end_time": entry2_end.isoformat(),
             })
+
+            # Recurring gym task - Mon/Wed/Fri
+            gym_task = {
+                "id": None,
+                "title": "Gym",
+                "spent_seconds": 0,
+                "estimated_seconds": 3600,  # 1 hour
+                "project_id": "sport",
+                "due_date": date.today().isoformat(),
+                "is_done": 0,
+                "recurrent": 1,
+                "recurrence_interval": 1,
+                "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
+                "recurrence_weekdays": [0, 2, 4],  # Mon, Wed, Fri
+                "notes": "",
+                "sort_order": 1,
+                "recurrence_end_type": "never",
+                "recurrence_end_date": None,
+            }
+            await self.save_task(gym_task)
 
         except Exception as e:
             logger.error(f"Error seeding default data: {e}")

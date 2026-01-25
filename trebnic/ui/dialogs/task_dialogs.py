@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional, List
 
 from config import (
@@ -11,15 +11,16 @@ from config import (
     NOTES_FIELD_HEIGHT,
     DATE_PICKER_YEARS,
     BORDER_RADIUS,
-    PageType,  
+    PageType,
     RecurrenceFrequency,
 )
-from models.entities import Task, AppState
+from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
 from ui.formatters import TimeFormatter
 from ui.helpers import accent_btn, SnackService
 from ui.dialogs.base import open_dialog, create_option_item
 from ui.dialogs.dialog_state import RecurrenceState
+from ui.components.duration_knob import DurationKnob
 from events import event_bus, AppEvent
 
 
@@ -202,6 +203,7 @@ class RecurrenceDialogController:
         """Build the dialog content."""
         return ft.Container(
             width=DIALOG_WIDTH_LG,
+            height=350,
             content=ft.Column(
                 [
                     self.enable_switch,
@@ -232,6 +234,7 @@ class RecurrenceDialogController:
                 ],
                 spacing=10,
                 tight=True,
+                scroll=ft.ScrollMode.AUTO,
             ),
         )
 
@@ -487,7 +490,7 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Set Recurrence",
+            "Set recurrence",
             content,
             lambda c: [
                 ft.TextButton("Cancel", on_click=c),
@@ -723,4 +726,71 @@ class TaskDialogs:
             f"Notes: {task.title}",
             content,
             lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
+        )
+
+    def duration_completion(
+        self,
+        task: Task,
+        on_complete: Callable[[Task], None],
+    ) -> None:
+        """Show duration knob dialog for completing a task without time entries.
+
+        Args:
+            task: The task being completed
+            on_complete: Callback to call after setting duration to complete the task
+        """
+        # Default to estimated time or 15 minutes
+        initial_minutes = task.estimated_seconds // 60 if task.estimated_seconds else 15
+
+        knob = DurationKnob(initial_minutes=initial_minutes, size=220)
+
+        def save(e: ft.ControlEvent) -> None:
+            duration_seconds = knob.value * 60
+            # Create time entry: end_time = now, start_time = now - duration
+            end_time = datetime.now()
+            start_time = end_time - timedelta(seconds=duration_seconds)
+            entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
+            self.service.save_time_entry(entry)
+            # Update task spent time
+            task.spent_seconds += duration_seconds
+            self.service.persist_task(task, wait_for_result=True)
+            close(e)
+            # Now complete the task
+            on_complete(task)
+
+        def skip(e: ft.ControlEvent) -> None:
+            # Complete without setting time
+            close(e)
+            on_complete(task)
+
+        content = ft.Container(
+            width=DIALOG_WIDTH_MD,
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "How long did you spend on this task?",
+                        size=14,
+                        color=COLORS["done_text"],
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Container(
+                        content=knob,
+                        alignment=ft.alignment.center,
+                        padding=ft.padding.only(top=10, bottom=10),
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=10,
+                tight=True,
+            ),
+        )
+
+        _, close = open_dialog(
+            self.page,
+            f"Complete: {task.title}",
+            content,
+            lambda c: [
+                ft.TextButton("Skip", on_click=skip),
+                accent_btn("Save & Complete", save),
+            ],
         )

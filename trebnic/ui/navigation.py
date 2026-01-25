@@ -60,11 +60,11 @@ class NavigationManager:
         self._on_refresh = on_refresh
         self._get_settings_items = get_settings_items
 
-    def select_nav(self, name: NavItem) -> None: 
-        """Select a navigation item."""
+    def select_nav(self, name: NavItem) -> None:
+        """Select a navigation item (keeps project selection for filtering)."""
         self.state.selected_nav = name
-        self.state.selected_projects.clear()
-        self.state.current_page = PageType.TASKS  
+        # Don't clear selected_projects - allow combining nav + project filter
+        self.state.current_page = PageType.TASKS
         if self.state.is_mobile and self._drawer:
             self._drawer.open = False
         self.update_nav()
@@ -75,12 +75,12 @@ class NavigationManager:
         self.update_nav()
 
     def toggle_project(self, project_id: str) -> None:
-        """Toggle selection of a specific project."""
+        """Toggle selection of a specific project (keeps nav selection for filtering)."""
         if project_id in self.state.selected_projects:
             self.state.selected_projects.remove(project_id)
         else:
             self.state.selected_projects.add(project_id)
-            self.state.selected_nav = NavItem.PROJECTS 
+            # Don't change selected_nav - allow combining nav + project filter
         if self.state.is_mobile and self._drawer:
             self._drawer.open = False
         self.update_nav()

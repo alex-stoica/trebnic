@@ -142,6 +142,7 @@ class TrebnicApp:
             stats=self.task_dialogs.stats,
             notes=self.task_dialogs.notes,
             update_content=self.update_content,
+            duration_completion=self.task_dialogs.duration_completion,
         )
 
     def rebuild_sidebar(self) -> None:

@@ -141,29 +141,53 @@ class TasksView:
         self.details_btn.visible = bool(self.task_input.value.strip())
         self.page.update()
 
-    def _on_reorder(self, e: ft.OnReorderEvent) -> None: 
+    def _on_reorder(self, e: ft.OnReorderEvent) -> None:
         old_idx, new_idx = e.old_index, e.new_index
-        if old_idx < new_idx:
-            new_idx -= 1
+        n = len(self.task_list.controls)
 
-        filtered, _ = self.service.get_filtered_tasks()
-        if not filtered or old_idx >= len(filtered):
+        print(f"[REORDER] Event: old_idx={old_idx}, new_idx={new_idx}, n_controls={n}")
+
+        # Validate indices
+        if old_idx < 0 or old_idx >= n:
+            print(f"[REORDER] SKIP: old_idx {old_idx} out of range [0, {n})")
+            return
+        if new_idx < 0 or new_idx > n:
+            print(f"[REORDER] SKIP: new_idx {new_idx} out of range [0, {n}]")
+            return
+        if old_idx == new_idx:
+            print("[REORDER] SKIP: same index")
             return
 
-        task = filtered[old_idx]
-        self.state.tasks.remove(task)
+        # Get task IDs from current UI order (draggables have task.id in data)
+        ui_task_ids = [ctrl.data for ctrl in self.task_list.controls]
+        print(f"[REORDER] UI order before: {ui_task_ids}")
 
-        if new_idx == 0:
-            self.state.tasks.insert(0, task)
-        else:
-            temp = list(filtered)
-            temp.pop(old_idx)
-            temp.insert(new_idx, task)
-            anchor = temp[new_idx - 1]
-            self.state.tasks.insert(self.state.tasks.index(anchor) + 1, task)
+        # Apply the reorder to get desired order
+        moved_id = ui_task_ids.pop(old_idx)
+        ui_task_ids.insert(new_idx, moved_id)
+        print(f"[REORDER] Desired order: {ui_task_ids}")
 
-        self.service.persist_task_order()
+        # Get fresh tasks from DB
+        filtered, _ = self.service.get_filtered_tasks()
+        db_order = [t.id for t in filtered]
+        print(f"[REORDER] DB order: {db_order}")
+
+        # Create a map of task_id -> task for quick lookup
+        task_map = {t.id: t for t in filtered}
+
+        # Assign sort_order based on desired UI order
+        for i, task_id in enumerate(ui_task_ids):
+            if task_id in task_map:
+                task_map[task_id].sort_order = i
+                print(f"[REORDER] Task {task_id} -> sort_order {i}")
+
+        # Persist all tasks with updated sort_order
+        self.service.persist_reordered_tasks(list(task_map.values()))
+        print(f"[REORDER] Persisted {len(task_map)} tasks")
+
+        # Full refresh to rebuild UI from DB (now in correct order)
         self.refresh()
+        print(f"[REORDER] Refreshed")
 
     def _open_details(self, e: ft.ControlEvent) -> None: 
         label = ft.Text(
@@ -239,6 +263,7 @@ class TasksView:
             draggable = ft.ReorderableDraggable(
                 index=i,
                 content=TaskTile(task, False, self.ctrl).build(),
+                data=task.id,  # Store task ID for reorder identification
             )
             self.task_list.controls.append(draggable)
 

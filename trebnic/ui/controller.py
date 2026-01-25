@@ -63,6 +63,20 @@ class UIController:
             self.page.update()
 
     def complete(self, task: Task) -> None:
+        # Check if task has time entries
+        has_time_entries = False
+        if task.id:
+            entries = self.service.load_time_entries_for_task(task.id)
+            has_time_entries = len(entries) > 0
+
+        if not has_time_entries and task.spent_seconds == 0:
+            # Show duration knob dialog for tasks without time entries
+            self._call("duration_completion", task, self._do_complete)
+        else:
+            self._do_complete(task)
+
+    def _do_complete(self, task: Task) -> None:
+        """Actually complete the task after any duration entry."""
         new_task = self.service.complete_task(task)
         if new_task:
             self._call(
