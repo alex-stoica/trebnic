@@ -200,6 +200,9 @@ COLORS = {
     "green": "#4caf50",
     "blue": "#2196f3",
     "orange": "#ff9800",
-    "gap_bg": "#1a2a1a",  
-    "gap_text": "#4a7a4a",  
+    "gap_bg": "#1a2a1a",
+    "gap_text": "#4a7a4a",
+    # Stats chart colors (orange tones for estimates)
+    "estimated_done": "#ef6c00",  # Medium-dark orange for completed estimates
+    "estimated_pending": "#ff9800",  # Medium orange for pending estimates
 }

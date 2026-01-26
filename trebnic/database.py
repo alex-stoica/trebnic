@@ -237,8 +237,8 @@ class Database:
         try:
             default_projects = [
                 {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},
-                {"id": "work", "name": "Work", "icon": "💼", "color": "#4caf50"},
-                {"id": "sport", "name": "Sport", "icon": "🏋️", "color": "#4caf50"},
+                {"id": "work", "name": "Work", "icon": "💼", "color": "#9c27b0"},  # Purple for Work
+                {"id": "sport", "name": "Sport", "icon": "🏋️", "color": "#4caf50"},  # Green for Sport
             ]
             for project in default_projects:
                 await self.save_project(project)

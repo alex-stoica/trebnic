@@ -189,12 +189,11 @@ class TasksView:
             self.page.update()
 
         slider = ft.Slider(
-            min=DURATION_SLIDER_MIN, 
-            max=DURATION_SLIDER_MAX, 
-            divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN, 
-            value=self.pending_details["estimated_minutes"] // DURATION_SLIDER_STEP, 
-            label="{value}", 
-            on_change=on_slider, 
+            min=DURATION_SLIDER_MIN,
+            max=DURATION_SLIDER_MAX,
+            divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,
+            value=self.pending_details["estimated_minutes"] // DURATION_SLIDER_STEP,
+            on_change=on_slider,
         ) 
 
         def save(ev: ft.ControlEvent) -> None: 

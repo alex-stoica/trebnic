@@ -147,7 +147,16 @@ class TrebnicApp:
 
     def _on_refresh_ui(self, data: Any) -> None:
         """Handle UI refresh events."""
-        self.tasks_view.refresh()
+        async def _refresh() -> None:
+            # Always refresh state.tasks from DB so calendar has fresh data
+            await self.service.refresh_state_tasks()
+            self.tasks_view.refresh()
+            # Also refresh calendar view if it's currently displayed
+            if self.state.selected_nav == NavItem.CALENDAR:
+                self.update_content()
+            self.page.update()
+
+        self.page.run_task(_refresh)
 
     def _on_calendar_update(self) -> None:
         """Handle calendar week navigation."""
@@ -191,6 +200,10 @@ class TrebnicApp:
         for p in self.state.projects:
             self.project_btns[p.id] = ProjectSidebarItem(p, self.ctrl)
             self.projects_items.controls.append(self.project_btns[p.id])
+        # Update scroll/height based on project count
+        num_projects = len(self.state.projects)
+        self.projects_items.scroll = ft.ScrollMode.AUTO if num_projects > 4 else None
+        self.projects_items.height = 160 if num_projects > 4 else None
         self.nav_manager.set_project_btns(self.project_btns)
         self.event_bus.emit(AppEvent.PROJECT_UPDATED)
 
@@ -269,6 +282,9 @@ class TrebnicApp:
 
     def _postpone_task(self, task: Task) -> None:
         """Postpone a task by one day with error handling."""
+        from datetime import date as date_type
+        today = date_type.today()
+
         async def _postpone() -> None:
             try:
                 new_date = await self.service.postpone_task(task)
@@ -277,10 +293,13 @@ class TrebnicApp:
                 return
 
             await asyncio.sleep(ANIMATION_DELAY)
-            self.snack.show(
-                f"'{task.title}' postponed to {new_date.strftime('%b %d')}",
-                update=False,
-            )
+            # Add context about where to find the task when postponing from Today/Inbox
+            current_nav = self.state.selected_nav
+            if new_date > today and current_nav in (NavItem.TODAY, NavItem.INBOX):
+                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')} (see Upcoming)"
+            else:
+                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')}"
+            self.snack.show(msg, update=False)
             self.tasks_view.refresh()
             self.event_bus.emit(AppEvent.TASK_POSTPONED, task)
             self.page.update()
@@ -300,9 +319,17 @@ class TrebnicApp:
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NavItem.CALENDAR:
-            self.page_content.content = self.calendar_view.build()
+            # Refresh state.tasks before building calendar to ensure fresh data
+            self.page.run_task(self._refresh_state_and_build_calendar)
+            return
         else:
             self.page_content.content = self.tasks_view.build()
+
+    async def _refresh_state_and_build_calendar(self) -> None:
+        """Refresh state.tasks from DB and build calendar view."""
+        await self.service.refresh_state_tasks()
+        self.page_content.content = self.calendar_view.build()
+        self.page.update()
 
     def _on_profile_click(self, e: ft.ControlEvent) -> None:
         """Handle profile menu item click."""
@@ -416,8 +443,9 @@ class TrebnicApp:
 
     def _build_projects_section(self) -> None:
         """Build the projects navigation section."""
+        # Arrow kept for nav_manager compatibility but hidden
         self.projects_arrow = ft.Icon(
-            ft.Icons.KEYBOARD_ARROW_RIGHT, size=20, color="grey"
+            ft.Icons.KEYBOARD_ARROW_DOWN, size=20, color="grey", visible=False
         )
 
         add_project_btn = ft.Container(
@@ -432,18 +460,17 @@ class TrebnicApp:
             leading=ft.Icon(ft.Icons.FOLDER_OUTLINED),
             title=ft.Text("Projects", size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
-            trailing=ft.Row(
-                [self.projects_arrow, add_project_btn],
-                spacing=5,
-                tight=True,
-            ),
-            on_click=self.nav_handler.on_projects_toggle,
+            trailing=add_project_btn,
         )
 
+        # Always visible, scrollable if >4 projects
+        project_controls = [self.project_btns[p.id] for p in self.state.projects]
         self.projects_items = ft.Column(
-            visible=False,
+            visible=True,
             spacing=0,
-            controls=[self.project_btns[p.id] for p in self.state.projects],
+            controls=project_controls,
+            scroll=ft.ScrollMode.AUTO if len(project_controls) > 4 else None,
+            height=160 if len(project_controls) > 4 else None,  # ~4 items height
         )
 
     def _build_nav_content(self) -> None:

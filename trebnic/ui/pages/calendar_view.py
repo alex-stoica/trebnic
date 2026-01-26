@@ -16,9 +16,9 @@ class CalendarView:
         done = [t for t in self.state.done_tasks if t.due_date == d] 
         return pending, done 
 
-    def _create_chip(self, task: Task, is_done: bool = False) -> ft.Container: 
+    def _create_chip(self, task: Task, is_done: bool = False) -> ft.Container:
         project = self.state.get_project_by_id(task.project_id)
-        color = project.color if project else COLORS["card"] 
+        color = project.color if project else COLORS["unassigned"] 
 
         if is_done:
             return ft.Container(

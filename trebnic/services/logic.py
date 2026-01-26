@@ -328,6 +328,22 @@ class TaskService:
             raise
         return task.due_date
 
+    async def refresh_state_tasks(self) -> None:
+        """Refresh state.tasks and state.done_tasks from database.
+
+        This ensures state reflects the current database contents,
+        which is needed for views like calendar that read from state directly.
+        """
+        all_tasks = await db.load_tasks()
+        self.state.tasks.clear()
+        self.state.done_tasks.clear()
+        for t_dict in all_tasks:
+            task = Task.from_dict(t_dict)
+            if t_dict.get("is_done"):
+                self.state.done_tasks.append(task)
+            else:
+                self.state.tasks.append(task)
+
     async def get_filtered_tasks(self, done_limit: int = 50) -> Tuple[List[Task], List[Task]]:
         """Get filtered tasks using efficient SQL queries.
 

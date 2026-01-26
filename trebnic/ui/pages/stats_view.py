@@ -1,11 +1,12 @@
 import flet as ft
 from typing import Callable, Optional, List
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from config import (
     COLORS,
     BORDER_RADIUS,
     PageType,
+    FONT_SIZE_XS,
     FONT_SIZE_SM,
     FONT_SIZE_BASE,
     FONT_SIZE_LG,
@@ -38,9 +39,9 @@ class StatsPage:
         self.state = state
         self.navigate = navigate
         self.load_time_entries = load_time_entries
-        self._selected_project: Optional[str] = None  # None means "All projects"
         self._time_entries: List[dict] = []
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
+        self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
 
     def _load_data(self) -> None:
         """Load time entries for stats calculation."""
@@ -68,12 +69,6 @@ class StatsPage:
             self._build_coming_soon_section(),
         ]
         self.page.update()
-
-    def _on_project_change(self, e: ft.ControlEvent) -> None:
-        """Handle project filter change."""
-        value = e.control.value
-        self._selected_project = None if value == "all" else value
-        self._rebuild_content()
 
     def _build_header(self) -> ft.Row:
         """Build the page header with back button."""
@@ -187,81 +182,171 @@ class StatsPage:
             spacing=SPACING_XL,
         )
 
+    def _get_week_start(self, offset: int = 0) -> date:
+        """Get the Monday of the week with given offset (0 = current week)."""
+        today = date.today()
+        # Monday is weekday 0
+        days_since_monday = today.weekday()
+        monday = today - timedelta(days=days_since_monday)
+        return monday + timedelta(weeks=offset)
+
+    def _on_week_prev(self, e: ft.ControlEvent) -> None:
+        """Navigate to previous week."""
+        self._week_offset -= 1
+        self._rebuild_content()
+
+    def _on_week_next(self, e: ft.ControlEvent) -> None:
+        """Navigate to next week."""
+        self._week_offset += 1
+        self._rebuild_content()
+
     def _build_daily_chart(self) -> ft.Container:
-        """Build the daily time chart (last 7 days) with estimated and tracked bars.
+        """Build the weekly time chart with dual bars per day.
+
+        Layout per day:
+        - Left bar: Tracked time (blue)
+        - Right bar: Estimated done + Estimated pending stacked (orange tones)
 
         Always shows ALL projects regardless of filter selection.
         """
-        # Always use ALL data for the daily chart (not filtered by project)
+        # Get week start date (Monday)
+        week_start = self._get_week_start(self._week_offset)
+        week_end = week_start + timedelta(days=6)
+
+        # Calculate daily stats for the selected week
         daily_stats = stats_service.calculate_daily_stats(
-            self._time_entries, self.state.done_tasks, self.state.tasks, days=7
+            self._time_entries,
+            self.state.done_tasks,
+            self.state.tasks,
+            days=7,
+            start_date=week_start,
         )
 
-        # Find max for scaling (consider both tracked and estimated)
+        # Find max for scaling (max of tracked OR total estimated)
         max_seconds = max(
-            (max(d.tracked_seconds, d.estimated_seconds) for d in daily_stats),
-            default=1
+            (max(d.tracked_seconds, d.estimated_done_seconds + d.estimated_pending_seconds) for d in daily_stats),
+            default=1,
         )
         if max_seconds == 0:
             max_seconds = 1
 
         max_bar_height = 100
+        bar_width = 12
 
-        # Build bar chart with dual bars (estimated and tracked)
+        # Build bar chart with dual bars per day
         bars = []
+        today = date.today()
         for day_stat in daily_stats:
             # Calculate bar heights
             tracked_height = int((day_stat.tracked_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
             tracked_height = max(tracked_height, 2) if day_stat.tracked_seconds > 0 else 0
 
-            estimated_height = int((day_stat.estimated_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
-            estimated_height = max(estimated_height, 2) if day_stat.estimated_seconds > 0 else 0
+            est_done_height = int((day_stat.estimated_done_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
+            est_done_height = max(est_done_height, 2) if day_stat.estimated_done_seconds > 0 else 0
 
-            # Format durations for tooltip
+            est_pending_height = int((day_stat.estimated_pending_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
+            est_pending_height = max(est_pending_height, 2) if day_stat.estimated_pending_seconds > 0 else 0
+
+            # Format durations for tooltips
             tracked_text = seconds_to_time(day_stat.tracked_seconds) if day_stat.tracked_seconds > 0 else "0m"
-            estimated_text = seconds_to_time(day_stat.estimated_seconds) if day_stat.estimated_seconds > 0 else "0m"
+            est_done_text = seconds_to_time(day_stat.estimated_done_seconds) if day_stat.estimated_done_seconds > 0 else "0m"
+            est_pending_text = seconds_to_time(day_stat.estimated_pending_seconds) if day_stat.estimated_pending_seconds > 0 else "0m"
 
-            # Day label
+            # Day label with date
             day_label = day_stat.date.strftime("%a")
+            date_label = day_stat.date.strftime("%d")
+            is_today = day_stat.date == today
 
-            # Create the dual bar column with fixed height container for alignment
             bar_container_height = max_bar_height + 4
+
+            # Left bar: Tracked (blue) - standalone
+            tracked_bar = ft.Container(
+                width=bar_width,
+                height=tracked_height,
+                bgcolor=COLORS["accent"],
+                border_radius=3,
+                tooltip=f"Tracked: {tracked_text}",
+            ) if tracked_height > 0 else ft.Container(width=bar_width, height=0)
+
+            # Right bar: Estimated stacked (done at bottom, pending on top)
+            has_pending = est_pending_height > 0
+            has_done = est_done_height > 0
+
+            est_stacked_controls = []
+            # Est pending (top - light orange)
+            if has_pending:
+                top_radius = 3
+                bottom_radius = 0 if has_done else 3
+                est_stacked_controls.append(ft.Container(
+                    width=bar_width,
+                    height=est_pending_height,
+                    bgcolor=COLORS["estimated_pending"],
+                    border_radius=ft.border_radius.only(
+                        top_left=top_radius, top_right=top_radius,
+                        bottom_left=bottom_radius, bottom_right=bottom_radius,
+                    ),
+                    tooltip=f"Est. pending: {est_pending_text}",
+                ))
+
+            # Est done (bottom - dark orange)
+            if has_done:
+                top_radius = 0 if has_pending else 3
+                est_stacked_controls.append(ft.Container(
+                    width=bar_width,
+                    height=est_done_height,
+                    bgcolor=COLORS["estimated_done"],
+                    border_radius=ft.border_radius.only(
+                        top_left=top_radius, top_right=top_radius,
+                        bottom_left=3, bottom_right=3,
+                    ),
+                    tooltip=f"Est. done: {est_done_text}",
+                ))
+
+            est_stacked_bar = ft.Column(
+                est_stacked_controls if est_stacked_controls else [ft.Container(width=bar_width, height=0)],
+                spacing=0,
+                alignment=ft.MainAxisAlignment.END,
+            )
+
+            # Dual bars side by side
+            dual_bars = ft.Row(
+                [
+                    tracked_bar,
+                    ft.Container(
+                        content=est_stacked_bar,
+                        alignment=ft.alignment.bottom_center,
+                    ),
+                ],
+                spacing=2,
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.END,
+            )
+
+            # Total time label at top (shows tracked)
+            total_text = tracked_text if day_stat.tracked_seconds > 0 else ""
 
             bar = ft.Column(
                 [
-                    # Duration label (shows tracked time)
-                    ft.Text(tracked_text, size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                    # Container to hold bars with bottom alignment
+                    ft.Text(total_text, size=FONT_SIZE_SM, color=COLORS["done_text"]),
                     ft.Container(
                         height=bar_container_height,
-                        content=ft.Row(
-                            [
-                                # Estimated bar (orange color)
-                                ft.Container(
-                                    width=14,
-                                    height=estimated_height,
-                                    bgcolor=COLORS["orange"],
-                                    border_radius=ft.border_radius.only(top_left=3, top_right=3),
-                                    tooltip=f"Est: {estimated_text}",
-                                ),
-                                # Tracked bar (accent color)
-                                ft.Container(
-                                    width=14,
-                                    height=tracked_height,
-                                    bgcolor=COLORS["accent"],
-                                    border_radius=ft.border_radius.only(top_left=3, top_right=3),
-                                    tooltip=f"Tracked: {tracked_text}",
-                                ),
-                            ],
-                            spacing=2,
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            vertical_alignment=ft.CrossAxisAlignment.END,
-                        ),
+                        content=dual_bars,
+                        alignment=ft.alignment.bottom_center,
                     ),
-                    ft.Text(day_label, size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ft.Text(
+                        day_label,
+                        size=FONT_SIZE_SM,
+                        color=COLORS["accent"] if is_today else COLORS["done_text"],
+                        weight="bold" if is_today else None,
+                    ),
+                    ft.Text(
+                        date_label,
+                        size=FONT_SIZE_XS,
+                        color=COLORS["accent"] if is_today else COLORS["done_text"],
+                    ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=4,
+                spacing=2,
             )
             bars.append(bar)
 
@@ -274,13 +359,77 @@ class StatsPage:
         # Legend
         legend = ft.Row(
             [
-                ft.Container(width=12, height=12, bgcolor=COLORS["orange"], border_radius=2),
-                ft.Text("Estimated", size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                ft.Container(width=SPACING_LG),
-                ft.Container(width=12, height=12, bgcolor=COLORS["accent"], border_radius=2),
+                ft.Container(width=10, height=10, bgcolor=COLORS["accent"], border_radius=2),
                 ft.Text("Tracked", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ft.Container(width=SPACING_MD),
+                ft.Container(width=10, height=10, bgcolor=COLORS["estimated_done"], border_radius=2),
+                ft.Text("Est. done", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ft.Container(width=SPACING_MD),
+                ft.Container(width=10, height=10, bgcolor=COLORS["estimated_pending"], border_radius=2),
+                ft.Text("Est. pending", size=FONT_SIZE_SM, color=COLORS["done_text"]),
             ],
             spacing=SPACING_SM,
+            wrap=True,
+        )
+
+        # Week navigation
+        week_label = f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
+        is_current_week = self._week_offset == 0
+
+        week_nav = ft.Row(
+            [
+                ft.IconButton(
+                    ft.Icons.CHEVRON_LEFT,
+                    on_click=self._on_week_prev,
+                    icon_color=COLORS["accent"],
+                    icon_size=20,
+                    tooltip="Previous week",
+                ),
+                ft.Text(
+                    week_label,
+                    size=FONT_SIZE_SM,
+                    color=COLORS["accent"] if is_current_week else COLORS["done_text"],
+                    weight="bold" if is_current_week else None,
+                ),
+                ft.IconButton(
+                    ft.Icons.CHEVRON_RIGHT,
+                    on_click=self._on_week_next,
+                    icon_color=COLORS["accent"],
+                    icon_size=20,
+                    tooltip="Next week",
+                ),
+            ],
+            spacing=0,
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+        # Calculate weekly totals
+        total_tracked = sum(d.tracked_seconds for d in daily_stats)
+        total_estimated = sum(d.estimated_done_seconds + d.estimated_pending_seconds for d in daily_stats)
+
+        weekly_totals = ft.Row(
+            [
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Container(width=8, height=8, bgcolor=COLORS["accent"], border_radius=2),
+                            ft.Text(f"Tracked: {seconds_to_time(total_tracked)}", size=FONT_SIZE_SM),
+                        ],
+                        spacing=SPACING_SM,
+                    ),
+                ),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Container(width=8, height=8, bgcolor=COLORS["estimated_done"], border_radius=2),
+                            ft.Text(f"Estimated: {seconds_to_time(total_estimated)}", size=FONT_SIZE_SM),
+                        ],
+                        spacing=SPACING_SM,
+                    ),
+                ),
+            ],
+            spacing=SPACING_XL,
+            alignment=ft.MainAxisAlignment.CENTER,
         )
 
         return ft.Container(
@@ -289,15 +438,18 @@ class StatsPage:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.BAR_CHART, size=20, color=COLORS["accent"]),
-                            ft.Text("Time (last 7 days)", weight="bold", size=FONT_SIZE_LG),
+                            ft.Text("Weekly time", weight="bold", size=FONT_SIZE_LG),
                             ft.Container(expand=True),
                             legend,
                         ],
                         spacing=SPACING_MD,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    ft.Container(height=SPACING_XL),
+                    week_nav,
+                    ft.Container(height=SPACING_MD),
                     chart_content,
+                    ft.Container(height=SPACING_MD),
+                    weekly_totals,
                 ],
             ),
             bgcolor=COLORS["card"],
@@ -306,16 +458,12 @@ class StatsPage:
         )
 
     def _build_project_breakdown(self) -> ft.Container:
-        """Build project breakdown section with filter dropdown."""
+        """Build project breakdown section showing all projects with scroll."""
         project_stats = stats_service.calculate_project_stats(
             self.state.tasks,
             self.state.done_tasks,
             self.state.projects,
         )
-
-        # Filter by selected project if one is chosen
-        if self._selected_project is not None:
-            project_stats = [ps for ps in project_stats if ps.project_id == self._selected_project]
 
         # Sort by time tracked
         project_stats.sort(key=lambda p: p.tracked_seconds, reverse=True)
@@ -325,22 +473,6 @@ class StatsPage:
         if max_seconds == 0:
             max_seconds = 1
 
-        # Build project filter dropdown
-        options = [ft.dropdown.Option(key="all", text="All projects")]
-        for p in self.state.projects:
-            options.append(ft.dropdown.Option(key=p.id, text=p.name))
-
-        dropdown = ft.Dropdown(
-            value=self._selected_project or "all",
-            options=options,
-            on_change=self._on_project_change,
-            width=200,
-            bgcolor=COLORS["input_bg"],
-            border_color=COLORS["border"],
-            text_size=FONT_SIZE_SM,
-            content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        )
-
         rows = []
         for ps in project_stats:
             time_text = seconds_to_time(ps.tracked_seconds) if ps.tracked_seconds > 0 else "0m"
@@ -348,12 +480,15 @@ class StatsPage:
             completion_rate = (ps.tasks_completed / total_tasks * 100) if total_tasks > 0 else 0
             progress_width = (ps.tracked_seconds / max_seconds) if max_seconds > 0 else 0
 
-            # Get project color
-            project_color = COLORS["accent"]
-            for proj in self.state.projects:
-                if proj.id == ps.project_id:
-                    project_color = proj.color
-                    break
+            # Get project color (gray for unassigned)
+            if ps.project_id is None:
+                project_color = COLORS["unassigned"]
+            else:
+                project_color = COLORS["accent"]  # Fallback
+                for proj in self.state.projects:
+                    if proj.id == ps.project_id:
+                        project_color = proj.color
+                        break
 
             row = ft.Container(
                 content=ft.Column(
@@ -407,6 +542,12 @@ class StatsPage:
                 )
             )
 
+        # Scrollable container for projects (max ~4 visible, ~280px height)
+        projects_list = ft.Container(
+            content=ft.Column(rows, spacing=0, scroll=ft.ScrollMode.AUTO),
+            height=280 if len(rows) > 4 else None,
+        )
+
         return ft.Container(
             content=ft.Column(
                 [
@@ -414,21 +555,12 @@ class StatsPage:
                         [
                             ft.Icon(ft.Icons.FOLDER, size=20, color=COLORS["blue"]),
                             ft.Text("By project", weight="bold", size=FONT_SIZE_LG),
-                            ft.Container(expand=True),
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.Icons.FILTER_LIST, size=16, color=COLORS["done_text"]),
-                                    ft.Text("Filter stats:", size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                                    dropdown,
-                                ],
-                                spacing=SPACING_MD,
-                            ),
                         ],
                         spacing=SPACING_MD,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     ft.Container(height=SPACING_LG),
-                    *rows,
+                    projects_list,
                 ],
             ),
             bgcolor=COLORS["card"],
@@ -495,9 +627,7 @@ class StatsPage:
     def _build_coming_soon_section(self) -> ft.Container:
         """Build placeholder for upcoming features."""
         features = [
-            ("Weekly view", "Toggle between daily and weekly aggregation"),
             ("Estimation breakdown", "See which tasks took longer vs faster"),
-            ("Date range picker", "View stats for custom time periods"),
         ]
 
         feature_chips = []

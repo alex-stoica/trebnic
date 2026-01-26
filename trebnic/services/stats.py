@@ -11,7 +11,8 @@ class DailyStats:
     """Stats for a single day."""
     date: date
     tracked_seconds: int
-    estimated_seconds: int
+    estimated_done_seconds: int  # Estimated time for completed tasks
+    estimated_pending_seconds: int  # Estimated time for pending tasks
     tasks_completed: int
 
 
@@ -61,13 +62,14 @@ class StatsService:
                 end_dt = datetime.fromisoformat(end) if isinstance(end, str) else end
                 total_tracked += int((end_dt - start_dt).total_seconds())
 
-        # Calculate estimation accuracy from completed tasks with time tracked
-        all_tasks = tasks + done_tasks
-        tasks_with_time = [t for t in all_tasks if t.spent_seconds > 0 and t.estimated_seconds > 0]
+        # Calculate estimation accuracy from COMPLETED tasks only
+        # Only consider done tasks that have both estimation and tracked time
+        done_with_estimation = [t for t in done_tasks if t.estimated_seconds > 0]
+        done_with_both = [t for t in done_with_estimation if t.spent_seconds > 0]
 
-        if tasks_with_time:
+        if done_with_both:
             accuracies = []
-            for t in tasks_with_time:
+            for t in done_with_both:
                 # Accuracy as percentage: 100% means exact match
                 # >100% means took longer, <100% means faster
                 accuracy = (t.spent_seconds / t.estimated_seconds) * 100
@@ -76,12 +78,16 @@ class StatsService:
         else:
             avg_accuracy = 0.0
 
+        # Count tasks with time entries for display
+        all_tasks = tasks + done_tasks
+        tasks_with_estimation = [t for t in all_tasks if t.estimated_seconds > 0]
+
         return OverallStats(
             total_tasks_completed=total_completed,
             total_tasks_pending=total_pending,
             total_time_tracked_seconds=total_tracked,
             avg_estimation_accuracy=avg_accuracy,
-            tasks_with_time_entries=len(tasks_with_time),
+            tasks_with_time_entries=len(tasks_with_estimation),
         )
 
     def calculate_daily_stats(
@@ -90,15 +96,34 @@ class StatsService:
         done_tasks: List[Task],
         tasks: Optional[List[Task]] = None,
         days: int = 7,
+        start_date: Optional[date] = None,
     ) -> List[DailyStats]:
-        """Calculate stats for each day in the last N days."""
-        today = date.today()
+        """Calculate stats for each day in a range.
+
+        Args:
+            time_entries: List of time entry dicts
+            done_tasks: List of completed tasks
+            tasks: Optional list of pending tasks
+            days: Number of days to include
+            start_date: Start date for the range (default: today - days + 1)
+        """
+        if start_date is None:
+            # Default behavior: last N days ending today
+            today = date.today()
+            start_date = today - timedelta(days=days - 1)
+
         stats_by_date: Dict[date, DailyStats] = {}
 
         # Initialize all days with zero values
         for i in range(days):
-            d = today - timedelta(days=i)
-            stats_by_date[d] = DailyStats(date=d, tracked_seconds=0, estimated_seconds=0, tasks_completed=0)
+            d = start_date + timedelta(days=i)
+            stats_by_date[d] = DailyStats(
+                date=d,
+                tracked_seconds=0,
+                estimated_done_seconds=0,
+                estimated_pending_seconds=0,
+                tasks_completed=0,
+            )
 
         # Aggregate time entries by date
         for entry in time_entries:
@@ -114,18 +139,18 @@ class StatsService:
                     stats_by_date[entry_date].tracked_seconds += duration
 
         # Count completed tasks by completion date (using due_date as proxy)
-        # and aggregate estimated seconds
+        # and aggregate estimated seconds for done tasks
         # TODO: Add completed_at field to Task model for accurate tracking
         for task in done_tasks:
             if task.due_date and task.due_date in stats_by_date:
                 stats_by_date[task.due_date].tasks_completed += 1
-                stats_by_date[task.due_date].estimated_seconds += task.estimated_seconds
+                stats_by_date[task.due_date].estimated_done_seconds += task.estimated_seconds
 
         # Add estimated seconds from pending tasks with due dates
         if tasks:
             for task in tasks:
                 if task.due_date and task.due_date in stats_by_date:
-                    stats_by_date[task.due_date].estimated_seconds += task.estimated_seconds
+                    stats_by_date[task.due_date].estimated_pending_seconds += task.estimated_seconds
 
         # Return sorted by date (oldest first for chart display)
         return sorted(stats_by_date.values(), key=lambda s: s.date)
@@ -139,7 +164,7 @@ class StatsService:
         """Calculate stats grouped by project."""
         # Create lookup for project names
         project_names = {p.id: p.name for p in projects}
-        project_names[None] = "No project"
+        project_names[None] = "Unassigned"
 
         # Group tasks by project
         stats_by_project: Dict[Optional[str], ProjectStats] = {}
@@ -267,6 +292,8 @@ class StatsService:
                 {
                     "date": ds.date.isoformat(),
                     "tracked_seconds": ds.tracked_seconds,
+                    "estimated_done_seconds": ds.estimated_done_seconds,
+                    "estimated_pending_seconds": ds.estimated_pending_seconds,
                     "tasks_completed": ds.tasks_completed,
                 }
                 for ds in daily_stats

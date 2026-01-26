@@ -14,6 +14,7 @@ from config import (
     BORDER_RADIUS,
     PageType,
     RecurrenceFrequency,
+    NavItem,
 )
 from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
@@ -323,6 +324,31 @@ class TaskDialogs:
         self.snack = snack
         self.navigate = navigate
 
+    def _get_date_change_message(self, new_date: Optional[date]) -> str:
+        """Get an appropriate message when a task's date changes.
+
+        Tells the user where to find the task based on the new date
+        and current navigation selection.
+        """
+        today = date.today()
+        current_nav = self.state.selected_nav
+
+        if new_date is None:
+            # Task moved to Inbox
+            if current_nav == NavItem.INBOX:
+                return "Due date cleared"
+            return "Task moved to Inbox"
+        elif new_date <= today:
+            # Task is for today or overdue
+            if current_nav == NavItem.TODAY:
+                return f"Date set to {new_date.strftime('%b %d')}"
+            return f"Date set to {new_date.strftime('%b %d')} (see Today)"
+        else:
+            # Task is for the future
+            if current_nav == NavItem.UPCOMING:
+                return f"Date set to {new_date.strftime('%b %d')}"
+            return f"Date set to {new_date.strftime('%b %d')} (see Upcoming)"
+
     def rename(self, task: Task) -> None:
         error = ft.Text("", color=COLORS["danger"], size=12, visible=False)
         field = ft.TextField(
@@ -480,7 +506,7 @@ class TaskDialogs:
 
                 async def _handle() -> None:
                     await self.service.set_task_due_date(task, new_date)
-                    self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                    self.snack.show(self._get_date_change_message(new_date))
                     event_bus.emit(AppEvent.REFRESH_UI)
                 self.page.run_task(_handle)
 
@@ -491,7 +517,7 @@ class TaskDialogs:
 
             async def _preset() -> None:
                 await self.service.set_task_due_date(task, new_date)
-                self.snack.show(f"Date set to {task.due_date.strftime('%b %d')}")
+                self.snack.show(self._get_date_change_message(new_date))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_preset)
@@ -499,7 +525,7 @@ class TaskDialogs:
         def clear(e: ft.ControlEvent) -> None:
             async def _clear() -> None:
                 await self.service.set_task_due_date(task, None)
-                self.snack.show("Date cleared")
+                self.snack.show(self._get_date_change_message(None))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_clear)
@@ -965,6 +991,6 @@ class TaskDialogs:
             content,
             lambda c: [
                 ft.TextButton("Skip", on_click=skip),
-                accent_btn("Save & Complete", save),
+                accent_btn("Complete", save),
             ],
         )

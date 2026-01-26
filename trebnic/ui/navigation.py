@@ -70,17 +70,19 @@ class NavigationManager:
         self.update_nav()
 
     def toggle_projects(self) -> None:
-        """Toggle the projects section expansion."""
-        self.state.projects_expanded = not self.state.projects_expanded
-        self.update_nav()
+        """Toggle the projects section expansion (no-op, always visible now)."""
+        # Projects are always visible, no toggle needed
+        pass
 
     def toggle_project(self, project_id: str) -> None:
-        """Toggle selection of a specific project (keeps nav selection for filtering)."""
+        """Toggle selection of a specific project (mutually exclusive - only one at a time)."""
         if project_id in self.state.selected_projects:
+            # Clicking selected project deselects it
             self.state.selected_projects.remove(project_id)
         else:
+            # Clear any other selected projects first (only one can be selected)
+            self.state.selected_projects.clear()
             self.state.selected_projects.add(project_id)
-            # Don't change selected_nav - allow combining nav + project filter
         if self.state.is_mobile and self._drawer:
             self._drawer.open = False
         self.update_nav()
@@ -107,15 +109,8 @@ class NavigationManager:
  
         for pid, btn in self._project_btns.items():
             btn.set_selected(pid in self.state.selected_projects)
- 
-        if self._projects_items:
-            self._projects_items.visible = self.state.projects_expanded
-        if self._projects_arrow:
-            self._projects_arrow.name = (
-                ft.Icons.KEYBOARD_ARROW_DOWN
-                if self.state.projects_expanded
-                else ft.Icons.KEYBOARD_ARROW_RIGHT
-            )
+
+        # Projects always visible, no toggle needed
  
         if self._settings_menu and self._get_settings_items:
             self._settings_menu.items = self._get_settings_items()

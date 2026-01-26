@@ -11,6 +11,8 @@ from config import (
     RESEND_API_KEY,
     FEEDBACK_EMAIL,
     FONT_SIZE_SM,
+    FONT_SIZE_MD,
+    FONT_SIZE_XS,
 )
 from ui.helpers import accent_btn, SnackService
 
@@ -99,7 +101,7 @@ class FeedbackPage:
             on_click=lambda e: self.navigate(PageType.TASKS),
             icon_color=COLORS["accent"],
         )
-        header = ft.Row([back_btn, ft.Text("Feedback & Support", size=24, weight="bold")])
+        header = ft.Row([back_btn, ft.Text("Feedback and support", size=24, weight="bold")])
 
         # Donation Section
         donation_card = ft.Container(
@@ -149,6 +151,7 @@ class FeedbackPage:
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS,
+            label_style=ft.TextStyle(size=FONT_SIZE_SM),
         )
 
         message_field = ft.TextField(
@@ -160,6 +163,7 @@ class FeedbackPage:
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS,
             hint_text="Describe the issue or feature request...",
+            label_style=ft.TextStyle(size=FONT_SIZE_SM),
         )
 
         feedback_card = ft.Container(
@@ -171,7 +175,7 @@ class FeedbackPage:
                     ], spacing=10),
                     ft.Text(
                         f"Found a bug? Have an idea? Let us know!",
-                        size=FONT_SIZE_SM,
+                        size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
                     ft.Container(height=5),
