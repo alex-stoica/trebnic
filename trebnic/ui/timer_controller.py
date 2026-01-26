@@ -8,6 +8,7 @@ from config import COLORS, MIN_TIMER_SECONDS
 from models.entities import Task, TimeEntry, AppState
 from services.timer import TimerService
 from services.logic import TaskService
+from services.time_entry_service import TimeEntryService
 from ui.helpers import format_timer_display, SnackService
 from ui.components import TimerWidget
 from events import event_bus, AppEvent
@@ -29,13 +30,15 @@ class TimerController:
         self,
         page: ft.Page,
         timer_svc: TimerService,
-        service: TaskService,
+        task_service: TaskService,
+        time_entry_service: TimeEntryService,
         snack: SnackService,
         timer_widget: TimerWidget,
     ) -> None:
         self.page = page
         self.timer_svc = timer_svc
-        self.service = service
+        self.task_service = task_service
+        self.time_entry_service = time_entry_service
         self.snack = snack
         self.timer_widget = timer_widget
         self._timer_task: Optional[asyncio.Task] = None
@@ -68,7 +71,7 @@ class TimerController:
         try:
             entry = self.timer_svc.current_entry
             entry.end_time = datetime.now()
-            await self.service.save_time_entry(entry)
+            await self.time_entry_service.save_time_entry(entry)
             # Clear end_time in memory so timer continues as "running"
             entry.end_time = None
             self._last_heartbeat_seconds = self.timer_svc.seconds
@@ -133,7 +136,7 @@ class TimerController:
         # Save initial time entry async - schedule and continue
         async def save_initial_entry() -> None:
             if self.timer_svc.current_entry is not None:
-                entry_id = await self.service.save_time_entry(self.timer_svc.current_entry)
+                entry_id = await self.time_entry_service.save_time_entry(self.timer_svc.current_entry)
                 self.timer_svc.current_entry.id = entry_id
 
         self.page.run_task(save_initial_entry)
@@ -170,9 +173,9 @@ class TimerController:
                 # Schedule async persistence
                 async def persist_timer_data() -> None:
                     if entry_to_save is not None:
-                        await self.service.save_time_entry(entry_to_save)
+                        await self.time_entry_service.save_time_entry(entry_to_save)
                     if task_to_save is not None:
-                        await self.service.persist_task(task_to_save)
+                        await self.task_service.persist_task(task_to_save)
 
                 self.page.run_task(persist_timer_data)
 
@@ -185,7 +188,7 @@ class TimerController:
                 # Delete the incomplete entry if one was saved
                 if entry_to_delete is not None:
                     async def delete_entry() -> None:
-                        await self.service.delete_time_entry(entry_to_delete)
+                        await self.time_entry_service.delete_time_entry(entry_to_delete)
 
                     self.page.run_task(delete_entry)
 
@@ -214,7 +217,7 @@ class TimerController:
             entry.end_time = datetime.now()
 
             async def save_orphaned_entry() -> None:
-                await self.service.save_time_entry(entry)
+                await self.time_entry_service.save_time_entry(entry)
 
             self.page.run_task(save_orphaned_entry)
             state.recovered_timer_entry = None
@@ -270,10 +273,10 @@ class TimerController:
 
             async def save_on_cleanup() -> None:
                 try:
-                    await self.service.save_time_entry(entry)
+                    await self.time_entry_service.save_time_entry(entry)
                     if task is not None and elapsed > 0:
                         task.spent_seconds += elapsed
-                        await self.service.persist_task(task)
+                        await self.task_service.persist_task(task)
                 except Exception as e:
                     logger.warning(f"Failed to save timer on cleanup: {e}")
 

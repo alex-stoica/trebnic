@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from typing import Callable, List, Optional, Tuple
 
 from config import COLORS, CALENDAR_HEADER_HEIGHT
+from i18n import t
 from models.entities import AppState, Task
 
 
@@ -50,8 +51,8 @@ class CalendarView:
             margin=ft.margin.only(bottom=2),
         ) 
 
-    def _create_day_column(self, idx: int, d: date, today: date) -> ft.Container: 
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    def _create_day_column(self, idx: int, d: date, today: date) -> ft.Container:
+        day_names = [t("day_mon"), t("day_tue"), t("day_wed"), t("day_thu"), t("day_fri"), t("day_sat"), t("day_sun")]
         pending, done = self._get_tasks_for_date(d)
 
         is_today = d == today
@@ -133,13 +134,13 @@ class CalendarView:
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_LEFT,
                     icon_color=COLORS["accent"],
-                    tooltip="Previous week",
+                    tooltip=t("previous_week"),
                     on_click=lambda e: self._navigate_week(-1),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
                     icon_color=COLORS["accent"],
-                    tooltip="Next week",
+                    tooltip=t("next_week"),
                     on_click=lambda e: self._navigate_week(1),
                 ),
             ],
@@ -150,7 +151,7 @@ class CalendarView:
         header_row = ft.Row(
             [
                 ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK, color=COLORS["accent"], size=20),
-                ft.Text("Calendar", size=16, weight="bold"),
+                ft.Text(t("calendar"), size=16, weight="bold"),
                 ft.Container(expand=True),
                 ft.Text(date_range, color=COLORS["done_text"], size=11),
                 nav_controls,

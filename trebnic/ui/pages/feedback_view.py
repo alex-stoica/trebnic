@@ -14,6 +14,7 @@ from config import (
     FONT_SIZE_MD,
     FONT_SIZE_XS,
 )
+from i18n import t
 from ui.helpers import accent_btn, SnackService
 
 
@@ -31,7 +32,7 @@ class FeedbackPage:
     def _send_feedback_sync(self, category: str, message: str, message_field: ft.TextField) -> None:
         """Send feedback via Resend email API using urllib (no external dependencies)."""
         if not RESEND_API_KEY or not FEEDBACK_EMAIL:
-            self.snack.show("Feedback not configured. Check .env file.", COLORS["danger"])
+            self.snack.show(t("feedback_not_configured"), COLORS["danger"])
             return
 
         # Format message with line breaks preserved
@@ -76,23 +77,23 @@ class FeedbackPage:
         try:
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
-                    self.snack.show("Feedback sent, thank you!", COLORS["green"])
+                    self.snack.show(t("feedback_sent"), COLORS["green"])
                     message_field.value = ""
                     message_field.update()
                 else:
-                    self.snack.show(f"Failed: HTTP {response.status}", COLORS["danger"])
+                    self.snack.show(f"{t('feedback_failed')}: HTTP {response.status}", COLORS["danger"])
         except urllib.error.HTTPError as e:
-            self.snack.show(f"Failed: {e.code} {e.reason}", COLORS["danger"])
+            self.snack.show(f"{t('feedback_failed')}: {e.code} {e.reason}", COLORS["danger"])
         except urllib.error.URLError as e:
-            self.snack.show(f"Network error: {e.reason}", COLORS["danger"])
+            self.snack.show(f"{t('network_error')}: {e.reason}", COLORS["danger"])
 
     def _send_feedback(self, category: str, message: str, message_field: ft.TextField) -> None:
         """Validate and send feedback."""
         if not message.strip():
-            self.snack.show("Please enter a message", COLORS["danger"])
+            self.snack.show(t("please_enter_message"), COLORS["danger"])
             return
 
-        self.snack.show("Sending feedback...", COLORS["accent"])
+        self.snack.show(t("sending_feedback"), COLORS["accent"])
         self._send_feedback_sync(category, message, message_field)
 
     def build(self) -> ft.Column:
@@ -101,7 +102,7 @@ class FeedbackPage:
             on_click=lambda e: self.navigate(PageType.TASKS),
             icon_color=COLORS["accent"],
         )
-        header = ft.Row([back_btn, ft.Text("Feedback and support", size=24, weight="bold")])
+        header = ft.Row([back_btn, ft.Text(t("feedback_and_support"), size=24, weight="bold")])
 
         # Donation Section
         donation_card = ft.Container(
@@ -109,23 +110,21 @@ class FeedbackPage:
                 [
                     ft.Row([
                         ft.Icon(ft.Icons.FAVORITE, color=COLORS["danger"]),
-                        ft.Text("Support Trebnic", weight="bold", size=16),
+                        ft.Text(t("support_trebnic"), weight="bold", size=16),
                     ], spacing=10),
                     ft.Text(
-                        "Trebnic is designed to be free, private, and offline-first. "
-                        "We don't track you or sell your data.",
+                        t("support_desc_1"),
                         size=FONT_SIZE_SM,
                         color=COLORS["done_text"],
                     ),
                     ft.Text(
-                        "Development and maintenance costs are supported by users like you. "
-                        "If you find this app useful, please consider making a donation.",
+                        t("support_desc_2"),
                         size=FONT_SIZE_SM,
                         color=COLORS["done_text"],
                     ),
                     ft.Container(height=5),
                     ft.ElevatedButton(
-                        "Make a donation",
+                        t("make_donation"),
                         icon=ft.Icons.COFFEE,
                         bgcolor=COLORS["accent"],
                         color=COLORS["white"],
@@ -141,12 +140,12 @@ class FeedbackPage:
 
         # Feedback Form
         category_dd = ft.Dropdown(
-            label="Category",
-            value="Issue",
+            label=t("category"),
+            value=t("issue"),
             options=[
-                ft.dropdown.Option("Issue"),
-                ft.dropdown.Option("Feature request"),
-                ft.dropdown.Option("Other"),
+                ft.dropdown.Option(t("issue")),
+                ft.dropdown.Option(t("feature_request")),
+                ft.dropdown.Option(t("other")),
             ],
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
@@ -155,14 +154,14 @@ class FeedbackPage:
         )
 
         message_field = ft.TextField(
-            label="Message",
+            label=t("message"),
             multiline=True,
             min_lines=5,
             max_lines=10,
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS,
-            hint_text="Describe the issue or feature request...",
+            hint_text=t("message_hint"),
             label_style=ft.TextStyle(size=FONT_SIZE_SM),
         )
 
@@ -171,10 +170,10 @@ class FeedbackPage:
                 [
                     ft.Row([
                         ft.Icon(ft.Icons.FEEDBACK, color=COLORS["accent"]),
-                        ft.Text("Send feedback", weight="bold", size=16),
+                        ft.Text(t("send_feedback"), weight="bold", size=16),
                     ], spacing=10),
                     ft.Text(
-                        f"Found a bug? Have an idea? Let us know!",
+                        t("found_bug"),
                         size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
@@ -183,7 +182,7 @@ class FeedbackPage:
                     message_field,
                     ft.Container(
                         content=accent_btn(
-                            "Send feedback",
+                            t("send_feedback"),
                             lambda e: self._send_feedback(category_dd.value, message_field.value, message_field)
                         ),
                         alignment=ft.alignment.center_right,
@@ -199,7 +198,7 @@ class FeedbackPage:
         # Link to Help
         help_link = ft.Container(
             content=ft.TextButton(
-                "Need help using Trebnic? View the guide",
+                t("need_help_link"),
                 icon=ft.Icons.HELP_OUTLINE,
                 on_click=lambda e: self.navigate(PageType.HELP),
             ),

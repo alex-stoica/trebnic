@@ -11,6 +11,10 @@ from typing import Optional, Any, Callable, Dict, List, AsyncIterator, Tuple
 from config import DEFAULT_ESTIMATED_SECONDS, RecurrenceFrequency
 from registry import registry, Services
 
+# Placeholder shown when app is locked - must match services/crypto.py
+# Defined here to avoid circular import with services module
+LOCKED_PLACEHOLDER = "[Locked]"
+
 DB_PATH = Path("trebnic.db")
 
 logger = logging.getLogger(__name__)
@@ -18,6 +22,15 @@ logger = logging.getLogger(__name__)
 
 class DatabaseError(Exception):
     """Custom exception for database operations."""
+    pass
+
+
+class LockedDataWriteError(DatabaseError):
+    """Raised when attempting to save placeholder data while app is locked.
+
+    This prevents data corruption where encrypted fields would be overwritten
+    with the "[Locked]" placeholder string.
+    """
     pass
 
 
@@ -32,9 +45,18 @@ def _encrypt_field(value: Optional[str]) -> Optional[str]:
     - Value is None or empty
     - Encryption is not available
     - App is not unlocked
+
+    Raises:
+        LockedDataWriteError: If attempting to encrypt the locked placeholder
     """
     if not value:
         return value
+    # Guard: never encrypt the locked placeholder - this would corrupt data
+    if value == LOCKED_PLACEHOLDER:
+        raise LockedDataWriteError(
+            f"Cannot encrypt locked placeholder '{LOCKED_PLACEHOLDER}'. "
+            "This indicates an attempt to save data while app is locked."
+        )
     crypto = registry.get(Services.CRYPTO)
     if crypto is None:
         return value
@@ -317,6 +339,15 @@ class Database:
             raise DatabaseError(f"Failed to seed default data: {e}") from e
 
     async def save_task(self, t: Dict[str, Any]) -> int:
+        # Guard against saving locked placeholder data - this would corrupt encrypted data
+        title = t.get("title", "")
+        notes = t.get("notes", "")
+        if title == LOCKED_PLACEHOLDER or notes == LOCKED_PLACEHOLDER:
+            raise LockedDataWriteError(
+                "Cannot save task with locked placeholder data. "
+                "This would overwrite encrypted content. Unlock the app first."
+            )
+
         weekdays = json.dumps(t.get("recurrence_weekdays", []))
         due_date = t["due_date"]
         if isinstance(due_date, date):
@@ -488,6 +519,13 @@ class Database:
             raise DatabaseError(f"Failed to load tasks: {e}") from e
 
     async def save_project(self, p: Dict[str, str]) -> None:
+        # Guard against saving locked placeholder data
+        if p.get("name") == LOCKED_PLACEHOLDER:
+            raise LockedDataWriteError(
+                "Cannot save project with locked placeholder data. "
+                "This would overwrite encrypted content. Unlock the app first."
+            )
+
         try:
             # Encrypt project name
             name = _encrypt_field(p["name"])

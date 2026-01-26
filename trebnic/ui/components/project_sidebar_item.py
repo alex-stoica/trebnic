@@ -6,22 +6,26 @@ from ui.controller import UIController
 
 
 class ProjectSidebarItem(ft.Container):
-    def __init__(self, project: Project, ctrl: UIController) -> None: 
+    def __init__(self, project: Project) -> None:
         self.project = project
-        self.ctrl = ctrl
+        self.ctrl: UIController = None  # Set via set_controller() after UIController is created
         super().__init__(
             content=ft.Row(
-                [ 
-                    ft.Text(project.icon, size=FONT_SIZE_XL), 
-                    ft.Text(project.name, size=FONT_SIZE_LG), 
-                ], 
-                spacing=SPACING_LG, 
-            ), 
-            padding=ft.padding.only(left=SIDEBAR_ITEM_PADDING_LEFT, top=PADDING_LG, bottom=PADDING_LG, right=PADDING_LG), 
-            border_radius=BORDER_RADIUS_SM, 
-            data=project.id, 
-            on_click=self._on_click, 
-        ) 
+                [
+                    ft.Text(project.icon, size=FONT_SIZE_XL),
+                    ft.Text(project.name, size=FONT_SIZE_LG),
+                ],
+                spacing=SPACING_LG,
+            ),
+            padding=ft.padding.only(left=SIDEBAR_ITEM_PADDING_LEFT, top=PADDING_LG, bottom=PADDING_LG, right=PADDING_LG),
+            border_radius=BORDER_RADIUS_SM,
+            data=project.id,
+            on_click=self._on_click,
+        )
+
+    def set_controller(self, ctrl: UIController) -> None:
+        """Set the controller reference. Must be called before interactions."""
+        self.ctrl = ctrl 
 
     def _on_click(self, e: ft.ControlEvent) -> None: 
         self.ctrl.toggle_project(self.project.id) 

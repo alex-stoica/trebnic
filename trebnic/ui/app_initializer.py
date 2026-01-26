@@ -7,8 +7,10 @@ from registry import registry, Services
 from services.crypto import crypto
 from services.logic import TaskService
 from services.timer import TimerService
+from services.project_service import ProjectService
+from services.time_entry_service import TimeEntryService
+from services.settings_service import SettingsService
 from models.entities import AppState
-from ui.controller import UIController
 from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
@@ -24,9 +26,11 @@ class AppComponents:
     def __init__(self) -> None:
         self.state: Optional[AppState] = None
         self.service: Optional[TaskService] = None
+        self.project_service: Optional[ProjectService] = None
+        self.time_entry_service: Optional[TimeEntryService] = None
+        self.settings_service: Optional[SettingsService] = None
         self.snack: Optional[SnackService] = None
         self.timer_svc: Optional[TimerService] = None
-        self.ctrl: Optional[UIController] = None
         self.nav_manager: Optional[NavigationManager] = None
         self.nav_handler: Optional[NavigationHandler] = None
         self.timer_ctrl: Optional[TimerController] = None
@@ -110,50 +114,62 @@ class AppInitializer:
         except DatabaseError as e:
             self.components.state = TaskService.create_empty_state()
             self.components.pending_error = f"Failed to load data: {e}"
-
-        # Pass page to TaskService for proper async scheduling in Flet context
+ 
         self.components.service = TaskService(self.components.state, self.page)
+ 
+        self.components.project_service = ProjectService(self.components.state)
+        self.components.time_entry_service = TimeEntryService()
+        self.components.settings_service = SettingsService(self.components.state)
+
         self.components.snack = SnackService(self.page)
         self.components.timer_svc = TimerService()
-        self.components.ctrl = UIController(
-            self.page,
-            self.components.state,
-            self.components.service
-        )
+
+        registry.register(Services.TASK, self.components.service)
+        registry.register(Services.PROJECT, self.components.project_service)
+        registry.register(Services.TIME_ENTRY, self.components.time_entry_service)
+        registry.register(Services.SETTINGS, self.components.settings_service)
+        registry.register(Services.TIMER, self.components.timer_svc)
+        # Note: UIController is created in app.py after all components are ready
     
     def _init_navigation(self) -> None:
         """Initialize navigation manager and handler."""
         self.components.nav_manager = NavigationManager(
-            self.page, 
+            self.page,
             self.components.state
         )
         self.components.nav_handler = NavigationHandler(self.components.nav_manager)
-        self.components.ctrl.set_nav_manager(self.components.nav_manager)
     
     def _init_ui_components(self) -> None:
-        """Initialize UI components."""
+        """Initialize UI components.
+
+        Note: Components that need UIController (TasksView, ProjectSidebarItem) are created
+        without it here. UIController is created in app.py and then set on these components
+        via set_controller() to avoid temporal coupling.
+        """
         state = self.components.state
-        ctrl = self.components.ctrl
-        service = self.components.service
+        task_service = self.components.service
+        project_service = self.components.project_service
+        time_entry_service = self.components.time_entry_service
+        settings_service = self.components.settings_service
         snack = self.components.snack
         nav_manager = self.components.nav_manager
-        
+
         self.components.project_btns = {
-            p.id: ProjectSidebarItem(p, ctrl)
+            p.id: ProjectSidebarItem(p)
             for p in state.projects
         }
 
         self.components.tasks_view = TasksView(
-            self.page, state, service, ctrl, snack
+            self.page, state, task_service, snack
         )
         self.components.calendar_view = CalendarView(state, on_update=None)
 
         self.components.time_entries_view = TimeEntriesView(
-            self.page, state, service, snack, nav_manager.navigate_to,
+            self.page, state, task_service, time_entry_service, snack, nav_manager.navigate_to,
         )
 
         self.components.profile_page = ProfilePage(
-            self.page, state, service, snack, nav_manager.navigate_to,
+            self.page, state, task_service, settings_service, snack, nav_manager.navigate_to,
             self.components.tasks_view,
         )
 
@@ -166,15 +182,15 @@ class AppInitializer:
         )
 
         self.components.stats_page = StatsPage(
-            self.page, state, nav_manager.navigate_to, service.load_time_entries,
+            self.page, state, nav_manager.navigate_to, time_entry_service.load_time_entries,
         )
 
         self.components.task_dialogs = TaskDialogs(
-            self.page, state, service, snack, nav_manager.navigate_to,
+            self.page, state, task_service, time_entry_service, snack, nav_manager.navigate_to,
         )
 
         self.components.project_dialogs = ProjectDialogs(
-            self.page, state, service, snack,
+            self.page, state, project_service, snack,
         )
 
         self.components.timer_widget = TimerWidget(lambda e: None) 
@@ -184,7 +200,8 @@ class AppInitializer:
         self.components.timer_ctrl = TimerController(
             page=self.page,
             timer_svc=self.components.timer_svc,
-            service=self.components.service,
+            task_service=self.components.service,
+            time_entry_service=self.components.time_entry_service,
             snack=self.components.snack,
             timer_widget=self.components.timer_widget,
         )

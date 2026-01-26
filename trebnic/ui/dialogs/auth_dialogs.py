@@ -15,6 +15,7 @@ from config import (
     PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH,
     FONT_SIZE_SM, FONT_SIZE_MD, SPACING_MD, SPACING_LG,
 )
+from i18n import t
 from ui.dialogs.base import open_dialog
 
 
@@ -542,6 +543,6 @@ def open_encryption_settings_dialog(
     )
 
     def make_actions(close: Callable[[], None]):
-        return [ft.TextButton("Close", on_click=lambda e: close())]
+        return [ft.TextButton(t("close"), on_click=lambda e: close())]
 
-    dialog, _ = open_dialog(page, "Encryption Settings", content, make_actions)
+    dialog, _ = open_dialog(page, t("encryption_settings"), content, make_actions)

@@ -120,3 +120,8 @@ class Services:
     CRYPTO = "crypto"
     EVENT_BUS = "event_bus"
     DATABASE = "database"
+    TIME_ENTRY = "time_entry"
+    PROJECT = "project"
+    SETTINGS = "settings"
+    TASK = "task"
+    TIMER = "timer"

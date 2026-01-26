@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import logging
 from datetime import date, timedelta
@@ -8,6 +7,7 @@ import flet as ft
 
 from config import NavItem
 from database import db
+from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
 from services.recurrence import calculate_next_recurrence, calculate_next_recurrence_from_date
@@ -16,7 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class TaskService:
-    """Service for task and project operations.
+    """Service for task operations.
+
+    This service handles only task CRUD operations. Other domain operations
+    are handled by their respective services:
+    - ProjectService: project CRUD
+    - TimeEntryService: time entry CRUD
+    - SettingsService: app settings
 
     All data operations are async. Use page.run_task() or await for async calls.
     """
@@ -54,6 +60,8 @@ class TaskService:
 
         state.default_estimated_minutes = await db.get_setting("default_estimated_minutes", 15)
         state.email_weekly_stats = await db.get_setting("email_weekly_stats", False)
+        state.language = await db.get_setting("language", "en")
+        set_language(state.language)
 
         # Check for incomplete time entry (timer was running when app closed)
         incomplete_entry = await db.load_incomplete_time_entry()
@@ -127,16 +135,24 @@ class TaskService:
             if event_bus:
                 event_bus.emit(AppEvent.REFRESH_UI)
 
-    async def add_task(self, title: str, project_id: Optional[str] = None, estimated_seconds: int = 900) -> Task:
-        """Add a new task. UI should call refresh() after this."""
-        # Determine default due date based on current view
-        if self.state.selected_nav == NavItem.TODAY:
-            default_due_date = date.today()
-        elif self.state.selected_nav == NavItem.UPCOMING:
-            default_due_date = date.today() + timedelta(days=7)
-        else:
-            default_due_date = None
+    async def add_task(
+        self,
+        title: str,
+        project_id: Optional[str] = None,
+        estimated_seconds: int = 900,
+        due_date: Optional[date] = None,
+    ) -> Task:
+        """Add a new task.
 
+        Args:
+            title: Task title.
+            project_id: Optional project ID to assign the task to.
+            estimated_seconds: Estimated duration in seconds (default 15 min).
+            due_date: Optional due date. Caller should determine appropriate date
+                      based on context (e.g., UI navigation state).
+
+        UI should call refresh() after this.
+        """
         # Get current max sort_order from DB for accurate ordering
         all_tasks = await db.load_tasks_filtered(is_done=False, limit=1)
         max_order = max((t.get("sort_order", 0) for t in all_tasks), default=-1) if all_tasks else -1
@@ -146,7 +162,7 @@ class TaskService:
             project_id=project_id,
             estimated_seconds=estimated_seconds,
             spent_seconds=0,
-            due_date=default_due_date,
+            due_date=due_date,
             sort_order=max_order + 1
         )
         task.id = await db.save_task(task.to_dict())
@@ -392,56 +408,6 @@ class TaskService:
 
         return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
 
-    async def save_time_entry(self, entry: TimeEntry) -> int:
-        """Save a time entry to the database."""
-        return await db.save_time_entry(entry.to_dict())
-
-    async def delete_time_entry(self, entry_id: int) -> None:
-        """Delete a time entry from the database."""
-        await db.delete_time_entry(entry_id)
-
-    async def update_time_entry(self, entry: TimeEntry) -> int:
-        """Update an existing time entry."""
-        return await db.save_time_entry(entry.to_dict())
-
-    async def load_time_entries_for_task(self, task_id: int) -> List[TimeEntry]:
-        """Load all time entries for a task."""
-        return [TimeEntry.from_dict(d) for d in await db.load_time_entries_for_task(task_id)]
-
-    async def load_time_entries(self, limit: Optional[int] = None) -> List[dict]:
-        """Load all time entries from the database."""
-        return await db.load_time_entries(limit)
-
-    async def recalculate_task_time_from_entries(self, task: Task) -> None:
-        """Recalculate task spent_seconds from its time entries."""
-        if task.id is None:
-            return
-        entries = await self.load_time_entries_for_task(task.id)
-        total = sum(e.duration_seconds for e in entries if e.end_time)
-        task.spent_seconds = total
-        await self.persist_task(task)
-
-    def validate_project_name(self, name: str, editing_id: Optional[str] = None) -> Optional[str]:
-        if not name:
-            return "Name required"
-        for p in self.state.projects:
-            if p.name.lower() == name.lower() and p.id != editing_id:
-                return "Project already exists"
-        return None
-
-    def generate_project_id(self, name: str) -> str:
-        return str(uuid.uuid4())[:8]
-
-    async def save_project(self, project: Project) -> None:
-        """Save a project to the database."""
-        await db.save_project(project.to_dict())
-
-    async def delete_project(self, project_id: str) -> int:
-        """Delete a project and all its tasks. Returns count of tasks deleted."""
-        count = await db.delete_project(project_id)
-        self.state.projects = [p for p in self.state.projects if p.id != project_id]
-        return count
-
     async def reset(self) -> None:
         """Reset database to default state."""
         await db.clear_all()
@@ -458,11 +424,6 @@ class TaskService:
                 self.state.done_tasks.append(task)
             else:
                 self.state.tasks.append(task)
-
-    async def save_settings(self) -> None:
-        """Save application settings to database."""
-        await db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
-        await db.set_setting("email_weekly_stats", self.state.email_weekly_stats)
 
     def task_name_exists(self, name: str, exclude_task: Task) -> bool:
         """Check if a task name already exists (sync, in-memory check)."""

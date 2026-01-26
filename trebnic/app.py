@@ -15,9 +15,11 @@ from config import (
 )
 from database import db, DatabaseError
 from events import event_bus, AppEvent, Subscription
+from i18n import t
 from models.entities import Task
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.app_initializer import AppInitializer
+from ui.controller import UIController
 
 
 class TrebnicApp:
@@ -43,7 +45,7 @@ class TrebnicApp:
         self.timer_ctrl.timer_widget = self.timer_widget
 
         self._subscribe_to_events()
-        self._wire_controller()
+        self._create_controller()
         self._build_layout()
 
         # Recover any running timer from before app restart
@@ -56,13 +58,16 @@ class TrebnicApp:
         self.page.run_task(self._init_auth)
 
     def _extract_components(self) -> None:
-        """Extract components from initializer for class-level access."""
+        """Extract components from initializer for class-level access.
+
+        Note: ctrl (UIController) is created separately in _create_controller()
+        after all components are extracted, to ensure all callbacks are available.
+        """
         c = self._components
         self.state = c.state
         self.service = c.service
         self.snack = c.snack
         self.timer_svc = c.timer_svc
-        self.ctrl = c.ctrl
         self.nav_manager = c.nav_manager
         self.nav_handler = c.nav_handler
         self.timer_ctrl = c.timer_ctrl
@@ -77,6 +82,7 @@ class TrebnicApp:
         self.stats_page = c.stats_page
         self.task_dialogs = c.task_dialogs
         self.project_dialogs = c.project_dialogs
+        self.time_entry_service = c.time_entry_service
         self._pending_error = c.pending_error
 
     def _subscribe_to_events(self) -> None:
@@ -89,6 +95,15 @@ class TrebnicApp:
         )
         self._subscriptions.append(
             self.event_bus.subscribe(AppEvent.DATA_RESET, self._on_data_reset)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.PROJECT_UPDATED, self._on_project_or_task_changed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.TASK_POSTPONED, self._on_project_or_task_changed)
+        )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.LANGUAGE_CHANGED, self._on_language_changed)
         )
 
     def _unsubscribe_all(self) -> None:
@@ -173,9 +188,43 @@ class TrebnicApp:
         self.nav_manager.navigate_to(PageType.TASKS)  # EDITED - Use enum
         self.tasks_view.refresh()
 
-    def _wire_controller(self) -> None:
-        """Wire up the UI controller callbacks."""
-        self.ctrl.wire(
+    def _on_project_or_task_changed(self, data: Any) -> None:
+        """Handle project color changes or task postponements - refresh calendar/stats if visible."""
+        if self.state.selected_nav == NavItem.CALENDAR or self.state.current_page == PageType.STATS:
+            self.update_content()
+            self.page.update()
+
+    def _on_language_changed(self, data: Any) -> None:
+        """Handle language changes - update all translatable UI text."""
+        # Update navigation items
+        self.nav_inbox.title.value = t("inbox")
+        self.nav_today.title.value = t("today")
+        self.nav_calendar.title.value = t("calendar")
+        self.nav_upcoming.title.value = t("upcoming")
+        self.nav_projects.title.value = t("projects")
+
+        # Update task view translatable text
+        self.tasks_view.update_translations()
+
+        # Update settings menu items
+        self.settings_menu.items = self._get_settings_items()
+
+        # Refresh the current view to update any other translatable text
+        self.update_content()
+        self.page.update()
+
+    def _create_controller(self) -> None:
+        """Create UIController with all callbacks and set it on components.
+
+        UIController is created last to ensure all its dependencies (callbacks) are available.
+        This avoids temporal coupling - the controller is fully initialized upon creation.
+        """
+        self.ctrl = UIController(
+            page=self.page,
+            state=self.state,
+            service=self.service,
+            time_entry_service=self.time_entry_service,
+            nav_manager=self.nav_manager,
             update_nav=self.nav_manager.update_nav,
             refresh=self.tasks_view.refresh,
             show_snack=self.snack.show,
@@ -193,17 +242,27 @@ class TrebnicApp:
             duration_completion=self.task_dialogs.duration_completion,
         )
 
+        # Set controller on components that need it
+        self.tasks_view.set_controller(self.ctrl)
+        for btn in self.project_btns.values():
+            btn.set_controller(self.ctrl)
+
+        # Update nav_manager with project buttons now that they have ctrl
+        self.nav_manager.set_project_btns(self.project_btns)
+
     def rebuild_sidebar(self) -> None:
         """Rebuild the sidebar with updated project list."""
         self.project_btns.clear()
         self.projects_items.controls.clear()
         for p in self.state.projects:
-            self.project_btns[p.id] = ProjectSidebarItem(p, self.ctrl)
-            self.projects_items.controls.append(self.project_btns[p.id])
+            btn = ProjectSidebarItem(p)
+            btn.set_controller(self.ctrl)
+            self.project_btns[p.id] = btn
+            self.projects_items.controls.append(btn)
         # Update scroll/height based on project count
         num_projects = len(self.state.projects)
-        self.projects_items.scroll = ft.ScrollMode.AUTO if num_projects > 4 else None
-        self.projects_items.height = 160 if num_projects > 4 else None
+        self.projects_items.scroll = ft.ScrollMode.AUTO if num_projects > 5 else None
+        self.projects_items.height = 200 if num_projects > 5 else None
         self.nav_manager.set_project_btns(self.project_btns)
         self.event_bus.emit(AppEvent.PROJECT_UPDATED)
 
@@ -352,22 +411,22 @@ class TrebnicApp:
         """Get the settings menu items."""
         items = [
             ft.PopupMenuItem(
-                text="Profile",
+                text=t("profile"),
                 icon=ft.Icons.PERSON,
                 on_click=self._on_profile_click,
             ),
             ft.PopupMenuItem(
-                text="Stats",
+                text=t("menu_stats"),
                 icon=ft.Icons.BAR_CHART,
                 on_click=self._on_stats_click,
             ),
             ft.PopupMenuItem(
-                text="Encryption",
+                text=t("menu_encryption"),
                 icon=ft.Icons.LOCK,
                 on_click=self._on_encryption_click,
             ),
             ft.PopupMenuItem(
-                text="Help",
+                text=t("menu_help"),
                 icon=ft.Icons.HELP_OUTLINE,
                 on_click=self._on_help_click,
             )
@@ -381,7 +440,7 @@ class TrebnicApp:
                 items.extend([
                     ft.PopupMenuItem(),
                     ft.PopupMenuItem(
-                        text=f"Edit '{project.name}'",
+                        text=f"{t('edit')} '{project.name}'",
                         icon=ft.Icons.EDIT,
                         on_click=lambda e, p=project: self.project_dialogs.open(p),
                     ),
@@ -389,7 +448,7 @@ class TrebnicApp:
 
         items.extend([
             ft.PopupMenuItem(),
-            ft.PopupMenuItem(text="Logout", icon=ft.Icons.LOGOUT),
+            ft.PopupMenuItem(text=t("menu_logout"), icon=ft.Icons.LOGOUT),
         ])
 
         return items
@@ -414,14 +473,14 @@ class TrebnicApp:
         """Build navigation list tiles."""
         self.nav_inbox = ft.ListTile(
             leading=ft.Icon(ft.Icons.INBOX),
-            title=ft.Text("Inbox", size=FONT_SIZE_LG),
+            title=ft.Text(t("inbox"), size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_inbox_click,
         )
 
         self.nav_today = ft.ListTile(
             leading=ft.Icon(ft.Icons.TODAY),
-            title=ft.Text("Today", size=FONT_SIZE_LG),
+            title=ft.Text(t("today"), size=FONT_SIZE_LG),
             selected=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_today_click,
@@ -429,14 +488,14 @@ class TrebnicApp:
 
         self.nav_calendar = ft.ListTile(
             leading=ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK),
-            title=ft.Text("Calendar", size=FONT_SIZE_LG),
+            title=ft.Text(t("calendar"), size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_calendar_click,
         )
 
         self.nav_upcoming = ft.ListTile(
             leading=ft.Icon(ft.Icons.UPCOMING),
-            title=ft.Text("Upcoming", size=FONT_SIZE_LG),
+            title=ft.Text(t("upcoming"), size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_upcoming_click,
         )
@@ -458,19 +517,19 @@ class TrebnicApp:
 
         self.nav_projects = ft.ListTile(
             leading=ft.Icon(ft.Icons.FOLDER_OUTLINED),
-            title=ft.Text("Projects", size=FONT_SIZE_LG),
+            title=ft.Text(t("projects"), size=FONT_SIZE_LG),
             selected_color=COLORS["accent"],
             trailing=add_project_btn,
         )
 
-        # Always visible, scrollable if >4 projects
+        # Always visible, scrollable if >5 projects
         project_controls = [self.project_btns[p.id] for p in self.state.projects]
         self.projects_items = ft.Column(
             visible=True,
             spacing=0,
             controls=project_controls,
-            scroll=ft.ScrollMode.AUTO if len(project_controls) > 4 else None,
-            height=160 if len(project_controls) > 4 else None,  # ~4 items height
+            scroll=ft.ScrollMode.AUTO if len(project_controls) > 5 else None,
+            height=200 if len(project_controls) > 5 else None,  # ~5 items height
         )
 
     def _build_nav_content(self) -> None:

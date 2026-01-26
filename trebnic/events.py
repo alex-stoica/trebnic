@@ -27,6 +27,7 @@ class AppEvent(Enum):
     DATA_RESET = auto()
     REFRESH_UI = auto()
     SIDEBAR_REBUILD = auto()
+    LANGUAGE_CHANGED = auto()
 
 
 class Subscription:

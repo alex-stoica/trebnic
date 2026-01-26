@@ -20,6 +20,7 @@ from config import (
     PADDING_XL,
     PADDING_2XL,
 )
+from i18n import t
 from models.entities import AppState
 from services.stats import stats_service
 from ui.helpers import seconds_to_time, SnackService
@@ -77,7 +78,7 @@ class StatsPage:
             on_click=lambda e: self.navigate(PageType.TASKS),
             icon_color=COLORS["accent"],
         )
-        return ft.Row([back_btn, ft.Text("Statistics", size=FONT_SIZE_4XL, weight="bold")])
+        return ft.Row([back_btn, ft.Text(t("statistics"), size=FONT_SIZE_4XL, weight="bold")])
 
     def _build_stat_card(
         self,
@@ -125,18 +126,18 @@ class StatsPage:
         if stats.avg_estimation_accuracy > 0:
             accuracy_text = f"{stats.avg_estimation_accuracy:.0f}%"
             if stats.avg_estimation_accuracy > 100:
-                accuracy_subtitle = "Taking longer than estimated"
+                accuracy_subtitle = t("taking_longer")
             elif stats.avg_estimation_accuracy < 90:
-                accuracy_subtitle = "Faster than estimated"
+                accuracy_subtitle = t("faster_than_estimated")
             else:
-                accuracy_subtitle = "On target"
+                accuracy_subtitle = t("on_target")
         else:
             accuracy_text = "N/A"
-            accuracy_subtitle = "No data yet"
+            accuracy_subtitle = t("no_data_yet")
 
         # Format streak
-        streak_text = f"{streak} days" if streak != 1 else "1 day"
-        streak_subtitle = "Best consecutive run"
+        streak_text = f"{streak} {t('days')}" if streak != 1 else f"1 {t('day')}"
+        streak_subtitle = t("best_consecutive_run")
 
         return ft.Column(
             [
@@ -145,16 +146,16 @@ class StatsPage:
                         self._build_stat_card(
                             ft.Icons.CHECK_CIRCLE,
                             COLORS["green"],
-                            "Tasks completed",
+                            t("tasks_completed_stat"),
                             str(stats.total_tasks_completed),
-                            f"{stats.total_tasks_pending} pending",
+                            f"{stats.total_tasks_pending} {t('pending')}",
                         ),
                         self._build_stat_card(
                             ft.Icons.TIMER,
                             COLORS["blue"],
-                            "Time tracked",
+                            t("time_tracked"),
                             time_tracked,
-                            f"{stats.tasks_with_time_entries} tasks with time",
+                            f"{stats.tasks_with_time_entries} {t('tasks_with_time')}",
                         ),
                     ],
                     spacing=SPACING_XL,
@@ -164,14 +165,14 @@ class StatsPage:
                         self._build_stat_card(
                             ft.Icons.ANALYTICS,
                             COLORS["orange"],
-                            "Estimation accuracy",
+                            t("estimation_accuracy"),
                             accuracy_text,
                             accuracy_subtitle,
                         ),
                         self._build_stat_card(
                             ft.Icons.LOCAL_FIRE_DEPARTMENT,
                             COLORS["danger"],
-                            "Longest streak",
+                            t("longest_streak"),
                             streak_text,
                             streak_subtitle,
                         ),
@@ -265,7 +266,7 @@ class StatsPage:
                 height=tracked_height,
                 bgcolor=COLORS["accent"],
                 border_radius=3,
-                tooltip=f"Tracked: {tracked_text}",
+                tooltip=f"{t('tooltip_tracked')}: {tracked_text}",
             ) if tracked_height > 0 else ft.Container(width=bar_width, height=0)
 
             # Right bar: Estimated stacked (done at bottom, pending on top)
@@ -285,7 +286,7 @@ class StatsPage:
                         top_left=top_radius, top_right=top_radius,
                         bottom_left=bottom_radius, bottom_right=bottom_radius,
                     ),
-                    tooltip=f"Est. pending: {est_pending_text}",
+                    tooltip=f"{t('tooltip_est_pending')}: {est_pending_text}",
                 ))
 
             # Est done (bottom - dark orange)
@@ -299,7 +300,7 @@ class StatsPage:
                         top_left=top_radius, top_right=top_radius,
                         bottom_left=3, bottom_right=3,
                     ),
-                    tooltip=f"Est. done: {est_done_text}",
+                    tooltip=f"{t('tooltip_est_done')}: {est_done_text}",
                 ))
 
             est_stacked_bar = ft.Column(
@@ -360,13 +361,13 @@ class StatsPage:
         legend = ft.Row(
             [
                 ft.Container(width=10, height=10, bgcolor=COLORS["accent"], border_radius=2),
-                ft.Text("Tracked", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ft.Text(t("tracked"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
                 ft.Container(width=SPACING_MD),
                 ft.Container(width=10, height=10, bgcolor=COLORS["estimated_done"], border_radius=2),
-                ft.Text("Est. done", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ft.Text(t("est_done"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
                 ft.Container(width=SPACING_MD),
                 ft.Container(width=10, height=10, bgcolor=COLORS["estimated_pending"], border_radius=2),
-                ft.Text("Est. pending", size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                ft.Text(t("est_pending"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
             ],
             spacing=SPACING_SM,
             wrap=True,
@@ -383,7 +384,7 @@ class StatsPage:
                     on_click=self._on_week_prev,
                     icon_color=COLORS["accent"],
                     icon_size=20,
-                    tooltip="Previous week",
+                    tooltip=t("previous_week"),
                 ),
                 ft.Text(
                     week_label,
@@ -396,7 +397,7 @@ class StatsPage:
                     on_click=self._on_week_next,
                     icon_color=COLORS["accent"],
                     icon_size=20,
-                    tooltip="Next week",
+                    tooltip=t("next_week"),
                 ),
             ],
             spacing=0,
@@ -413,7 +414,7 @@ class StatsPage:
                     content=ft.Row(
                         [
                             ft.Container(width=8, height=8, bgcolor=COLORS["accent"], border_radius=2),
-                            ft.Text(f"Tracked: {seconds_to_time(total_tracked)}", size=FONT_SIZE_SM),
+                            ft.Text(f"{t('tracked')}: {seconds_to_time(total_tracked)}", size=FONT_SIZE_SM),
                         ],
                         spacing=SPACING_SM,
                     ),
@@ -422,7 +423,7 @@ class StatsPage:
                     content=ft.Row(
                         [
                             ft.Container(width=8, height=8, bgcolor=COLORS["estimated_done"], border_radius=2),
-                            ft.Text(f"Estimated: {seconds_to_time(total_estimated)}", size=FONT_SIZE_SM),
+                            ft.Text(f"{t('estimated')}: {seconds_to_time(total_estimated)}", size=FONT_SIZE_SM),
                         ],
                         spacing=SPACING_SM,
                     ),
@@ -438,7 +439,7 @@ class StatsPage:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.BAR_CHART, size=20, color=COLORS["accent"]),
-                            ft.Text("Weekly time", weight="bold", size=FONT_SIZE_LG),
+                            ft.Text(t("weekly_time"), weight="bold", size=FONT_SIZE_LG),
                             ft.Container(expand=True),
                             legend,
                         ],
@@ -514,12 +515,12 @@ class StatsPage:
                         ft.Row(
                             [
                                 ft.Text(
-                                    f"{ps.tasks_completed}/{total_tasks} tasks",
+                                    f"{ps.tasks_completed}/{total_tasks} {t('tasks')}",
                                     size=FONT_SIZE_SM,
                                     color=COLORS["done_text"],
                                 ),
                                 ft.Text(
-                                    f"{completion_rate:.0f}% complete",
+                                    f"{completion_rate:.0f}% {t('complete')}",
                                     size=FONT_SIZE_SM,
                                     color=COLORS["done_text"],
                                 ),
@@ -537,7 +538,7 @@ class StatsPage:
         if not rows:
             rows.append(
                 ft.Container(
-                    content=ft.Text("No project data yet", color=COLORS["done_text"]),
+                    content=ft.Text(t("no_project_data"), color=COLORS["done_text"]),
                     padding=PADDING_LG,
                 )
             )
@@ -554,7 +555,7 @@ class StatsPage:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.FOLDER, size=20, color=COLORS["blue"]),
-                            ft.Text("By project", weight="bold", size=FONT_SIZE_LG),
+                            ft.Text(t("by_project"), weight="bold", size=FONT_SIZE_LG),
                         ],
                         spacing=SPACING_MD,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -587,15 +588,15 @@ class StatsPage:
                 try:
                     with open(e.path, "w", encoding="utf-8") as f:
                         f.write(json_data)
-                    SnackService.show(self.page, f"Exported to {e.path}")
+                    SnackService.show(self.page, f"{t('exported_to')} {e.path}")
                 except OSError as ex:
-                    SnackService.show(self.page, f"Export failed: {ex}")
+                    SnackService.show(self.page, f"{t('export_failed')}: {ex}")
 
         file_picker = ft.FilePicker(on_result=save_result)
         self.page.overlay.append(file_picker)
         self.page.update()
         file_picker.save_file(
-            dialog_title="Export statistics",
+            dialog_title=t("export_statistics"),
             file_name=filename,
             file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=["json"],
@@ -607,10 +608,10 @@ class StatsPage:
             content=ft.Row(
                 [
                     ft.Icon(ft.Icons.DOWNLOAD, size=20, color=COLORS["accent"]),
-                    ft.Text("Export data", weight="bold", size=FONT_SIZE_LG),
+                    ft.Text(t("export_data"), weight="bold", size=FONT_SIZE_LG),
                     ft.Container(expand=True),
                     ft.ElevatedButton(
-                        "Export to JSON",
+                        t("export_to_json"),
                         icon=ft.Icons.FILE_DOWNLOAD,
                         on_click=self._export_to_json,
                         bgcolor=COLORS["accent"],
@@ -627,7 +628,7 @@ class StatsPage:
     def _build_coming_soon_section(self) -> ft.Container:
         """Build placeholder for upcoming features."""
         features = [
-            ("Estimation breakdown", "See which tasks took longer vs faster"),
+            (t("estimation_breakdown"), t("estimation_breakdown_desc")),
         ]
 
         feature_chips = []
@@ -648,7 +649,7 @@ class StatsPage:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.UPCOMING, size=20, color=COLORS["done_text"]),
-                            ft.Text("Coming soon", weight="bold", size=FONT_SIZE_LG, color=COLORS["done_text"]),
+                            ft.Text(t("coming_soon"), weight="bold", size=FONT_SIZE_LG, color=COLORS["done_text"]),
                         ],
                         spacing=SPACING_MD,
                     ),

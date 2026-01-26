@@ -18,6 +18,7 @@ from config import (
 )
 from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
+from services.time_entry_service import TimeEntryService
 from ui.formatters import TimeFormatter
 from ui.helpers import accent_btn, SnackService
 from ui.dialogs.base import open_dialog, create_option_item
@@ -314,13 +315,15 @@ class TaskDialogs:
         self,
         page: ft.Page,
         state: AppState,
-        service: TaskService,
+        task_service: TaskService,
+        time_entry_service: TimeEntryService,
         snack: SnackService,
         navigate: Callable[[PageType], None] = None,
     ) -> None:
         self.page = page
         self.state = state
-        self.service = service
+        self.task_service = task_service
+        self.time_entry_service = time_entry_service
         self.snack = snack
         self.navigate = navigate
 
@@ -363,14 +366,14 @@ class TaskDialogs:
             name = field.value.strip()
             if not name:
                 return
-            if self.service.task_name_exists(name, task):
+            if self.task_service.task_name_exists(name, task):
                 error.value = "A task with this name already exists"
                 error.visible = True
                 self.page.update()
                 return
 
             async def _save() -> None:
-                await self.service.rename_task(task, name)
+                await self.task_service.rename_task(task, name)
                 self.snack.show(f"Renamed to '{name}'")
                 close(e)
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -391,7 +394,7 @@ class TaskDialogs:
     def assign_project(self, task: Task) -> None:
         def select(pid: Optional[str]) -> None:
             async def _select() -> None:
-                await self.service.assign_project(task, pid)
+                await self.task_service.assign_project(task, pid)
                 p = self.state.get_project_by_id(pid)
                 self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
                 close()
@@ -505,7 +508,7 @@ class TaskDialogs:
                 new_date = e.control.value.date()
 
                 async def _handle() -> None:
-                    await self.service.set_task_due_date(task, new_date)
+                    await self.task_service.set_task_due_date(task, new_date)
                     self.snack.show(self._get_date_change_message(new_date))
                     event_bus.emit(AppEvent.REFRESH_UI)
                 self.page.run_task(_handle)
@@ -516,7 +519,7 @@ class TaskDialogs:
             new_date = date.today() + timedelta(days=days)
 
             async def _preset() -> None:
-                await self.service.set_task_due_date(task, new_date)
+                await self.task_service.set_task_due_date(task, new_date)
                 self.snack.show(self._get_date_change_message(new_date))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -524,7 +527,7 @@ class TaskDialogs:
 
         def clear(e: ft.ControlEvent) -> None:
             async def _clear() -> None:
-                await self.service.set_task_due_date(task, None)
+                await self.task_service.set_task_due_date(task, None)
                 self.snack.show(self._get_date_change_message(None))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -576,7 +579,7 @@ class TaskDialogs:
 
         def on_save() -> None:
             async def _save() -> None:
-                await self.service.persist_task(task)
+                await self.task_service.persist_task(task)
                 msg = "Recurrence updated" if task.recurrent else "Recurrence disabled"
                 self.snack.show(msg)
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -623,7 +626,7 @@ class TaskDialogs:
         """
         async def load_and_show() -> None:
             time_entries = (
-                await self.service.load_time_entries_for_task(task.id)
+                await self.time_entry_service.load_time_entries_for_task(task.id)
                 if task.id else []
             )
             self._show_stats_dialog(task, time_entries)
@@ -834,7 +837,7 @@ class TaskDialogs:
 
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
-                await self.service.set_task_notes(task, field.value)
+                await self.task_service.set_task_notes(task, field.value)
                 close(e)
                 self.snack.show("Notes saved")
             self.page.run_task(_save)
@@ -949,10 +952,10 @@ class TaskDialogs:
                 end_time = datetime.now()
                 start_time = end_time - timedelta(seconds=duration_seconds)
                 entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
-                await self.service.save_time_entry(entry)
+                await self.time_entry_service.save_time_entry(entry)
                 # Update task spent time
                 task.spent_seconds += duration_seconds
-                await self.service.persist_task(task)
+                await self.task_service.persist_task(task)
                 close(None)
                 # Now complete the task
                 on_complete(task)

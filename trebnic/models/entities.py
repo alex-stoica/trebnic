@@ -185,6 +185,7 @@ class AppState:
     editing_project_id: Optional[str] = None
     default_estimated_minutes: int = 15
     email_weekly_stats: bool = False
+    language: str = "en"
     current_page: PageType = PageType.TASKS
     viewing_task_id: Optional[int] = None
     calendar_week_offset: int = 0
