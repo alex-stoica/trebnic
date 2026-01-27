@@ -1,3 +1,10 @@
+"""Time formatting utilities for displaying durations throughout the app.
+
+Converts seconds/minutes to human-readable formats like "1h 30m", "5 min", or "05:30".
+Use TimeFormatter.seconds_to_display() for stats, seconds_to_hms() for timers.
+"""
+
+
 class TimeFormatter:
     """Unified time formatting utilities for the application."""
 

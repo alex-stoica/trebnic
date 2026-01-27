@@ -125,3 +125,4 @@ class Services:
     SETTINGS = "settings"
     TASK = "task"
     TIMER = "timer"
+    NOTIFICATION = "notification"

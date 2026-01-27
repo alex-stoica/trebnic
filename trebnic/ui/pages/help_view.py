@@ -1,3 +1,8 @@
+"""Help page - user guide explaining how to use Trebnic.
+
+Displays privacy-first messaging and feature explanations in a scrollable view.
+Accessed via Settings menu -> Help. Emphasizes local-first data storage.
+"""
 import flet as ft
 from typing import Callable
 

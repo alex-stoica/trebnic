@@ -1,5 +1,5 @@
 import flet as ft
-from typing import Callable, Optional, List
+from typing import Any, Callable, Optional, List
 from datetime import datetime, date, timedelta
 
 from config import (
@@ -20,6 +20,7 @@ from config import (
     PADDING_XL,
     PADDING_2XL,
 )
+from events import event_bus, AppEvent
 from i18n import t
 from models.entities import AppState
 from services.stats import stats_service
@@ -43,6 +44,14 @@ class StatsPage:
         self._time_entries: List[dict] = []
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
         self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
+
+        # Subscribe to events that should trigger stats refresh
+        self._task_deleted_sub = event_bus.subscribe(AppEvent.TASK_DELETED, self._on_data_changed)
+        self._project_deleted_sub = event_bus.subscribe(AppEvent.PROJECT_DELETED, self._on_data_changed)
+
+    def _on_data_changed(self, data: Any) -> None:
+        """Handle task/project deletion - reload data and rebuild content."""
+        self._load_data()
 
     def _load_data(self) -> None:
         """Load time entries for stats calculation."""

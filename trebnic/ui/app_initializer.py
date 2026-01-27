@@ -15,9 +15,10 @@ from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
-from ui.pages import TasksView, CalendarView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage, StatsPage 
+from ui.pages import TasksView, CalendarView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage, StatsPage
 from ui.timer_controller import TimerController
 from ui.auth_controller import AuthController
+from ui.handlers import TaskActionHandler
 
 
 class AppComponents:
@@ -35,7 +36,7 @@ class AppComponents:
         self.nav_handler: Optional[NavigationHandler] = None
         self.timer_ctrl: Optional[TimerController] = None
         self.auth_ctrl: Optional[AuthController] = None
-        
+
         # UI Components
         self.project_btns: Dict[str, ProjectSidebarItem] = {}
         self.tasks_view: Optional[TasksView] = None
@@ -48,7 +49,8 @@ class AppComponents:
         self.task_dialogs: Optional[TaskDialogs] = None
         self.project_dialogs: Optional[ProjectDialogs] = None
         self.timer_widget: Optional[TimerWidget] = None
-        
+        self.task_handler: Optional[TaskActionHandler] = None
+
         # Layout elements
         self.nav_items: Dict[str, ft.ListTile] = {}
         self.projects_items: Optional[ft.Column] = None
@@ -61,7 +63,7 @@ class AppComponents:
         self.header: Optional[ft.Row] = None
         self.page_content: Optional[ft.Container] = None
         self.main_area: Optional[ft.Container] = None
-        
+
         self.pending_error: Optional[str] = None
 
 
@@ -81,6 +83,7 @@ class AppInitializer:
         self._init_navigation()
         self._init_ui_components()
         self._init_timer_controller()
+        self._init_task_handler()
         self._subscribe_to_events()
         return self.components
 
@@ -142,9 +145,9 @@ class AppInitializer:
     def _init_ui_components(self) -> None:
         """Initialize UI components.
 
-        Note: Components that need UIController (TasksView, ProjectSidebarItem) are created
-        without it here. UIController is created in app.py and then set on these components
-        via set_controller() to avoid temporal coupling.
+        Components emit events to the EventBus for user interactions rather than
+        calling controller methods directly. This decouples UI from business logic
+        and eliminates the need for late-binding workarounds.
         """
         state = self.components.state
         task_service = self.components.service
@@ -154,13 +157,14 @@ class AppInitializer:
         snack = self.components.snack
         nav_manager = self.components.nav_manager
 
+        # ProjectSidebarItem uses nav_manager.toggle_project directly
         self.components.project_btns = {
-            p.id: ProjectSidebarItem(p)
+            p.id: ProjectSidebarItem(p, nav_manager.toggle_project)
             for p in state.projects
         }
 
         self.components.tasks_view = TasksView(
-            self.page, state, task_service, snack
+            self.page, state, task_service, snack,
         )
         self.components.calendar_view = CalendarView(state, on_update=None)
 
@@ -196,16 +200,42 @@ class AppInitializer:
         self.components.timer_widget = TimerWidget(lambda e: None) 
     
     def _init_timer_controller(self) -> None:
-        """Initialize the timer controller."""
+        """Initialize the timer controller.
+
+        Injects dependencies into the timer service first, then creates the
+        controller which subscribes to service events.
+        """
+        # Inject dependencies into service (framework-agnostic scheduling)
+        self.components.timer_svc.inject_dependencies(
+            time_entry_service=self.components.time_entry_service,
+            task_service=self.components.service,
+            async_scheduler=self.page.run_task,
+        )
+
         self.components.timer_ctrl = TimerController(
             page=self.page,
             timer_svc=self.components.timer_svc,
-            task_service=self.components.service,
-            time_entry_service=self.components.time_entry_service,
             snack=self.components.snack,
             timer_widget=self.components.timer_widget,
         )
-    
+
+    def _init_task_handler(self) -> None:
+        """Initialize the task action handler.
+
+        TaskActionHandler subscribes to TASK_*_REQUESTED events and handles
+        task actions that were previously routed through app.py.
+        """
+        self.components.task_handler = TaskActionHandler(
+            page=self.page,
+            state=self.components.state,
+            service=self.components.service,
+            time_entry_service=self.components.time_entry_service,
+            task_dialogs=self.components.task_dialogs,
+            timer_ctrl=self.components.timer_ctrl,
+            snack=self.components.snack,
+            refresh_ui=self.components.tasks_view.refresh,
+        )
+
     def _subscribe_to_events(self) -> None:
         """Subscribe to application events."""
         # Events are subscribed by the main app class

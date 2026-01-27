@@ -1,3 +1,8 @@
+"""Application configuration - single source of truth for all constants.
+
+Contains colors, dimensions, enums (NavItem, PageType, RecurrenceFrequency), and magic values.
+Import from here instead of hardcoding values elsewhere to ensure consistency across the app.
+"""
 import os
 from enum import Enum
 from pathlib import Path
@@ -10,11 +15,26 @@ except ImportError:
     pass  # dotenv not available on mobile, skip loading .env
 
 
-class RecurrenceFrequency(Enum): 
-    """Enum for task recurrence frequency types.""" 
-    DAYS = "days" 
-    WEEKS = "weeks" 
-    MONTHS = "months" 
+class RecurrenceFrequency(Enum):
+    """Enum for task recurrence frequency types."""
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+
+
+class NotificationType(Enum):
+    """Enum for notification types."""
+    TIMER_COMPLETE = "timer_complete"
+    DUE_REMINDER = "due_reminder"
+    OVERDUE = "overdue"
+    DAILY_DIGEST = "daily_digest"
+
+
+class PermissionResult(Enum):
+    """Result of notification permission request."""
+    GRANTED = "granted"
+    DENIED = "denied"
+    NOT_REQUIRED = "not_required"  # Desktop platforms don't need runtime permission 
 
 
 class NavItem(Enum): 

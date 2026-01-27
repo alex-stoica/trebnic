@@ -1,9 +1,14 @@
+"""Internationalization module - provides t("key") for translated strings.
+
+All user-facing text must use t("key") to support multiple languages (EN/RO).
+Add new translations to _TRANSLATIONS dict with both "en" and "ro" values.
+"""
 from typing import Dict
- 
+
 _current_language: str = "en"
  
 LANGUAGES: Dict[str, Dict[str, str]] = {
-    "en": {"name": "English", "flag": "🇬🇧", "code": "EN"},
+    "en": {"name": "English", "flag": "🇺🇸", "code": "EN"},
     "ro": {"name": "Română", "flag": "🇷🇴", "code": "RO"},
 }
  
@@ -314,6 +319,30 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
     # Auth dialogs
     "encryption_settings": {"en": "Encryption settings", "ro": "Setări de criptare"},
+
+    # Notification settings
+    "notification_settings": {"en": "Notification settings", "ro": "Setări notificări"},
+    "notifications_enabled": {"en": "Enable notifications", "ro": "Activează notificările"},
+    "notify_due_reminders": {"en": "Due date reminders", "ro": "Memento dată limită"},
+    "notify_due_reminders_desc": {"en": "Remind before tasks are due", "ro": "Amintește înainte de termenul limită"},
+    "reminder_minutes_before": {"en": "Remind before due", "ro": "Amintește înainte de termen"},
+    "reminder_1h_before": {"en": "1h before", "ro": "Cu 1h înainte"},
+    "reminder_6h_before": {"en": "6h before", "ro": "Cu 6h înainte"},
+    "reminder_12h_before": {"en": "12h before", "ro": "Cu 12h înainte"},
+    "reminder_24h_before": {"en": "24h before", "ro": "Cu 24h înainte"},
+    "custom_reminder": {"en": "Custom reminder", "ro": "Memento personalizat"},
+    "minutes_before": {"en": "{minutes} min before", "ro": "Cu {minutes} min înainte"},
+    "hours_before": {"en": "{hours}h before", "ro": "Cu {hours}h înainte"},
+    "test_notification": {"en": "Test notification", "ro": "Notificare test"},
+    "test_notification_title": {"en": "Test notification", "ro": "Notificare test"},
+    "test_notification_body": {"en": "Notifications are working!", "ro": "Notificările funcționează!"},
+    "test_notification_mobile_only": {"en": "Test notifications are only available on mobile", "ro": "Notificările de test sunt disponibile doar pe mobil"},
+    "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},
+    "notification_permission_granted": {"en": "Notifications enabled", "ro": "Notificări activate"},
+    "task_reminder": {"en": "Task reminder", "ro": "Memento treabă"},
+    "unlock_to_see_details": {"en": "Unlock Trebnic to see details", "ro": "Deblochează Trebnic pentru detalii"},
+    "timer_complete": {"en": "Timer complete", "ro": "Cronometru finalizat"},
+    "tracked_time_on_task": {"en": "Tracked {time} on {task}", "ro": "{time} înregistrat pe {task}"},
 }
 
 

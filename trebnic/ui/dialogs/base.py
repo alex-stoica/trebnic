@@ -1,5 +1,10 @@
+"""Dialog utilities - factory functions for consistent dialog styling.
+
+open_dialog() creates modal dialogs with standard layout (title, content, actions).
+create_option_item() builds clickable rows used in selection dialogs and menus.
+"""
 import flet as ft
-from typing import Callable, Tuple, Optional, List 
+from typing import Callable, Tuple, Optional, List
 
 from config import COLORS
 

@@ -14,13 +14,18 @@ from config import (
 from i18n import t
 from models.entities import AppState
 from services.logic import TaskService
-from ui.controller import UIController
 from ui.helpers import format_duration, accent_btn, SnackService
 from ui.components.task_tile import TaskTile
 from ui.dialogs.base import open_dialog
 
 
 class TasksView:
+    """Main task list view that displays pending and completed tasks.
+
+    This component no longer depends on UIController. Task interactions
+    are handled via events emitted by TaskTile to the EventBus.
+    """
+
     def __init__(
         self,
         page: ft.Page,
@@ -31,7 +36,6 @@ class TasksView:
         self.page = page
         self.state = state
         self.service = service
-        self.ctrl: UIController = None  # Set via set_controller() after UIController is created
         self.snack = snack
         self.pending_details: Dict[str, Any] = {
             "estimated_minutes": state.default_estimated_minutes
@@ -39,10 +43,6 @@ class TasksView:
         self._section_label: ft.Text = None  # Will be set in _build_controls
         self._done_section: ft.Column = None  # Will be set in _build_controls
         self._build_controls()
-
-    def set_controller(self, ctrl: UIController) -> None:
-        """Set the controller reference. Must be called before refresh()."""
-        self.ctrl = ctrl
 
     def _build_controls(self) -> None: 
         self.empty_state = ft.Container(
@@ -269,16 +269,18 @@ class TasksView:
 
         self.task_list.controls.clear()
         for i, task in enumerate(pending):
+            project = self.state.get_project_by_id(task.project_id)
             draggable = ft.ReorderableDraggable(
                 index=i,
-                content=TaskTile(task, False, self.ctrl).build(),
+                content=TaskTile(task, False, self.state, project).build(),
                 data=task.id,  # Store task ID for reorder identification
             )
             self.task_list.controls.append(draggable)
 
         self.done_list.controls.clear()
         for task in done:
-            self.done_list.controls.append(TaskTile(task, True, self.ctrl).build())
+            project = self.state.get_project_by_id(task.project_id)
+            self.done_list.controls.append(TaskTile(task, True, self.state, project).build())
 
         # Show empty state only when there are no pending tasks in Today view
         self.empty_state.visible = (

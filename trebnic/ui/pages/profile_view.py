@@ -6,6 +6,7 @@ from config import (
     COLORS,
     BORDER_RADIUS,
     PageType,
+    PermissionResult,
     DURATION_SLIDER_STEP,
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
@@ -13,6 +14,7 @@ from config import (
 )
 from models.entities import AppState
 from services.logic import TaskService
+from services.notification_service import notification_service, NotificationBackend
 from services.settings_service import SettingsService
 from ui.helpers import format_duration, accent_btn, danger_btn, SnackService
 from ui.dialogs.base import open_dialog
@@ -66,8 +68,8 @@ class ProfilePage:
                 self.page.update()
 
     def _build_lang_en(self) -> ft.Text:
-        """Build English language option with GB code."""
-        return ft.Text("GB", size=12, weight="bold")
+        """Build English language option with EN code."""
+        return ft.Text("EN", size=12, weight="bold")
 
     def _build_lang_ro(self) -> ft.Text:
         """Build Romanian language option with RO code."""
@@ -237,6 +239,154 @@ class ProfilePage:
             label=t("email_weekly_stats"),
         )
 
+        # Notification settings
+        notification_sub_controls: ft.Column = None
+
+        reminder_mins = self.state.reminder_minutes_before
+        if reminder_mins < 120:
+            reminder_mins = 120
+        elif reminder_mins > 4320:
+            reminder_mins = 4320
+        hours = reminder_mins // 60
+        reminder_label = ft.Text(
+            t("hours_before").replace("{hours}", str(hours)),
+            size=12,
+            color=COLORS["done_text"],
+        )
+
+        def update_notification_visibility() -> None:
+            if notification_sub_controls:
+                notification_sub_controls.visible = notifications_switch.value
+                self.page.update()
+
+        def on_notifications_toggle(e: ft.ControlEvent) -> None:
+            async def _toggle() -> None:
+                if e.control.value:
+                    result = await notification_service.request_permission()
+                    if result == PermissionResult.DENIED:
+                        e.control.value = False
+                        self.snack.show(t("notification_permission_denied"), COLORS["danger"])
+                    else:
+                        self.snack.show(t("notification_permission_granted"))
+                self.state.notifications_enabled = e.control.value
+                update_notification_visibility()
+            self.page.run_task(_toggle)
+
+        def on_reminder_slider(e: ft.ControlEvent) -> None:
+            mins = int(e.control.value)
+            self.state.reminder_minutes_before = mins
+            hours = mins // 60
+            reminder_label.value = t("hours_before").replace("{hours}", str(hours))
+            self.page.update()
+
+        def on_test_notification(e: ft.ControlEvent) -> None:
+            is_desktop = notification_service.backend in (
+                NotificationBackend.PLYER_FALLBACK,
+                NotificationBackend.NONE,
+            )
+            if is_desktop:
+                self.snack.show(t("test_notification_mobile_only"))
+                return
+
+            async def _test() -> None:
+                await notification_service.show_immediate(
+                    title=t("test_notification_title"),
+                    body=t("test_notification_body"),
+                )
+            self.page.run_task(_test)
+
+        notifications_switch = ft.Switch(
+            value=self.state.notifications_enabled,
+            on_change=on_notifications_toggle,
+        )
+
+        def on_reminder_1h(e: ft.ControlEvent) -> None:
+            self.state.remind_1h_before = e.control.value
+
+        def on_reminder_6h(e: ft.ControlEvent) -> None:
+            self.state.remind_6h_before = e.control.value
+
+        def on_reminder_12h(e: ft.ControlEvent) -> None:
+            self.state.remind_12h_before = e.control.value
+
+        def on_reminder_24h(e: ft.ControlEvent) -> None:
+            self.state.remind_24h_before = e.control.value
+
+        # Reminder checkboxes in 2x2 grid with equal-width columns
+        reminder_checkboxes = ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Checkbox(
+                                value=self.state.remind_1h_before,
+                                label=t("reminder_1h_before"),
+                                on_change=on_reminder_1h,
+                            ),
+                            expand=True,
+                        ),
+                        ft.Container(
+                            content=ft.Checkbox(
+                                value=self.state.remind_6h_before,
+                                label=t("reminder_6h_before"),
+                                on_change=on_reminder_6h,
+                            ),
+                            expand=True,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Checkbox(
+                                value=self.state.remind_12h_before,
+                                label=t("reminder_12h_before"),
+                                on_change=on_reminder_12h,
+                            ),
+                            expand=True,
+                        ),
+                        ft.Container(
+                            content=ft.Checkbox(
+                                value=self.state.remind_24h_before,
+                                label=t("reminder_24h_before"),
+                                on_change=on_reminder_24h,
+                            ),
+                            expand=True,
+                        ),
+                    ],
+                    spacing=0,
+                ),
+            ],
+            spacing=0,
+        )
+
+        reminder_slider = ft.Slider(
+            min=120,
+            max=4320,
+            divisions=70,
+            value=reminder_mins,
+            on_change=on_reminder_slider,
+        )
+
+        notification_sub_controls = ft.Column(
+            [
+                ft.Text(t("reminder_minutes_before"), size=13),
+                reminder_checkboxes,
+                ft.Divider(height=5, color="transparent"),
+                ft.Text(t("custom_reminder"), size=13),
+                ft.Row([reminder_slider, reminder_label], spacing=8),
+                ft.Divider(height=5, color="transparent"),
+                ft.TextButton(
+                    t("test_notification"),
+                    icon=ft.Icons.NOTIFICATIONS_ACTIVE,
+                    on_click=on_test_notification,
+                ),
+            ],
+            spacing=8,
+            visible=self.state.notifications_enabled,
+        )
+
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
                 self.state.default_estimated_minutes = (
@@ -253,8 +403,7 @@ class ProfilePage:
             self.page.run_task(_save)
 
         def reset_defaults(e: ft.ControlEvent) -> None:
-            # Reset to defaults
-            slider.value = 15 // DURATION_SLIDER_STEP  # 15 min default
+            slider.value = 15 // DURATION_SLIDER_STEP
             duration_label.value = format_duration(15)
             email_cb.value = False
             if get_language() != "en":
@@ -279,6 +428,21 @@ class ProfilePage:
                     ft.Divider(height=10, color="transparent"),
                     ft.Text(t("notifications"), size=13),
                     email_cb,
+                    ft.Divider(height=10, color="transparent"),
+                    ft.Row(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.NOTIFICATIONS, size=18),
+                                    ft.Text(t("notifications_enabled"), size=13),
+                                ],
+                                spacing=8,
+                            ),
+                            notifications_switch,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    notification_sub_controls,
                     ft.Divider(height=10, color="transparent"),
                     ft.Row(
                         [

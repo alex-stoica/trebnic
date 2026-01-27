@@ -1,22 +1,14 @@
 import flet as ft
-import asyncio
 import logging
 from typing import Optional, Any, List
 
 logger = logging.getLogger(__name__)
 
-from config import (
-    COLORS,
-    MOBILE_BREAKPOINT,
-    NavItem,
-    PageType,
-    ANIMATION_DELAY,
-    FONT_SIZE_LG,
-)
-from database import db, DatabaseError
+from config import COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG
+from database import db
 from events import event_bus, AppEvent, Subscription
 from i18n import t
-from models.entities import Task
+from services.notification_service import notification_service
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.app_initializer import AppInitializer
 from ui.controller import UIController
@@ -83,10 +75,12 @@ class TrebnicApp:
         self.task_dialogs = c.task_dialogs
         self.project_dialogs = c.project_dialogs
         self.time_entry_service = c.time_entry_service
+        self.task_handler = c.task_handler
         self._pending_error = c.pending_error
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to application events and track subscriptions for cleanup."""
+        # UI refresh and lifecycle events
         self._subscriptions.append(
             self.event_bus.subscribe(AppEvent.REFRESH_UI, self._on_refresh_ui)
         )
@@ -105,6 +99,10 @@ class TrebnicApp:
         self._subscriptions.append(
             self.event_bus.subscribe(AppEvent.LANGUAGE_CHANGED, self._on_language_changed)
         )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.NOTIFICATION_TAPPED, self._on_notification_tapped)
+        )
+        # Note: Task action events (TASK_*_REQUESTED) are handled by TaskActionHandler
 
     def _unsubscribe_all(self) -> None:
         """Unsubscribe all event subscriptions."""
@@ -118,12 +116,27 @@ class TrebnicApp:
 
     def _cleanup(self) -> None:
         """Clean up all resources."""
-        # Unsubscribe from all events
         self._unsubscribe_all()
+
+        # Clean up task handler subscriptions
+        if self.task_handler:
+            self.task_handler.cleanup()
 
         # Stop timer if running
         if self.timer_ctrl:
             self.timer_ctrl.cleanup()
+
+        # Clean up notification service
+        async def cleanup_notifications() -> None:
+            try:
+                await notification_service.cleanup()
+            except Exception as e:
+                logger.warning(f"Error cleaning up notification service: {e}")
+
+        try:
+            self.page.run_task(cleanup_notifications)
+        except RuntimeError as e:
+            logger.debug(f"Could not schedule notification cleanup (page closing): {e}")
 
         # Close database connection on the page's event loop
         async def close_db() -> None:
@@ -213,41 +226,36 @@ class TrebnicApp:
         self.update_content()
         self.page.update()
 
-    def _create_controller(self) -> None:
-        """Create UIController with all callbacks and set it on components.
+    def _on_notification_tapped(self, data: Any) -> None:
+        """Handle notification tap - navigate to task and show stats."""
+        if data is None:
+            return
 
-        UIController is created last to ensure all its dependencies (callbacks) are available.
-        This avoids temporal coupling - the controller is fully initialized upon creation.
+        task_id = data.get("task_id") if isinstance(data, dict) else None
+        if task_id is None:
+            return
+
+        # Navigate to tasks view
+        self.nav_manager.navigate_to(PageType.TASKS)
+
+        # Find task and emit stats requested event for deep-linking
+        task = self.state.get_task_by_id(task_id)
+        if task is not None:
+            event_bus.emit(AppEvent.TASK_STATS_REQUESTED, task)
+
+    def _create_controller(self) -> None:
+        """Create UIController for navigation utilities.
+
+        Task actions are now handled by TaskActionHandler via EventBus.
+        UIController is kept for navigation and project utilities.
         """
         self.ctrl = UIController(
             page=self.page,
             state=self.state,
-            service=self.service,
-            time_entry_service=self.time_entry_service,
             nav_manager=self.nav_manager,
-            update_nav=self.nav_manager.update_nav,
-            refresh=self.tasks_view.refresh,
-            show_snack=self.snack.show,
-            delete_task=self._delete_task,
-            duplicate_task=self._duplicate_task,
-            rename_task=self.task_dialogs.rename,
-            assign_project=self.task_dialogs.assign_project,
-            date_picker=self.task_dialogs.date_picker,
-            start_timer=self.timer_ctrl.start_timer,
-            postpone_task=self._postpone_task,
-            recurrence=self.task_dialogs.recurrence,
-            stats=self.task_dialogs.stats,
-            notes=self.task_dialogs.notes,
-            update_content=self.update_content,
-            duration_completion=self.task_dialogs.duration_completion,
         )
 
-        # Set controller on components that need it
-        self.tasks_view.set_controller(self.ctrl)
-        for btn in self.project_btns.values():
-            btn.set_controller(self.ctrl)
-
-        # Update nav_manager with project buttons now that they have ctrl
+        # Update nav_manager with project buttons
         self.nav_manager.set_project_btns(self.project_btns)
 
     def rebuild_sidebar(self) -> None:
@@ -255,8 +263,7 @@ class TrebnicApp:
         self.project_btns.clear()
         self.projects_items.controls.clear()
         for p in self.state.projects:
-            btn = ProjectSidebarItem(p)
-            btn.set_controller(self.ctrl)
+            btn = ProjectSidebarItem(p, self.nav_manager.toggle_project)
             self.project_btns[p.id] = btn
             self.projects_items.controls.append(btn)
         # Update scroll/height based on project count
@@ -269,101 +276,6 @@ class TrebnicApp:
     def _on_timer_stop(self, e: ft.ControlEvent) -> None:
         """Handle timer stop button click - delegates to timer controller."""
         self.timer_ctrl.on_timer_stop(e)
-
-    def _delete_task(self, task: Task) -> None:
-        """Delete a task with animation delay and error handling.
-
-        For recurring tasks, shows a dialog to choose between deleting
-        just this occurrence or all recurring instances.
-        """
-        if task.recurrent:
-            self.task_dialogs.delete_recurrence(
-                task,
-                on_delete_this=self._do_delete_single_task,
-                on_delete_all=self._do_delete_all_recurring,
-            )
-        else:
-            self._do_delete_single_task(task)
-
-    def _do_delete_single_task(self, task: Task) -> None:
-        """Delete a single task instance."""
-        async def _delete() -> None:
-            title = task.title
-            try:
-                await self.service.delete_task(task)
-            except DatabaseError as e:
-                self.snack.show(f"Failed to delete task: {e}", COLORS["danger"])
-                return
-
-            await asyncio.sleep(ANIMATION_DELAY)
-            self.snack.show(f"'{title}' deleted", COLORS["danger"], update=False)
-            self.tasks_view.refresh()
-            self.event_bus.emit(AppEvent.TASK_DELETED, task)
-            self.page.update()
-
-        self.page.run_task(_delete)
-
-    def _do_delete_all_recurring(self, task: Task) -> None:
-        """Delete all recurring instances of a task."""
-        async def _delete() -> None:
-            title = task.title
-            try:
-                count = await self.service.delete_all_recurring_tasks(task)
-            except DatabaseError as e:
-                self.snack.show(f"Failed to delete tasks: {e}", COLORS["danger"])
-                return
-
-            await asyncio.sleep(ANIMATION_DELAY)
-            msg = f"Deleted {count} '{title}' occurrence{'s' if count != 1 else ''}"
-            self.snack.show(msg, COLORS["danger"], update=False)
-            self.tasks_view.refresh()
-            self.event_bus.emit(AppEvent.TASK_DELETED, task)
-            self.page.update()
-
-        self.page.run_task(_delete)
-
-    def _duplicate_task(self, task: Task) -> None:
-        """Duplicate a task with error handling."""
-        async def _duplicate() -> None:
-            try:
-                new_task = await self.service.duplicate_task(task)
-            except DatabaseError as e:
-                self.snack.show(f"Failed to duplicate task: {e}", COLORS["danger"])
-                return
-
-            await asyncio.sleep(ANIMATION_DELAY)
-            self.snack.show(f"Task duplicated as '{new_task.title}'", update=False)
-            self.tasks_view.refresh()
-            self.event_bus.emit(AppEvent.TASK_DUPLICATED, new_task)
-            self.page.update()
-
-        self.page.run_task(_duplicate)
-
-    def _postpone_task(self, task: Task) -> None:
-        """Postpone a task by one day with error handling."""
-        from datetime import date as date_type
-        today = date_type.today()
-
-        async def _postpone() -> None:
-            try:
-                new_date = await self.service.postpone_task(task)
-            except DatabaseError as e:
-                self.snack.show(f"Failed to postpone task: {e}", COLORS["danger"])
-                return
-
-            await asyncio.sleep(ANIMATION_DELAY)
-            # Add context about where to find the task when postponing from Today/Inbox
-            current_nav = self.state.selected_nav
-            if new_date > today and current_nav in (NavItem.TODAY, NavItem.INBOX):
-                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')} (see Upcoming)"
-            else:
-                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')}"
-            self.snack.show(msg, update=False)
-            self.tasks_view.refresh()
-            self.event_bus.emit(AppEvent.TASK_POSTPONED, task)
-            self.page.update()
-
-        self.page.run_task(_postpone)
 
     def update_content(self) -> None:
         """Update the main content area based on current state."""
