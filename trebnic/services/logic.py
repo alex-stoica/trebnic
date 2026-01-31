@@ -72,8 +72,20 @@ class TaskService:
 
     @staticmethod
     def load_state() -> AppState:
-        """Sync load for initial app startup (before event loop exists)."""
-        return asyncio.run(TaskService.load_state_async())
+        """Sync load for initial app startup."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # Already in an async context - create task and run
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, TaskService.load_state_async())
+                return future.result()
+        else:
+            return asyncio.run(TaskService.load_state_async())
 
     @staticmethod
     def create_empty_state() -> AppState:

@@ -23,7 +23,7 @@ class TimerWidget(ft.Container):
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ), 
             bgcolor=COLORS["accent"],
-            padding=ft.padding.symmetric(horizontal=15, vertical=5),
+            padding=ft.Padding.symmetric(horizontal=15, vertical=5),
             border_radius=20,
             visible=False,
             on_click=on_stop,

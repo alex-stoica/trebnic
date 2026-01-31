@@ -291,7 +291,7 @@ class StatsPage:
                     width=bar_width,
                     height=est_pending_height,
                     bgcolor=COLORS["estimated_pending"],
-                    border_radius=ft.border_radius.only(
+                    border_radius=ft.BorderRadius.only(
                         top_left=top_radius, top_right=top_radius,
                         bottom_left=bottom_radius, bottom_right=bottom_radius,
                     ),
@@ -305,7 +305,7 @@ class StatsPage:
                     width=bar_width,
                     height=est_done_height,
                     bgcolor=COLORS["estimated_done"],
-                    border_radius=ft.border_radius.only(
+                    border_radius=ft.BorderRadius.only(
                         top_left=top_radius, top_right=top_radius,
                         bottom_left=3, bottom_right=3,
                     ),
@@ -324,7 +324,7 @@ class StatsPage:
                     tracked_bar,
                     ft.Container(
                         content=est_stacked_bar,
-                        alignment=ft.alignment.bottom_center,
+                        alignment=ft.Alignment(0, 1),
                     ),
                 ],
                 spacing=2,
@@ -341,7 +341,7 @@ class StatsPage:
                     ft.Container(
                         height=bar_container_height,
                         content=dual_bars,
-                        alignment=ft.alignment.bottom_center,
+                        alignment=ft.Alignment(0, 1),
                     ),
                     ft.Text(
                         day_label,
@@ -539,8 +539,8 @@ class StatsPage:
                     ],
                     spacing=6,
                 ),
-                padding=ft.padding.symmetric(vertical=SPACING_MD),
-                border=ft.border.only(bottom=ft.BorderSide(1, COLORS["border"])),
+                padding=ft.Padding.symmetric(vertical=SPACING_MD),
+                border=ft.Border.only(bottom=ft.BorderSide(1, COLORS["border"])),
             )
             rows.append(row)
 
@@ -580,36 +580,39 @@ class StatsPage:
 
     def _export_to_json(self, e: ft.ControlEvent) -> None:
         """Export stats to JSON file."""
-        json_data = stats_service.export_to_json(
-            self.state.tasks,
-            self.state.done_tasks,
-            self.state.projects,
-            self._time_entries,
-        )
+        async def _do_export() -> None:
+            json_data = stats_service.export_to_json(
+                self.state.tasks,
+                self.state.done_tasks,
+                self.state.projects,
+                self._time_entries,
+            )
 
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"trebnic_stats_{timestamp}.json"
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"trebnic_stats_{timestamp}.json"
 
-        # Use file picker to save
-        def save_result(e: ft.FilePickerResultEvent) -> None:
-            if e.path:
+            # Use file picker to save (flet 0.80.x async API)
+            file_picker = ft.FilePicker()
+            self.page.services.append(file_picker)
+            self.page.update()
+
+            result = await file_picker.save_file(
+                dialog_title=t("export_statistics"),
+                file_name=filename,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["json"],
+            )
+
+            if result:
                 try:
-                    with open(e.path, "w", encoding="utf-8") as f:
+                    with open(result, "w", encoding="utf-8") as f:
                         f.write(json_data)
-                    SnackService.show(self.page, f"{t('exported_to')} {e.path}")
+                    SnackService.show(self.page, f"{t('exported_to')} {result}")
                 except OSError as ex:
                     SnackService.show(self.page, f"{t('export_failed')}: {ex}")
 
-        file_picker = ft.FilePicker(on_result=save_result)
-        self.page.overlay.append(file_picker)
-        self.page.update()
-        file_picker.save_file(
-            dialog_title=t("export_statistics"),
-            file_name=filename,
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["json"],
-        )
+        self.page.run_task(_do_export)
 
     def _build_export_section(self) -> ft.Container:
         """Build export section with JSON export button."""
@@ -619,7 +622,7 @@ class StatsPage:
                     ft.Icon(ft.Icons.DOWNLOAD, size=20, color=COLORS["accent"]),
                     ft.Text(t("export_data"), weight="bold", size=FONT_SIZE_LG),
                     ft.Container(expand=True),
-                    ft.ElevatedButton(
+                    ft.Button(
                         t("export_to_json"),
                         icon=ft.Icons.FILE_DOWNLOAD,
                         on_click=self._export_to_json,
@@ -645,9 +648,9 @@ class StatsPage:
             chip = ft.Container(
                 content=ft.Text(name, size=FONT_SIZE_SM),
                 bgcolor=COLORS["input_bg"],
-                padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=SPACING_MD),
+                padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=SPACING_MD),
                 border_radius=BORDER_RADIUS,
-                border=ft.border.all(1, COLORS["border"]),
+                border=ft.Border.all(1, COLORS["border"]),
                 tooltip=description,
             )
             feature_chips.append(chip)

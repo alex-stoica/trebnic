@@ -126,30 +126,23 @@ class TrebnicApp:
         if self.timer_ctrl:
             self.timer_ctrl.cleanup()
 
-        # Clean up notification service
-        async def cleanup_notifications() -> None:
+        # Clean up notification service and database sequentially
+        # Must be in single async function to ensure notifications finish before db closes
+        async def cleanup_all() -> None:
             try:
                 await notification_service.cleanup()
             except Exception as e:
                 logger.warning(f"Error cleaning up notification service: {e}")
-
-        try:
-            self.page.run_task(cleanup_notifications)
-        except RuntimeError as e:
-            logger.debug(f"Could not schedule notification cleanup (page closing): {e}")
-
-        # Close database connection on the page's event loop
-        async def close_db() -> None:
             try:
                 await db.close()
             except Exception as e:
                 logger.warning(f"Error closing database on cleanup: {e}")
 
         try:
-            self.page.run_task(close_db)
+            self.page.run_task(cleanup_all)
         except RuntimeError as e:
             # Page may be closing or event loop unavailable - expected during shutdown
-            logger.debug(f"Could not schedule db close (page closing): {e}")
+            logger.debug(f"Could not schedule cleanup (page closing): {e}")
 
     async def _init_auth(self) -> None:
         """Initialize authentication and show unlock dialog if needed."""
@@ -323,22 +316,22 @@ class TrebnicApp:
         """Get the settings menu items."""
         items = [
             ft.PopupMenuItem(
-                text=t("profile"),
+                content=t("profile"),
                 icon=ft.Icons.PERSON,
                 on_click=self._on_profile_click,
             ),
             ft.PopupMenuItem(
-                text=t("menu_stats"),
+                content=t("menu_stats"),
                 icon=ft.Icons.BAR_CHART,
                 on_click=self._on_stats_click,
             ),
             ft.PopupMenuItem(
-                text=t("menu_encryption"),
+                content=t("menu_encryption"),
                 icon=ft.Icons.LOCK,
                 on_click=self._on_encryption_click,
             ),
             ft.PopupMenuItem(
-                text=t("menu_help"),
+                content=t("menu_help"),
                 icon=ft.Icons.HELP_OUTLINE,
                 on_click=self._on_help_click,
             )
@@ -352,7 +345,7 @@ class TrebnicApp:
                 items.extend([
                     ft.PopupMenuItem(),
                     ft.PopupMenuItem(
-                        text=f"{t('edit')} '{project.name}'",
+                        content=f"{t('edit')} '{project.name}'",
                         icon=ft.Icons.EDIT,
                         on_click=lambda e, p=project: self.project_dialogs.open(p),
                     ),
@@ -360,7 +353,7 @@ class TrebnicApp:
 
         items.extend([
             ft.PopupMenuItem(),
-            ft.PopupMenuItem(text=t("menu_logout"), icon=ft.Icons.LOGOUT),
+            ft.PopupMenuItem(content=t("menu_logout"), icon=ft.Icons.LOGOUT),
         ])
 
         return items
@@ -504,8 +497,8 @@ class TrebnicApp:
         self.main_area = ft.Container(
             expand=True,
             bgcolor=COLORS["bg"],
-            alignment=ft.alignment.top_left,
-            padding=ft.padding.only(left=20, right=20, top=20, bottom=20),
+            alignment=ft.Alignment(-1, -1),
+            padding=ft.Padding.only(left=20, right=20, top=20, bottom=20),
             content=ft.Column(
                 alignment=ft.MainAxisAlignment.START,
                 controls=[

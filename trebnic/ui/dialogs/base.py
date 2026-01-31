@@ -17,9 +17,9 @@ def open_dialog(
 ) -> Tuple[ft.AlertDialog, Callable[[], None]]: 
     holder: List[Optional[ft.AlertDialog]] = [None] 
 
-    def close(e: Optional[ft.ControlEvent] = None) -> None: 
-        if holder[0]: 
-            page.close(holder[0]) 
+    def close(e: Optional[ft.ControlEvent] = None) -> None:
+        if holder[0]:
+            page.pop_dialog() 
 
     holder[0] = ft.AlertDialog(
         modal=True, 
@@ -28,7 +28,7 @@ def open_dialog(
         actions=make_actions(close), 
         actions_alignment=ft.MainAxisAlignment.END, 
     ) 
-    page.open(holder[0])
+    page.show_dialog(holder[0])
     return holder[0], close
 
 
@@ -52,14 +52,14 @@ def create_option_item(
         return ft.PopupMenuItem(
             content=ft.Container(
                 content=row, 
-                padding=ft.padding.symmetric(vertical=5, horizontal=10), 
+                padding=ft.Padding.symmetric(vertical=5, horizontal=10), 
             ), 
             on_click=on_click,
         ) 
 
     return ft.Container(
         content=row,
-        padding=ft.padding.symmetric(vertical=10, horizontal=15),
+        padding=ft.Padding.symmetric(vertical=10, horizontal=15),
         border_radius=8,
         ink=True,
         on_click=on_click,

@@ -32,9 +32,9 @@ class CalendarView:
                     color=COLORS["done_text"], 
                 ), 
                 bgcolor=COLORS["done_bg"],
-                padding=ft.padding.symmetric(horizontal=4, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=4, vertical=2),
                 border_radius=4,
-                margin=ft.margin.only(bottom=2),
+                margin=ft.Margin.only(bottom=2),
             ) 
 
         return ft.Container(
@@ -46,9 +46,9 @@ class CalendarView:
                 color=COLORS["white"], 
             ), 
             bgcolor=color,
-            padding=ft.padding.symmetric(horizontal=4, vertical=2),
+            padding=ft.Padding.symmetric(horizontal=4, vertical=2),
             border_radius=4,
-            margin=ft.margin.only(bottom=2),
+            margin=ft.Margin.only(bottom=2),
         ) 
 
     def _create_day_column(self, idx: int, d: date, today: date) -> ft.Container:
@@ -77,10 +77,10 @@ class CalendarView:
                 spacing=0,
             ), 
             bgcolor=header_bg,
-            padding=ft.padding.symmetric(horizontal=4, vertical=6),
+            padding=ft.Padding.symmetric(horizontal=4, vertical=6),
             border_radius=6,
             height=CALENDAR_HEADER_HEIGHT,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         ) 
 
         content_control = (
@@ -98,7 +98,7 @@ class CalendarView:
             content=content_control, 
             padding=4,
             expand=True,
-            alignment=ft.alignment.top_center,
+            alignment=ft.Alignment(0, -1),
         ) 
 
         border_color = COLORS["accent"] if is_today else COLORS["border"]
@@ -110,7 +110,7 @@ class CalendarView:
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH, 
             ), 
             expand=True,
-            border=ft.border.all(1, border_color),
+            border=ft.Border.all(1, border_color),
             border_radius=6,
         ) 
 
@@ -170,7 +170,7 @@ class CalendarView:
         calendar_container = ft.Container(
             content=calendar_row,
             expand=True,
-            padding=ft.padding.only(top=10),
+            padding=ft.Padding.only(top=10),
         )
 
         return ft.Column([header_row, calendar_container], expand=True)

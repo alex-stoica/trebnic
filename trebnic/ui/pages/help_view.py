@@ -205,7 +205,7 @@ class HelpPage:
                 icon=ft.Icons.FEEDBACK,
                 on_click=lambda e: self.navigate(PageType.FEEDBACK),
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
 
         # Motivational footer with a pun
@@ -217,8 +217,8 @@ class HelpPage:
                 italic=True,
                 text_align=ft.TextAlign.CENTER,
             ),
-            alignment=ft.alignment.center,
-            padding=ft.padding.only(top=10, bottom=20),
+            alignment=ft.Alignment(0, 0),
+            padding=ft.Padding.only(top=10, bottom=20),
         )
 
         return ft.Column(

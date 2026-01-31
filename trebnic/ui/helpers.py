@@ -37,8 +37,8 @@ def format_due_date(due_date: Optional[date]) -> Optional[str]:
     return f"📋 {date_str}"
 
 
-def accent_btn(text: str, on_click) -> ft.ElevatedButton:
-    return ft.ElevatedButton(
+def accent_btn(text: str, on_click) -> ft.Button:
+    return ft.Button(
         text,
         on_click=on_click,
         bgcolor=COLORS["accent"],
@@ -50,8 +50,8 @@ def danger_btn(
     text: str,
     on_click,
     icon: Optional[str] = None,
-) -> ft.ElevatedButton:
-    return ft.ElevatedButton(
+) -> ft.Button:
+    return ft.Button(
         text,
         on_click=on_click,
         bgcolor=COLORS["danger"],
