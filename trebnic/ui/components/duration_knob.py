@@ -54,7 +54,7 @@ class DurationKnob(ft.Container):
             height=self._thumb_size,
             border_radius=self._thumb_size // 2,
             bgcolor=COLORS["accent"],
-            border=ft.border.all(4, COLORS["white"]),
+            border=ft.Border.all(4, COLORS["white"]),
             shadow=ft.BoxShadow(
                 blur_radius=10,
                 spread_radius=2,
@@ -70,7 +70,7 @@ class DurationKnob(ft.Container):
             width=track_size,
             height=track_size,
             border_radius=track_size // 2,
-            border=ft.border.all(self._track_width, COLORS["input_bg"]),
+            border=ft.Border.all(self._track_width, COLORS["input_bg"]),
             left=(size - track_size) / 2,
             top=(size - track_size) / 2,
         )
@@ -80,7 +80,7 @@ class DurationKnob(ft.Container):
             width=track_size,
             height=track_size,
             border_radius=track_size // 2,
-            border=ft.border.all(self._track_width, COLORS["accent"]),
+            border=ft.Border.all(self._track_width, COLORS["accent"]),
             left=(size - track_size) / 2,
             top=(size - track_size) / 2,
             opacity=0.8,
@@ -113,7 +113,7 @@ class DurationKnob(ft.Container):
             height=center_size,
             border_radius=center_size // 2,
             bgcolor=COLORS["card"],
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             left=(size - center_size) / 2,
             top=(size - center_size) / 2,
         )
@@ -240,11 +240,11 @@ class DurationKnob(ft.Container):
 
     def _on_drag(self, e: ft.DragUpdateEvent) -> None:
         """Handle drag to update value."""
-        self._update_from_position(e.local_x, e.local_y)
+        self._update_from_position(e.local_position.x, e.local_position.y)
 
     def _on_tap(self, e: ft.TapEvent) -> None:
         """Handle tap to jump to position."""
-        self._update_from_position(e.local_x, e.local_y)
+        self._update_from_position(e.local_position.x, e.local_position.y)
 
     def _update_from_position(self, local_x: float, local_y: float) -> None:
         """Update minutes from screen position."""

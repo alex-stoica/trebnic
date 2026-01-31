@@ -68,7 +68,7 @@ class TasksView:
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=10,
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             padding=40,
             visible=False,
         ) 
@@ -94,7 +94,7 @@ class TasksView:
                 ],
                 spacing=4,
             ),
-            padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             border_radius=BORDER_RADIUS,
             bgcolor=COLORS["card"],
             visible=False,
@@ -270,12 +270,12 @@ class TasksView:
         self.task_list.controls.clear()
         for i, task in enumerate(pending):
             project = self.state.get_project_by_id(task.project_id)
-            draggable = ft.ReorderableDraggable(
-                index=i,
+            # Wrap in Container with data for task ID (flet 0.80.x removed ReorderableDraggable)
+            tile_container = ft.Container(
                 content=TaskTile(task, False, self.state, project).build(),
                 data=task.id,  # Store task ID for reorder identification
             )
-            self.task_list.controls.append(draggable)
+            self.task_list.controls.append(tile_container)
 
         self.done_list.controls.clear()
         for task in done:

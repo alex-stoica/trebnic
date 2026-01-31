@@ -71,8 +71,8 @@ class TimerService:
         if task.id is not None:
             self.current_entry = TimeEntry(task_id=task.id, start_time=self.start_time)
 
-        # Schedule async initialization + loop
-        self._schedule_async(self._initialize_and_run())
+        # Schedule async initialization + loop (flet 0.80.x requires function, not coroutine object)
+        self._schedule_async(self._initialize_and_run)
 
         event_bus.emit(AppEvent.TIMER_STARTED, task)
 

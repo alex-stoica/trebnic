@@ -144,7 +144,7 @@ class RecurrenceDialogController:
             bgcolor=COLORS["input_bg"],
             border_radius=8,
             width=120,
-            on_change=self._on_freq_change,
+            on_select=self._on_freq_change,
         )
 
         self.interval_field = ft.TextField(
@@ -173,7 +173,7 @@ class RecurrenceDialogController:
             content=self.end_date_text,
             on_click=self._open_end_date_picker,
             ink=True,
-            padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
             border_radius=4,
         )
 
@@ -418,7 +418,7 @@ class TaskDialogs:
             )
             container = ft.Container(
                 content=row,
-                padding=ft.padding.symmetric(vertical=10, horizontal=15),
+                padding=ft.Padding.symmetric(vertical=10, horizontal=15),
                 border_radius=8,
                 ink=True,
                 on_click=lambda e, pid=p.id: select(pid),
@@ -436,7 +436,7 @@ class TaskDialogs:
         )
         unassign_container = ft.Container(
             content=unassign_row,
-            padding=ft.padding.symmetric(vertical=10, horizontal=15),
+            padding=ft.Padding.symmetric(vertical=10, horizontal=15),
             border_radius=8,
             ink=True,
             on_click=lambda e: select(None),
@@ -721,7 +721,7 @@ class TaskDialogs:
                 ],
                 spacing=8,
             ),
-            padding=ft.padding.only(top=10),
+            padding=ft.Padding.only(top=10),
         )
 
         entries_count = len(time_entries)
@@ -814,7 +814,7 @@ class TaskDialogs:
         preview = ft.Container(
             content=ft.Column([md], scroll=ft.ScrollMode.AUTO, expand=True),
             bgcolor=COLORS["input_bg"],
-            border=ft.border.all(1, COLORS["border"]),
+            border=ft.Border.all(1, COLORS["border"]),
             border_radius=8,
             padding=10,
             height=NOTES_FIELD_HEIGHT,
@@ -978,8 +978,8 @@ class TaskDialogs:
                     ),
                     ft.Container(
                         content=knob,
-                        alignment=ft.alignment.center,
-                        padding=ft.padding.only(top=10, bottom=10),
+                        alignment=ft.Alignment(0, 0),
+                        padding=ft.Padding.only(top=10, bottom=10),
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

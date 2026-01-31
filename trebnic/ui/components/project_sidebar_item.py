@@ -22,7 +22,7 @@ class ProjectSidebarItem(ft.Container):
                 ],
                 spacing=SPACING_LG,
             ),
-            padding=ft.padding.only(left=SIDEBAR_ITEM_PADDING_LEFT, top=PADDING_LG, bottom=PADDING_LG, right=PADDING_LG),
+            padding=ft.Padding.only(left=SIDEBAR_ITEM_PADDING_LEFT, top=PADDING_LG, bottom=PADDING_LG, right=PADDING_LG),
             border_radius=BORDER_RADIUS_SM,
             data=project.id,
             on_click=self._on_click,

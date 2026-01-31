@@ -43,8 +43,8 @@ class ProfilePage:
         self._avatar_path: str | None = None
         self._avatar_icon: ft.Icon | None = None
         self._avatar_image: ft.Image | None = None
-        self._file_picker = ft.FilePicker(on_result=self._on_file_picked)
-        self.page.overlay.append(self._file_picker)
+        self._file_picker = ft.FilePicker()
+        self.page.services.append(self._file_picker)
 
     def set_tasks_view(self, tasks_view) -> None:
         """Set the tasks view reference (for updating pending details on save)."""
@@ -52,20 +52,19 @@ class ProfilePage:
 
     def _on_avatar_click(self, e: ft.ControlEvent) -> None:
         """Open file picker to select avatar image."""
-        self._file_picker.pick_files(
-            allowed_extensions=["png", "jpg", "jpeg", "gif", "webp"],
-            dialog_title=t("select_profile_photo"),
-        )
-
-    def _on_file_picked(self, e: ft.FilePickerResultEvent) -> None:
-        """Handle file picker result."""
-        if e.files and len(e.files) > 0:
-            self._avatar_path = e.files[0].path
-            if self._avatar_icon and self._avatar_image:
-                self._avatar_icon.visible = False
-                self._avatar_image.src = self._avatar_path
-                self._avatar_image.visible = True
-                self.page.update()
+        async def _pick_avatar() -> None:
+            files = await self._file_picker.pick_files(
+                allowed_extensions=["png", "jpg", "jpeg", "gif", "webp"],
+                dialog_title=t("select_profile_photo"),
+            )
+            if files and len(files) > 0:
+                self._avatar_path = files[0].path
+                if self._avatar_icon and self._avatar_image:
+                    self._avatar_icon.visible = False
+                    self._avatar_image.src = self._avatar_path
+                    self._avatar_image.visible = True
+                    self.page.update()
+        self.page.run_task(_pick_avatar)
 
     def _build_lang_en(self) -> ft.Text:
         """Build English language option with EN code."""
@@ -133,7 +132,7 @@ class ProfilePage:
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.padding.symmetric(horizontal=8, vertical=5),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
             border_radius=12,
             bgcolor=COLORS["accent"] if is_en else "transparent",
             on_click=select_en,
@@ -150,7 +149,7 @@ class ProfilePage:
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.padding.symmetric(horizontal=8, vertical=5),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
             border_radius=12,
             bgcolor=COLORS["accent"] if not is_en else "transparent",
             on_click=select_ro,
@@ -497,7 +496,7 @@ class ProfilePage:
             src=self._avatar_path or "",
             width=64,
             height=64,
-            fit=ft.ImageFit.COVER,
+            fit=ft.BoxFit.COVER,
             border_radius=32,
             visible=self._avatar_path is not None,
         )
@@ -525,7 +524,7 @@ class ProfilePage:
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=5,
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             padding=10,
         )
 
@@ -610,7 +609,7 @@ class ProfilePage:
                 self._open_reset_dialog,
                 icon=ft.Icons.RESTORE,
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
 
         return ft.Column(

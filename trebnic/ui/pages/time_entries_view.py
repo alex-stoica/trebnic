@@ -134,9 +134,9 @@ class TimeEntriesView:
             height=size,
             border_radius=size // 2,
             bgcolor=color,
-            border=ft.border.all(2, COLORS["bg"]) if is_running else None,
+            border=ft.Border.all(2, COLORS["bg"]) if is_running else None,
             content=inner_content,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
 
     def _build_timeline_line(
@@ -230,7 +230,7 @@ class TimeEntriesView:
             bgcolor=COLORS["card"],
             padding=PADDING_LG,
             border_radius=BORDER_RADIUS,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
          
         knob = DurationKnob(
@@ -266,7 +266,7 @@ class TimeEntriesView:
             bgcolor=COLORS["card"],
             padding=PADDING_LG,
             border_radius=BORDER_RADIUS,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
         
         error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
@@ -300,7 +300,7 @@ class TimeEntriesView:
                     ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Container(
                         content=knob,
-                        alignment=ft.alignment.center,
+                        alignment=ft.Alignment(0, 0),
                     ),
                     ft.Divider(height=SPACING_LG, color="transparent"),
                     end_time_display,
@@ -361,7 +361,7 @@ class TimeEntriesView:
                     ],
                     spacing=SPACING_SM,
                 ),
-                padding=ft.padding.only(left=30, bottom=SPACING_MD, top=SPACING_LG),
+                padding=ft.Padding.only(left=30, bottom=SPACING_MD, top=SPACING_LG),
             )
  
         dot_color = TimelineColors.RUNNING if is_running else project_color
@@ -418,7 +418,7 @@ class TimeEntriesView:
                         tight=True,
                     ),
                     bgcolor=project_color,
-                    padding=ft.padding.symmetric(horizontal=PADDING_MD, vertical=2),
+                    padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=2),
                     border_radius=10,
                 ),
             ],
@@ -458,9 +458,9 @@ class TimeEntriesView:
                 tight=True,
             ),
             bgcolor=COLORS["green"] if is_running else COLORS["card"],
-            padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
+            padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
-            border=None if is_running else ft.border.all(1, COLORS["border"]),
+            border=None if is_running else ft.Border.all(1, COLORS["border"]),
             on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
             ink=not is_running,
             tooltip=t("click_to_edit") if not is_running else None,
@@ -495,10 +495,10 @@ class TimeEntriesView:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=COLORS["card"],
-            padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
+            padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
             animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
-            border=ft.border.all(1, COLORS["border"]),  
+            border=ft.Border.all(1, COLORS["border"]),  
         )
 
         if date_header:
@@ -531,8 +531,8 @@ class TimeEntriesView:
                     width=12,
                     height=12,
                     border_radius=6,
-                    border=ft.border.all(1, TimelineColors.GAP),
-                    alignment=ft.alignment.center,
+                    border=ft.Border.all(1, TimelineColors.GAP),
+                    alignment=ft.Alignment(0, 0),
                 ),
                 self._build_timeline_line(15, color=TimelineColors.GAP, dashed=True),
             ],
@@ -584,9 +584,9 @@ class TimeEntriesView:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=COLORS["gap_bg"],
-            padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
+            padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
             border_radius=BORDER_RADIUS,
-            border=ft.border.all(1, f"{TimelineColors.GAP}40"),
+            border=ft.Border.all(1, f"{TimelineColors.GAP}40"),
             opacity=0.8,
         )
 
@@ -626,7 +626,7 @@ class TimeEntriesView:
                 padding=PADDING_LG,
                 border_radius=BORDER_RADIUS,
                 expand=True,
-                border=ft.border.all(1, COLORS["border"]), 
+                border=ft.Border.all(1, COLORS["border"]), 
             )
 
         entry_label = t("entry_singular") if entry_count == 1 else t("entries_plural")
@@ -658,7 +658,7 @@ class TimeEntriesView:
                 ],
                 spacing=SPACING_MD,
             ),
-            margin=ft.margin.only(bottom=SPACING_XL),
+            margin=ft.Margin.only(bottom=SPACING_XL),
         )
 
     def _delete_entry(self, entry_id: int) -> None:
@@ -736,7 +736,7 @@ class TimeEntriesView:
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=SPACING_LG,
                     ),
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment(0, 0),
                     padding=PADDING_XL * 3,
                 )
             )
@@ -831,7 +831,7 @@ class TimeEntriesView:
                     ),
                     ft.Container(
                         content=self._total_text,
-                        padding=ft.padding.only(left=48),
+                        padding=ft.Padding.only(left=48),
                     ),
                 ],
                 spacing=0,
@@ -874,7 +874,7 @@ class TimeEntriesView:
                 ],
                 spacing=SPACING_MD,
             ),
-            padding=ft.padding.symmetric(vertical=SPACING_SM),
+            padding=ft.Padding.symmetric(vertical=SPACING_SM),
         )
 
         self._entries_container = ft.Column(

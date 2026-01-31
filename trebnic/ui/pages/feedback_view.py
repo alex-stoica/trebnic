@@ -123,7 +123,7 @@ class FeedbackPage:
                         color=COLORS["done_text"],
                     ),
                     ft.Container(height=5),
-                    ft.ElevatedButton(
+                    ft.Button(
                         t("make_donation"),
                         icon=ft.Icons.COFFEE,
                         bgcolor=COLORS["accent"],
@@ -185,7 +185,7 @@ class FeedbackPage:
                             t("send_feedback"),
                             lambda e: self._send_feedback(category_dd.value, message_field.value, message_field)
                         ),
-                        alignment=ft.alignment.center_right,
+                        alignment=ft.Alignment(1, 0),
                     )
                 ],
                 spacing=15,
@@ -202,7 +202,7 @@ class FeedbackPage:
                 icon=ft.Icons.HELP_OUTLINE,
                 on_click=lambda e: self.navigate(PageType.HELP),
             ),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
 
         return ft.Column(

@@ -74,7 +74,7 @@ class TaskTile:
             return ft.Container(
                 content=content,
                 bgcolor=COLORS["done_tag"],
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
             )
 
@@ -83,7 +83,7 @@ class TaskTile:
             project_tag = ft.Container(
                 content=self._build_project_tag_content(),
                 bgcolor=self.display.project_color,
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
                 on_click=lambda e: event_bus.emit(AppEvent.TASK_ASSIGN_PROJECT_REQUESTED, self.task),
                 ink=True,
@@ -97,8 +97,8 @@ class TaskTile:
                     color=COLORS["unassigned"],
                 ),
                 bgcolor=COLORS["input_bg"],
-                border=ft.border.all(1, COLORS["border"]),
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                border=ft.Border.all(1, COLORS["border"]),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
                 on_click=lambda e: event_bus.emit(AppEvent.TASK_ASSIGN_PROJECT_REQUESTED, self.task),
                 ink=True,
@@ -113,7 +113,7 @@ class TaskTile:
                     color=COLORS["done_text"],
                 ),
                 bgcolor=COLORS["input_bg"],
-                padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                 border_radius=5,
                 on_click=lambda e: event_bus.emit(AppEvent.TASK_DATE_PICKER_REQUESTED, self.task),
                 ink=True,

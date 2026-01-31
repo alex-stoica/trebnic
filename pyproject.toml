@@ -21,13 +21,13 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "flet[build] (>=0.28.3,<0.29.0)",
-    "aiosqlite (>=0.19.0,<1.0.0)",
-    "cryptography (>=46.0.3,<47.0.0)",
-    "argon2-cffi (>=25.1.0,<26.0.0)",
-    "httpx (>=0.28.0,<1.0.0)",
-    "python-dotenv (>=1.2.1,<2.0.0)",
-    "resend (>=2.21.0,<3.0.0)",
+    "flet>=0.80.0",
+    "aiosqlite>=0.19.0,<1.0.0",
+    "cryptography>=46.0.3,<47.0.0",
+    "argon2-cffi>=25.1.0,<26.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "python-dotenv>=1.2.1,<2.0.0",
+    "resend>=2.21.0,<3.0.0",
 ]
 
 [project.urls]
@@ -47,8 +47,9 @@ product = "Trebnic"
 module = "main"
 source_dir = "trebnic"
 
-[tool.flet.android]
-dependencies = ["pyjnius", "android-notify==1.60.8.dev0"]
+# Temporarily disabled android deps for debugging
+# [tool.flet.android]
+# dependencies = ["pyjnius", "android-notify==1.60.8.dev0"]
 
 [tool.flet.android.permission]
 "android.permission.POST_NOTIFICATIONS" = true

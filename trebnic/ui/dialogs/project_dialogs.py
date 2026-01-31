@@ -79,7 +79,7 @@ class IconPickerController:
         for icon in PROJECT_ICONS:
             container = ft.Container(
                 content=ft.Text(icon, size=FONT_SIZE_3XL),
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment(0, 0),
                 border_radius=BORDER_RADIUS_MD,
                 bgcolor=(
                     COLORS["accent"]
@@ -103,11 +103,11 @@ class IconPickerController:
 
         preview_container = ft.Container(
             content=self._preview_text,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             bgcolor=COLORS["card"],
             border_radius=SPACING_LG,
             padding=PADDING_XL,
-            margin=ft.margin.only(bottom=SPACING_LG),
+            margin=ft.Margin.only(bottom=SPACING_LG),
         )
 
         return ft.Container(
@@ -182,7 +182,7 @@ class ColorPickerController:
             )
             container = ft.Container(
                 content=row,
-                padding=ft.padding.symmetric(vertical=PADDING_MD, horizontal=PADDING_XL),
+                padding=ft.Padding.symmetric(vertical=PADDING_MD, horizontal=PADDING_XL),
                 border_radius=BORDER_RADIUS_MD,
                 ink=True,
                 data=c["value"],
@@ -254,7 +254,7 @@ class ProjectDialogs:
         self._error.visible = False
         self._dialog = None  
         self._show_main()
-        self.page.open(self._dialog)
+        self.page.show_dialog(self._dialog)
 
     def _build_main_content(self) -> ft.Column:
         """Build the main dialog content."""
@@ -263,10 +263,10 @@ class ProjectDialogs:
                 [self._icon_display, ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=FONT_SIZE_3XL)],
                 tight=True,
             ),
-            padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
+            padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
             border_radius=BORDER_RADIUS_MD,
             bgcolor=COLORS["input_bg"],
-            border=ft.border.all(1, COLORS["border"]),
+            border=ft.Border.all(1, COLORS["border"]),
             on_click=self._show_icon_picker,
             ink=True,
         )
@@ -277,10 +277,10 @@ class ProjectDialogs:
                 spacing=SPACING_MD,
                 tight=True,
             ),
-            padding=ft.padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
+            padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_SM),
             border_radius=BORDER_RADIUS_MD,
             bgcolor=COLORS["input_bg"],
-            border=ft.border.all(1, COLORS["border"]),
+            border=ft.Border.all(1, COLORS["border"]),
             on_click=self._show_color_picker,
             ink=True,
         )
@@ -436,7 +436,7 @@ class ProjectDialogs:
             self._color_display.bgcolor = self._color
             self.state.editing_project_id = None
             self._error.visible = False
-            self.page.close(self._dialog)
+            self.page.pop_dialog()
             self.snack.show(msg)
             event_bus.emit(AppEvent.SIDEBAR_REBUILD)
             event_bus.emit(AppEvent.REFRESH_UI)
@@ -454,7 +454,7 @@ class ProjectDialogs:
                 count = await self.project_service.delete_project(project.id)
                 self.state.editing_project_id = None
                 close()
-                self.page.close(self._dialog)
+                self.page.pop_dialog()
                 msg = t("project_deleted").replace("{name}", project.name).replace("{count}", str(count))
                 self.snack.show(msg, COLORS["danger"])
                 event_bus.emit(AppEvent.SIDEBAR_REBUILD)
@@ -476,4 +476,4 @@ class ProjectDialogs:
     def _close(self, e: ft.ControlEvent) -> None:
         self.state.editing_project_id = None
         self._error.visible = False
-        self.page.close(self._dialog)
+        self.page.pop_dialog()

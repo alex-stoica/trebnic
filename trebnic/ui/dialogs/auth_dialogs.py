@@ -34,7 +34,7 @@ def _create_password_field(
         bgcolor=COLORS["input_bg"],
         border_color=COLORS["border"],
         focused_border_color=COLORS["accent"],
-        content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
         on_submit=on_submit,
     )
 
@@ -100,7 +100,7 @@ def open_unlock_dialog(
         try:
             success = await on_unlock(password)
             if success:
-                page.close(dialog)
+                page.pop_dialog()
             else:
                 error_text.value = "Incorrect password"
                 error_text.visible = True
@@ -148,7 +148,7 @@ def open_unlock_dialog(
             ft.Row(
                 [
                     loading,
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Unlock",
                         icon=ft.Icons.LOCK_OPEN,
                         bgcolor=COLORS["accent"],
@@ -216,7 +216,7 @@ def open_setup_password_dialog(
 
         try:
             await on_setup(password)
-            page.close(dialog)
+            page.pop_dialog()
         except Exception as ex:
             error_text.value = f"Setup failed: {ex}"
             error_text.visible = True
@@ -281,7 +281,7 @@ def open_setup_password_dialog(
             ft.Row(
                 [
                     loading,
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Enable Encryption",
                         icon=ft.Icons.LOCK,
                         bgcolor=COLORS["accent"],
@@ -347,7 +347,7 @@ def open_change_password_dialog(
         try:
             success = await on_change(current, new_password)
             if success:
-                page.close(dialog)
+                page.pop_dialog()
                 # TODO: Show success snackbar
             else:
                 error_text.value = "Current password is incorrect"
@@ -381,7 +381,7 @@ def open_change_password_dialog(
             ft.Row(
                 [
                     loading,
-                    ft.ElevatedButton(
+                    ft.Button(
                         "Change Password",
                         bgcolor=COLORS["accent"],
                         color=COLORS["white"],
@@ -460,7 +460,7 @@ def open_encryption_settings_dialog(
                 "Update your master password",
                 ft.IconButton(
                     ft.Icons.CHEVRON_RIGHT,
-                    on_click=lambda e: (page.close(dialog), on_change_password()),
+                    on_click=lambda e: (page.pop_dialog(), on_change_password()),
                 ),
             ),
         ]
@@ -469,7 +469,7 @@ def open_encryption_settings_dialog(
         if is_passkey_available:
             async def toggle_passkey(e):
                 await on_toggle_passkey(not is_passkey_enabled)
-                page.close(dialog)
+                page.pop_dialog()
 
             rows.append(
                 create_setting_row(
@@ -487,7 +487,7 @@ def open_encryption_settings_dialog(
         async def handle_disable(e):
             # TODO: Show confirmation dialog
             await on_disable()
-            page.close(dialog)
+            page.pop_dialog()
 
         rows.append(
             ft.Container(
@@ -498,7 +498,7 @@ def open_encryption_settings_dialog(
                     style=ft.ButtonStyle(color=COLORS["danger"]),
                     on_click=lambda e: page.run_task(handle_disable),
                 ),
-                padding=ft.padding.only(top=SPACING_LG),
+                padding=ft.Padding.only(top=SPACING_LG),
             )
         )
     else:
@@ -526,12 +526,12 @@ def open_encryption_settings_dialog(
                 ),
                 padding=SPACING_LG,
             ),
-            ft.ElevatedButton(
+            ft.Button(
                 "Set up encryption",
                 icon=ft.Icons.LOCK,
                 bgcolor=COLORS["accent"],
                 color=COLORS["white"],
-                on_click=lambda e: (page.close(dialog), on_setup()),
+                on_click=lambda e: (page.pop_dialog(), on_setup()),
             ),
         ]
 
