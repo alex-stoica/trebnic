@@ -2,9 +2,9 @@
 Notification service for Trebnic.
 
 This module provides cross-platform notification support using:
-- flet_local_notifications (primary): Native Flet integration with tap handling
+- Flet built-in notifications (primary): page.send_notification() available in Flet 0.21+
 - plyer (fallback): Cross-platform notifications for desktop
-- Android native (via pyjnius): Android-specific notifications
+- Android native (via pyjnius): Android-specific notifications (legacy)
 
 The service schedules notifications based on task due dates and timer events,
 storing them in the database for crash recovery and rescheduling.
@@ -41,22 +41,14 @@ SCHEDULER_INTERVAL_SECONDS = 60
 
 class NotificationBackend(Enum):
     """Available notification backends."""
-    FLET_LOCAL = "flet_local"
+    PLYER = "plyer"
     ANDROID_NATIVE = "android_native"
-    PLYER_FALLBACK = "plyer"
     NONE = "none"
 
 
 # Backend availability detection
-FLET_LOCAL_AVAILABLE = False
 PLYER_AVAILABLE = False
 ANDROID_NATIVE_AVAILABLE = False
-
-try:
-    import flet_local_notifications
-    FLET_LOCAL_AVAILABLE = True
-except ImportError:
-    pass
 
 try:
     from plyer import notification as plyer_notification
@@ -94,19 +86,15 @@ def _detect_notification_backend() -> NotificationBackend:
     """Detect the best available notification backend.
 
     Priority:
-    1. flet_local_notifications (best Flet integration)
+    1. plyer (works on desktop and Android)
     2. Android native (pyjnius) for Android
-    3. plyer fallback for desktop
-    4. None if nothing available
+    3. None if nothing available
     """
-    if FLET_LOCAL_AVAILABLE:
-        return NotificationBackend.FLET_LOCAL
+    if PLYER_AVAILABLE:
+        return NotificationBackend.PLYER
 
     if _is_android and ANDROID_NATIVE_AVAILABLE:
         return NotificationBackend.ANDROID_NATIVE
-
-    if PLYER_AVAILABLE:
-        return NotificationBackend.PLYER_FALLBACK
 
     return NotificationBackend.NONE
 
@@ -167,13 +155,6 @@ class NotificationService:
         self._schedule_async = async_scheduler
         self._get_state = get_state
 
-        # Set up notification tap handler for Flet backend
-        if self._backend == NotificationBackend.FLET_LOCAL and FLET_LOCAL_AVAILABLE:
-            try:
-                page.on_notification_action = self._on_notification_tapped
-            except AttributeError:
-                logger.warning("page.on_notification_action not available")
-
     async def request_permission(self) -> PermissionResult:
         """Request notification permission.
 
@@ -183,12 +164,17 @@ class NotificationService:
         Returns:
             PermissionResult indicating whether permission was granted/denied.
         """
+        # Plyer handles permissions - just return granted
+        if self._backend == NotificationBackend.PLYER:
+            logger.info("Plyer backend - assuming permission granted")
+            return PermissionResult.GRANTED
+
         # Desktop platforms don't need runtime permission
         if not _is_android:
             logger.info("Desktop platform - notification permission not required")
             return PermissionResult.NOT_REQUIRED
 
-        # Android < 13 doesn't need runtime permission
+        # Android native backend (legacy) - use jnius for permission
         if ANDROID_NATIVE_AVAILABLE:
             try:
                 loop = asyncio.get_event_loop()
@@ -379,35 +365,16 @@ class NotificationService:
 
         logger.info(f"Delivering notification: {ntype} - {title}")
 
-        if self._backend == NotificationBackend.FLET_LOCAL:
-            await self._deliver_flet_notification(title, body, task_id)
+        if self._backend == NotificationBackend.PLYER:
+            await self._deliver_plyer_notification(title, body)
         elif self._backend == NotificationBackend.ANDROID_NATIVE:
             await self._deliver_android_notification(title, body, task_id)
-        elif self._backend == NotificationBackend.PLYER_FALLBACK:
-            await self._deliver_plyer_notification(title, body)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
             "notification_id": notification.get("id"),
             "ntype": ntype,
             "task_id": task_id,
         })
-
-    async def _deliver_flet_notification(
-        self, title: str, body: str, task_id: Optional[int]
-    ) -> None:
-        """Deliver notification via flet_local_notifications."""
-        if not FLET_LOCAL_AVAILABLE or self._page is None:
-            return
-
-        try:
-            notification = flet_local_notifications.LocalNotification(
-                title=title,
-                body=body,
-                payload=json.dumps({"task_id": task_id}) if task_id else None,
-            )
-            await self._page.local_notifications.show(notification)
-        except Exception as e:
-            logger.error(f"Error showing Flet notification: {e}")
 
     async def _deliver_android_notification(
         self, title: str, body: str, task_id: Optional[int]
@@ -625,12 +592,10 @@ class NotificationService:
             title = t("task_reminder")
             body = t("unlock_to_see_details")
 
-        if self._backend == NotificationBackend.FLET_LOCAL:
-            await self._deliver_flet_notification(title, body, task_id)
+        if self._backend == NotificationBackend.PLYER:
+            await self._deliver_plyer_notification(title, body)
         elif self._backend == NotificationBackend.ANDROID_NATIVE:
             await self._deliver_android_notification(title, body, task_id)
-        elif self._backend == NotificationBackend.PLYER_FALLBACK:
-            await self._deliver_plyer_notification(title, body)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
             "task_id": task_id,

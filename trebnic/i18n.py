@@ -337,6 +337,8 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "test_notification_title": {"en": "Test notification", "ro": "Notificare test"},
     "test_notification_body": {"en": "Notifications are working!", "ro": "Notificările funcționează!"},
     "test_notification_mobile_only": {"en": "Test notifications are only available on mobile", "ro": "Notificările de test sunt disponibile doar pe mobil"},
+    "test_notification_unavailable": {"en": "Notifications are not available on this device", "ro": "Notificările nu sunt disponibile pe acest dispozitiv"},
+    "test_notification_sent": {"en": "Notification sent", "ro": "Notificare trimisă"},
     "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},
     "notification_permission_granted": {"en": "Notifications enabled", "ro": "Notificări activate"},
     "task_reminder": {"en": "Task reminder", "ro": "Memento treabă"},

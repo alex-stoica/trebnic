@@ -280,12 +280,8 @@ class ProfilePage:
             self.page.update()
 
         def on_test_notification(e: ft.ControlEvent) -> None:
-            is_desktop = notification_service.backend in (
-                NotificationBackend.PLYER_FALLBACK,
-                NotificationBackend.NONE,
-            )
-            if is_desktop:
-                self.snack.show(t("test_notification_mobile_only"))
+            if notification_service.backend == NotificationBackend.NONE:
+                self.snack.show(t("test_notification_unavailable"))
                 return
 
             async def _test() -> None:
@@ -293,6 +289,7 @@ class ProfilePage:
                     title=t("test_notification_title"),
                     body=t("test_notification_body"),
                 )
+                self.snack.show(t("test_notification_sent"))
             self.page.run_task(_test)
 
         notifications_switch = ft.Switch(

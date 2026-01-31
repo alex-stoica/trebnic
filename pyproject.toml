@@ -45,4 +45,10 @@ product = "Trebnic"
 
 [tool.flet.app]
 module = "main"
-source_dir = "trebnic" 
+source_dir = "trebnic"
+
+[tool.flet.android]
+dependencies = ["pyjnius", "android-notify==1.60.8.dev0"]
+
+[tool.flet.android.permission]
+"android.permission.POST_NOTIFICATIONS" = true
