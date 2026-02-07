@@ -2,6 +2,7 @@ import flet as ft
 from typing import Callable 
 
 from config import COLORS
+from i18n import t
 from ui.helpers import format_timer_display
 
 
@@ -28,7 +29,7 @@ class TimerWidget(ft.Container):
             visible=False,
             on_click=on_stop,
             ink=True,
-            tooltip="Click to stop timer",
+            tooltip=t("click_to_stop_timer"),
         ) 
 
     def start(self, task_title: str) -> None: 

@@ -44,7 +44,6 @@ class NavItem(Enum):
     CALENDAR = "calendar"
     UPCOMING = "upcoming"
     PROJECTS = "projects"
-    TIMESHEET = "timesheet"
 
 
 class PageType(Enum):
@@ -162,17 +161,6 @@ GAP_THRESHOLD_SECONDS = 60
 TIME_ENTRY_ROW_HEIGHT = 60
 MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes   
  
-NAV_INBOX = NavItem.INBOX
-NAV_TODAY = NavItem.TODAY
-NAV_CALENDAR = NavItem.CALENDAR
-NAV_UPCOMING = NavItem.UPCOMING
-NAV_PROJECTS = NavItem.PROJECTS
-NAV_TIMESHEET = NavItem.TIMESHEET
-
-PAGE_TASKS = PageType.TASKS
-PAGE_PROFILE = PageType.PROFILE
-PAGE_TIME_ENTRIES = PageType.TIME_ENTRIES
-PAGE_HELP = PageType.HELP
 # Resend email API for feedback (free: 100 emails/day)
 # Get your API key at https://resend.com/api-keys
 # Fallback values for mobile (env vars not available)

@@ -3,6 +3,7 @@ from typing import Optional
 
 from config import COLORS, BORDER_RADIUS
 from events import event_bus, AppEvent
+from i18n import t
 from models.entities import Task, Project, AppState
 from services.crypto import LOCKED_PLACEHOLDER
 from ui.dialogs.base import create_option_item
@@ -42,7 +43,7 @@ class TaskTile:
             return ft.Row(
                 [
                     ft.Icon(ft.Icons.LOCK, color=COLORS["white"], size=10),
-                    ft.Text("Encrypted", size=10, color=COLORS["white"], italic=True),
+                    ft.Text(t("encrypted"), size=10, color=COLORS["white"], italic=True),
                 ],
                 spacing=4,
                 tight=True,
@@ -59,7 +60,7 @@ class TaskTile:
     def _tags(self) -> ft.Control:
         is_project_locked = self.display.project_name == LOCKED_PLACEHOLDER
         if self.is_done:
-            project_display = "Encrypted" if is_project_locked else (self.display.project_name or "Unassigned")
+            project_display = t("encrypted") if is_project_locked else (self.display.project_name or t("unassigned"))
             parts = [project_display]
             if self.display.due_date_display:
                 parts.append(self.display.due_date_display)
@@ -92,7 +93,7 @@ class TaskTile:
         else:
             unassigned_tag = ft.Container(
                 content=ft.Text(
-                    "Unassigned",
+                    t("unassigned"),
                     size=10,
                     color=COLORS["unassigned"],
                 ),
@@ -127,7 +128,7 @@ class TaskTile:
         if self.state.is_mobile:
             items.append(create_option_item(
                 ft.Icons.TIMER_OUTLINED,
-                "Start timer",
+                t("start_timer"),
                 lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
                 as_popup=True,
             ))
@@ -135,51 +136,51 @@ class TaskTile:
         items.extend([
             create_option_item(
                 ft.Icons.EDIT_OUTLINED,
-                "Rename",
+                t("rename"),
                 lambda e: event_bus.emit(AppEvent.TASK_RENAME_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
                 ft.Icons.SCHEDULE_OUTLINED,
-                "Reschedule",
+                t("reschedule"),
                 lambda e: event_bus.emit(AppEvent.TASK_DATE_PICKER_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
                 ft.Icons.NEXT_PLAN_OUTLINED,
-                "Postpone by 1 day",
+                t("postpone_by_1_day"),
                 lambda e: event_bus.emit(AppEvent.TASK_POSTPONE_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
                 ft.Icons.REPEAT,
-                "Set recurrence",
+                t("set_recurrence"),
                 lambda e: event_bus.emit(AppEvent.TASK_RECURRENCE_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
                 ft.Icons.CONTENT_COPY_OUTLINED,
-                "Duplicate task",
+                t("duplicate_task"),
                 lambda e: event_bus.emit(AppEvent.TASK_DUPLICATE_REQUESTED, self.task),
                 as_popup=True,
             ),
             ft.PopupMenuItem(),
             create_option_item(
                 ft.Icons.INSIGHTS,
-                "Stats",
+                t("stats"),
                 lambda e: event_bus.emit(AppEvent.TASK_STATS_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
                 ft.Icons.STICKY_NOTE_2_OUTLINED,
-                "Notes",
+                t("notes"),
                 lambda e: event_bus.emit(AppEvent.TASK_NOTES_REQUESTED, self.task),
                 as_popup=True,
             ),
             ft.PopupMenuItem(),
             create_option_item(
                 ft.Icons.DELETE_OUTLINE,
-                "Delete",
+                t("delete"),
                 lambda e: event_bus.emit(AppEvent.TASK_DELETE_REQUESTED, self.task),
                 color=COLORS["danger"],
                 text_color=COLORS["danger"],
@@ -190,7 +191,7 @@ class TaskTile:
         return ft.PopupMenuButton(
             icon=ft.Icons.MORE_HORIZ, 
             icon_color="grey", 
-            tooltip="Task options", 
+            tooltip=t("task_options"),
             menu_position=ft.PopupMenuPosition.UNDER, 
             items=items, 
         ) 
@@ -282,7 +283,7 @@ class TaskTile:
         timer_btn = ft.IconButton(
             ft.Icons.PLAY_ARROW,
             icon_color=COLORS["accent"],
-            tooltip="Start timer",
+            tooltip=t("start_timer"),
             on_click=lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
         )
 

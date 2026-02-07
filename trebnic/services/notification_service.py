@@ -42,59 +42,47 @@ SCHEDULER_INTERVAL_SECONDS = 60
 class NotificationBackend(Enum):
     """Available notification backends."""
     PLYER = "plyer"
-    ANDROID_NATIVE = "android_native"
+    PYJNIUS = "pyjnius"
     NONE = "none"
 
 
 # Backend availability detection
 PLYER_AVAILABLE = False
-ANDROID_NATIVE_AVAILABLE = False
+PYJNIUS_AVAILABLE = False
+_is_android = False
 
+# Try pyjnius - if it imports, we're on Android
 try:
-    from plyer import notification as plyer_notification
-    PLYER_AVAILABLE = True
+    from jnius import autoclass
+    PYJNIUS_AVAILABLE = True
+    _is_android = True
+    logger.info("pyjnius available - running on Android")
 except ImportError:
-    pass
+    logger.info("pyjnius not available - not on Android")
 
-
-def _detect_android() -> bool:
-    """Detect if running on Android."""
-    import os
-    if os.path.exists("/system/build.prop"):
-        return True
-    if os.environ.get("ANDROID_ROOT"):
-        return True
+# plyer for desktop (Windows/Linux/Mac) - only if not on Android
+if not _is_android:
     try:
-        import android
-        return True
+        from plyer import notification as plyer_notification
+        PLYER_AVAILABLE = True
+        logger.info("plyer available for desktop")
     except ImportError:
-        pass
-    return False
-
-
-_is_android = _detect_android()
-
-if _is_android:
-    try:
-        from jnius import autoclass
-        ANDROID_NATIVE_AVAILABLE = True
-    except ImportError:
-        pass
+        logger.info("plyer not available")
 
 
 def _detect_notification_backend() -> NotificationBackend:
     """Detect the best available notification backend.
 
     Priority:
-    1. plyer (works on desktop and Android)
-    2. Android native (pyjnius) for Android
+    1. pyjnius when on Android
+    2. plyer for desktop (Windows/Linux/Mac)
     3. None if nothing available
     """
+    if _is_android and PYJNIUS_AVAILABLE:
+        return NotificationBackend.PYJNIUS
+
     if PLYER_AVAILABLE:
         return NotificationBackend.PLYER
-
-    if _is_android and ANDROID_NATIVE_AVAILABLE:
-        return NotificationBackend.ANDROID_NATIVE
 
     return NotificationBackend.NONE
 
@@ -174,56 +162,12 @@ class NotificationService:
             logger.info("Desktop platform - notification permission not required")
             return PermissionResult.NOT_REQUIRED
 
-        # Android native backend (legacy) - use jnius for permission
-        if ANDROID_NATIVE_AVAILABLE:
-            try:
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    self._request_android_permission
-                )
-                return result
-            except Exception as e:
-                logger.error(f"Error requesting Android permission: {e}")
-                return PermissionResult.DENIED
-
-        return PermissionResult.NOT_REQUIRED
-
-    def _request_android_permission(self) -> PermissionResult:
-        """Request POST_NOTIFICATIONS permission on Android 13+ (runs in executor)."""
-        try:
-            from jnius import autoclass
-
-            Build = autoclass("android.os.Build")
-            api_level = Build.VERSION.SDK_INT
-
-            # Android < 13 doesn't require runtime permission
-            if api_level < ANDROID_13_API_LEVEL:
-                return PermissionResult.NOT_REQUIRED
-
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            activity = PythonActivity.mActivity
-
-            # Check if permission is already granted
-            Context = autoclass("android.content.Context")
-            PackageManager = autoclass("android.content.pm.PackageManager")
-            permission = "android.permission.POST_NOTIFICATIONS"
-
-            if activity.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED:
-                return PermissionResult.GRANTED
-
-            # Request permission
-            ActivityCompat = autoclass("androidx.core.app.ActivityCompat")
-            ActivityCompat.requestPermissions(activity, [permission], 1001)
-
-            # Note: This is a simplified synchronous check. In a full implementation,
-            # you'd use onRequestPermissionsResult callback. For now, we assume the
-            # user will grant/deny and settings will reflect the actual state.
+        # android_notify handles permissions internally
+        if PYJNIUS_AVAILABLE:
+            # Permission is declared in pyproject.toml and requested by OS
             return PermissionResult.GRANTED
 
-        except Exception as e:
-            logger.error(f"Error in Android permission request: {e}")
-            return PermissionResult.DENIED
+        return PermissionResult.NOT_REQUIRED
 
     def start_scheduler(self) -> None:
         """Start the notification scheduler loop.
@@ -239,7 +183,8 @@ class NotificationService:
         self._running = True
         self._stop_event.clear()
         self._subscribe_to_events()
-        self._schedule_async(self._scheduler_loop())
+        # Flet 0.80 requires coroutine function, not coroutine object
+        self._schedule_async(self._scheduler_loop)
         logger.info("Notification scheduler started")
 
     def stop_scheduler(self) -> None:
@@ -289,7 +234,10 @@ class NotificationService:
             task_id = data
 
         if task_id is not None:
-            self._schedule_async(self._reschedule_for_task(task_id))
+            # Flet 0.80 requires coroutine function, not coroutine object
+            async def reschedule_wrapper() -> None:
+                await self._reschedule_for_task(task_id)
+            self._schedule_async(reschedule_wrapper)
 
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop - checks for pending notifications."""
@@ -367,7 +315,7 @@ class NotificationService:
 
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
-        elif self._backend == NotificationBackend.ANDROID_NATIVE:
+        elif self._backend == NotificationBackend.PYJNIUS:
             await self._deliver_android_notification(title, body, task_id)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
@@ -378,10 +326,14 @@ class NotificationService:
 
     async def _deliver_android_notification(
         self, title: str, body: str, task_id: Optional[int]
-    ) -> None:
-        """Deliver notification via Android native APIs."""
-        if not ANDROID_NATIVE_AVAILABLE:
-            return
+    ) -> bool:
+        """Deliver notification via android_notify package.
+
+        Returns:
+            True if notification was delivered successfully, False otherwise.
+        """
+        if not PYJNIUS_AVAILABLE:
+            return False
 
         try:
             loop = asyncio.get_event_loop()
@@ -389,42 +341,74 @@ class NotificationService:
                 None,
                 lambda: self._show_android_notification(title, body, task_id)
             )
+            return True
         except Exception as e:
             logger.error(f"Error showing Android notification: {e}")
+            return False
 
     def _show_android_notification(
         self, title: str, body: str, task_id: Optional[int]
     ) -> None:
-        """Show Android notification (runs in executor)."""
+        """Show Android notification using pyjnius.
+
+        Uses Flet's activity pattern (not Kivy).
+        See: https://flet.dev/blog/tap-into-native-android-and-ios-apis-with-Pyjnius-and-pyobjus/
+        """
+        import os
         try:
             from jnius import autoclass
 
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            # Get activity using Flet's environment variable
+            activity_class = os.getenv("MAIN_ACTIVITY_HOST_CLASS_NAME")
+            if not activity_class:
+                raise RuntimeError("MAIN_ACTIVITY_HOST_CLASS_NAME not set")
+
+            ActivityHost = autoclass(activity_class)
+            activity = ActivityHost.mActivity
+            context = activity.getApplicationContext()
+
+            # Android classes
             Context = autoclass("android.content.Context")
             NotificationBuilder = autoclass("android.app.Notification$Builder")
             NotificationManager = autoclass("android.app.NotificationManager")
+            Build = autoclass("android.os.Build")
 
-            activity = PythonActivity.mActivity
-            context = activity.getApplicationContext()
+            notification_manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            channel_id = "trebnic_reminders"
 
-            notification_service = context.getSystemService(Context.NOTIFICATION_SERVICE)
+            # Create notification channel for Android 8+ (API 26)
+            if Build.VERSION.SDK_INT >= 26:
+                NotificationChannel = autoclass("android.app.NotificationChannel")
+                channel = NotificationChannel(
+                    channel_id,
+                    "Task Reminders",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+                notification_manager.createNotificationChannel(channel)
+                builder = NotificationBuilder(context, channel_id)
+            else:
+                builder = NotificationBuilder(context)
 
-            builder = NotificationBuilder(context)
             builder.setContentTitle(title)
             builder.setContentText(body)
             builder.setSmallIcon(context.getApplicationInfo().icon)
             builder.setAutoCancel(True)
 
-            notification_id = task_id or hash(title) % 100000
-            notification_service.notify(notification_id, builder.build())
+            notification_id = task_id if task_id else abs(hash(title)) % 100000
+            notification_manager.notify(notification_id, builder.build())
 
         except Exception as e:
             logger.error(f"Error in Android notification: {e}")
+            raise
 
-    async def _deliver_plyer_notification(self, title: str, body: str) -> None:
-        """Deliver notification via plyer (desktop fallback)."""
+    async def _deliver_plyer_notification(self, title: str, body: str) -> bool:
+        """Deliver notification via plyer (desktop fallback).
+
+        Returns:
+            True if notification was delivered successfully, False otherwise.
+        """
         if not PLYER_AVAILABLE:
-            return
+            return False
 
         try:
             loop = asyncio.get_event_loop()
@@ -437,8 +421,10 @@ class NotificationService:
                     timeout=10,
                 )
             )
+            return True
         except Exception as e:
             logger.error(f"Error showing plyer notification: {e}")
+            return False
 
     def _on_notification_tapped(self, e: Any) -> None:
         """Handle notification tap (Flet backend only)."""
@@ -594,7 +580,7 @@ class NotificationService:
 
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
-        elif self._backend == NotificationBackend.ANDROID_NATIVE:
+        elif self._backend == NotificationBackend.PYJNIUS:
             await self._deliver_android_notification(title, body, task_id)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
@@ -620,29 +606,8 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Error canceling pending notifications: {e}")
 
-        # Clear system notifications (platform-specific)
-        if self._backend == NotificationBackend.ANDROID_NATIVE and ANDROID_NATIVE_AVAILABLE:
-            try:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._clear_android_notifications)
-            except Exception as e:
-                logger.error(f"Error clearing Android notifications: {e}")
-
-    def _clear_android_notifications(self) -> None:
-        """Clear all Android notifications (runs in executor)."""
-        try:
-            from jnius import autoclass
-
-            PythonActivity = autoclass("org.kivy.android.PythonActivity")
-            Context = autoclass("android.content.Context")
-            NotificationManager = autoclass("android.app.NotificationManager")
-
-            activity = PythonActivity.mActivity
-            context = activity.getApplicationContext()
-            notification_manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-            notification_manager.cancelAll()
-        except Exception as e:
-            logger.error(f"Error clearing Android notifications: {e}")
+        # Note: android_notify doesn't provide a clear method
+        # OS handles notification cleanup when app closes
 
     def _is_notifications_enabled(self) -> bool:
         """Check if notifications are enabled in settings."""
@@ -683,6 +648,21 @@ class NotificationService:
     def is_running(self) -> bool:
         """Check if the scheduler is running."""
         return self._running
+
+    async def test_notification(self, title: str, body: str) -> bool:
+        """Send a test notification and return whether it was delivered.
+
+        This method bypasses enabled checks and is meant for testing notification
+        delivery in the UI.
+
+        Returns:
+            True if notification was delivered successfully, False otherwise.
+        """
+        if self._backend == NotificationBackend.PLYER:
+            return await self._deliver_plyer_notification(title, body)
+        elif self._backend == NotificationBackend.PYJNIUS:
+            return await self._deliver_android_notification(title, body, None)
+        return False
 
     @classmethod
     def reset_instance(cls) -> None:

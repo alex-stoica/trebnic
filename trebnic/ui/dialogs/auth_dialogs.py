@@ -50,15 +50,15 @@ def _validate_password(password: str) -> Optional[str]:
     - At least one digit
     """
     if len(password) < PASSWORD_MIN_LENGTH:
-        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+        return t("password_min_length").format(length=PASSWORD_MIN_LENGTH)
     if len(password) > PASSWORD_MAX_LENGTH:
-        return f"Password must be at most {PASSWORD_MAX_LENGTH} characters"
+        return t("password_max_length").format(length=PASSWORD_MAX_LENGTH)
     if not any(c.isupper() for c in password):
-        return "Password must contain at least one uppercase letter"
+        return t("password_needs_uppercase")
     if not any(c.islower() for c in password):
-        return "Password must contain at least one lowercase letter"
+        return t("password_needs_lowercase")
     if not any(c.isdigit() for c in password):
-        return "Password must contain at least one digit"
+        return t("password_needs_digit")
     return None
 
 
@@ -77,8 +77,8 @@ def open_unlock_dialog(
         allow_cancel: Whether to show cancel button (False for mandatory unlock)
     """
     password_field = _create_password_field(
-        "Master Password",
-        "Enter your master password",
+        t("master_password"),
+        t("enter_master_password"),
     )
     error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
     loading = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
@@ -87,7 +87,7 @@ def open_unlock_dialog(
         password = password_field.value or ""
 
         if not password:
-            error_text.value = "Please enter your password"
+            error_text.value = t("please_enter_password")
             error_text.visible = True
             page.update()
             return
@@ -102,7 +102,7 @@ def open_unlock_dialog(
             if success:
                 page.pop_dialog()
             else:
-                error_text.value = "Incorrect password"
+                error_text.value = t("incorrect_password")
                 error_text.visible = True
                 password_field.value = ""
                 password_field.focus()
@@ -117,7 +117,7 @@ def open_unlock_dialog(
         [
             ft.Icon(ft.Icons.LOCK_OUTLINE, size=48, color=COLORS["accent"]),
             ft.Text(
-                "Your data is encrypted",
+                t("your_data_is_encrypted"),
                 size=FONT_SIZE_MD,
                 color=COLORS["done_text"],
                 text_align=ft.TextAlign.CENTER,
@@ -141,7 +141,7 @@ def open_unlock_dialog(
                     on_cancel()
 
             actions.append(
-                ft.TextButton("Cancel", on_click=handle_cancel)
+                ft.TextButton(t("cancel"), on_click=handle_cancel)
             )
 
         actions.append(
@@ -149,7 +149,7 @@ def open_unlock_dialog(
                 [
                     loading,
                     ft.Button(
-                        "Unlock",
+                        t("unlock"),
                         icon=ft.Icons.LOCK_OPEN,
                         bgcolor=COLORS["accent"],
                         color=COLORS["white"],
@@ -162,7 +162,7 @@ def open_unlock_dialog(
 
         return actions
 
-    dialog, _ = open_dialog(page, "Unlock Trebnic", content, make_actions)
+    dialog, _ = open_dialog(page, t("unlock_trebnic"), content, make_actions)
 
 
 def open_setup_password_dialog(
@@ -178,12 +178,12 @@ def open_setup_password_dialog(
         on_skip: Optional callback when user skips encryption setup
     """
     password_field = _create_password_field(
-        "Create Password",
-        "Choose a strong password",
+        t("create_password"),
+        t("choose_strong_password"),
     )
     confirm_field = _create_password_field(
-        "Confirm Password",
-        "Enter password again",
+        t("confirm_password"),
+        t("enter_password_again"),
     )
     error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
     loading = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
@@ -202,7 +202,7 @@ def open_setup_password_dialog(
 
         # Check passwords match
         if password != confirm:
-            error_text.value = "Passwords do not match"
+            error_text.value = t("passwords_do_not_match")
             error_text.visible = True
             confirm_field.value = ""
             confirm_field.focus()
@@ -218,7 +218,7 @@ def open_setup_password_dialog(
             await on_setup(password)
             page.pop_dialog()
         except Exception as ex:
-            error_text.value = f"Setup failed: {ex}"
+            error_text.value = f"{t('setup_failed')}: {ex}"
             error_text.visible = True
         finally:
             loading.visible = False
@@ -231,13 +231,12 @@ def open_setup_password_dialog(
         [
             ft.Icon(ft.Icons.SECURITY, size=48, color=COLORS["accent"]),
             ft.Text(
-                "Protect your data with encryption",
+                t("protect_data_with_encryption"),
                 size=FONT_SIZE_MD,
                 weight=ft.FontWeight.BOLD,
             ),
             ft.Text(
-                "Your master password encrypts all sensitive data. "
-                "It's never stored - only you know it.",
+                t("master_password_desc"),
                 size=FONT_SIZE_SM,
                 color=COLORS["done_text"],
                 text_align=ft.TextAlign.CENTER,
@@ -251,7 +250,7 @@ def open_setup_password_dialog(
                 [
                     ft.Icon(ft.Icons.WARNING_AMBER, size=16, color=COLORS["orange"]),
                     ft.Text(
-                        "If you forget this password, your data cannot be recovered!",
+                        t("password_forget_warning"),
                         size=FONT_SIZE_SM,
                         color=COLORS["orange"],
                         expand=True,
@@ -274,7 +273,7 @@ def open_setup_password_dialog(
                 on_skip()
 
             actions.append(
-                ft.TextButton("Skip for now", on_click=handle_skip)
+                ft.TextButton(t("skip_for_now"), on_click=handle_skip)
             )
 
         actions.append(
@@ -282,7 +281,7 @@ def open_setup_password_dialog(
                 [
                     loading,
                     ft.Button(
-                        "Enable Encryption",
+                        t("enable_encryption"),
                         icon=ft.Icons.LOCK,
                         bgcolor=COLORS["accent"],
                         color=COLORS["white"],
@@ -295,7 +294,7 @@ def open_setup_password_dialog(
 
         return actions
 
-    dialog, _ = open_dialog(page, "Set up encryption", content, make_actions)
+    dialog, _ = open_dialog(page, t("set_up_encryption"), content, make_actions)
 
 
 def open_change_password_dialog(
@@ -308,9 +307,9 @@ def open_change_password_dialog(
         page: Flet page
         on_change: Async callback (old_password, new_password) -> success
     """
-    current_field = _create_password_field("Current Password")
-    new_field = _create_password_field("New Password")
-    confirm_field = _create_password_field("Confirm New Password")
+    current_field = _create_password_field(t("current_password"))
+    new_field = _create_password_field(t("new_password"))
+    confirm_field = _create_password_field(t("confirm_new_password"))
     error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
     loading = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
 
@@ -320,7 +319,7 @@ def open_change_password_dialog(
         confirm = confirm_field.value or ""
 
         if not current:
-            error_text.value = "Please enter your current password"
+            error_text.value = t("please_enter_current_password")
             error_text.visible = True
             page.update()
             return
@@ -333,7 +332,7 @@ def open_change_password_dialog(
             return
 
         if new_password != confirm:
-            error_text.value = "New passwords do not match"
+            error_text.value = t("new_passwords_do_not_match")
             error_text.visible = True
             confirm_field.value = ""
             confirm_field.focus()
@@ -350,12 +349,12 @@ def open_change_password_dialog(
                 page.pop_dialog()
                 # TODO: Show success snackbar
             else:
-                error_text.value = "Current password is incorrect"
+                error_text.value = t("current_password_incorrect")
                 error_text.visible = True
                 current_field.value = ""
                 current_field.focus()
         except Exception as ex:
-            error_text.value = f"Failed: {ex}"
+            error_text.value = f"{t('failed')}: {ex}"
             error_text.visible = True
         finally:
             loading.visible = False
@@ -377,12 +376,12 @@ def open_change_password_dialog(
 
     def make_actions(close: Callable[[], None]):
         return [
-            ft.TextButton("Cancel", on_click=lambda e: close()),
+            ft.TextButton(t("cancel"), on_click=lambda e: close()),
             ft.Row(
                 [
                     loading,
                     ft.Button(
-                        "Change Password",
+                        t("change_password"),
                         bgcolor=COLORS["accent"],
                         color=COLORS["white"],
                         on_click=lambda e: page.run_task(handle_change),
@@ -392,7 +391,7 @@ def open_change_password_dialog(
             ),
         ]
 
-    dialog, _ = open_dialog(page, "Change Master Password", content, make_actions)
+    dialog, _ = open_dialog(page, t("change_master_password"), content, make_actions)
 
 
 def open_encryption_settings_dialog(
@@ -445,7 +444,7 @@ def open_encryption_settings_dialog(
                 content=ft.Row(
                     [
                         ft.Icon(ft.Icons.CHECK_CIRCLE, color=COLORS["green"], size=20),
-                        ft.Text("Encryption is enabled", color=COLORS["green"]),
+                        ft.Text(t("encryption_enabled"), color=COLORS["green"]),
                     ],
                     spacing=SPACING_MD,
                 ),
@@ -456,8 +455,8 @@ def open_encryption_settings_dialog(
             ft.Divider(height=SPACING_LG, color="transparent"),
             create_setting_row(
                 ft.Icons.KEY,
-                "Change Password",
-                "Update your master password",
+                t("change_password"),
+                t("update_master_password"),
                 ft.IconButton(
                     ft.Icons.CHEVRON_RIGHT,
                     on_click=lambda e: (page.pop_dialog(), on_change_password()),
@@ -474,8 +473,8 @@ def open_encryption_settings_dialog(
             rows.append(
                 create_setting_row(
                     ft.Icons.FINGERPRINT,
-                    "Biometric Unlock",
-                    "Use Face ID / Touch ID / fingerprint",
+                    t("biometric_unlock"),
+                    t("biometric_unlock_desc"),
                     ft.Switch(
                         value=is_passkey_enabled,
                         on_change=lambda e: page.run_task(toggle_passkey),
@@ -492,7 +491,7 @@ def open_encryption_settings_dialog(
         rows.append(
             ft.Container(
                 content=ft.TextButton(
-                    "Disable Encryption",
+                    t("disable_encryption"),
                     icon=ft.Icons.LOCK_OPEN,
                     icon_color=COLORS["danger"],
                     style=ft.ButtonStyle(color=COLORS["danger"]),
@@ -509,13 +508,12 @@ def open_encryption_settings_dialog(
                     [
                         ft.Icon(ft.Icons.SHIELD_OUTLINED, size=48, color=COLORS["accent"]),
                         ft.Text(
-                            "Encryption is not enabled",
+                            t("encryption_not_enabled"),
                             weight=ft.FontWeight.BOLD,
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Text(
-                            "Enable encryption to protect your tasks, notes, and project names "
-                            "with a master password.",
+                            t("encryption_not_enabled_desc"),
                             size=FONT_SIZE_SM,
                             color=COLORS["done_text"],
                             text_align=ft.TextAlign.CENTER,
@@ -527,7 +525,7 @@ def open_encryption_settings_dialog(
                 padding=SPACING_LG,
             ),
             ft.Button(
-                "Set up encryption",
+                t("set_up_encryption"),
                 icon=ft.Icons.LOCK,
                 bgcolor=COLORS["accent"],
                 color=COLORS["white"],
@@ -543,6 +541,12 @@ def open_encryption_settings_dialog(
     )
 
     def make_actions(close: Callable[[], None]):
-        return [ft.TextButton(t("close"), on_click=lambda e: close())]
+        return [
+            ft.Button(
+                t("close"),
+                icon=ft.Icons.CLOSE,
+                on_click=lambda e: close(),
+            )
+        ]
 
     dialog, _ = open_dialog(page, t("encryption_settings"), content, make_actions)

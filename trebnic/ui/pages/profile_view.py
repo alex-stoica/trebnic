@@ -239,8 +239,6 @@ class ProfilePage:
         )
 
         # Notification settings
-        notification_sub_controls: ft.Column = None
-
         reminder_mins = self.state.reminder_minutes_before
         if reminder_mins < 120:
             reminder_mins = 120
@@ -250,13 +248,39 @@ class ProfilePage:
         reminder_label = ft.Text(
             t("hours_before").replace("{hours}", str(hours)),
             size=12,
-            color=COLORS["done_text"],
+            color=COLORS["done_text"] if not self.state.notifications_enabled else COLORS["white"],
         )
 
-        def update_notification_visibility() -> None:
-            if notification_sub_controls:
-                notification_sub_controls.visible = notifications_switch.value
-                self.page.update()
+        # Store checkbox references for toggling
+        cb_1h: ft.Checkbox = None
+        cb_6h: ft.Checkbox = None
+        cb_12h: ft.Checkbox = None
+        cb_24h: ft.Checkbox = None
+        reminder_slider: ft.Slider = None
+        custom_label: ft.Text = None
+
+        def update_notification_controls_state(enabled: bool) -> None:
+            """Update all notification controls based on enabled state."""
+            # Update checkboxes - when enabled, check all; when disabled, uncheck all
+            cb_1h.value = enabled
+            cb_6h.value = enabled
+            cb_12h.value = enabled
+            cb_24h.value = enabled
+            cb_1h.disabled = not enabled
+            cb_6h.disabled = not enabled
+            cb_12h.disabled = not enabled
+            cb_24h.disabled = not enabled
+            # Also update state to match
+            self.state.remind_1h_before = enabled
+            self.state.remind_6h_before = enabled
+            self.state.remind_12h_before = enabled
+            self.state.remind_24h_before = enabled
+            # Update slider
+            reminder_slider.disabled = not enabled
+            # Update labels color
+            reminder_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
+            custom_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
+            self.page.update()
 
         def on_notifications_toggle(e: ft.ControlEvent) -> None:
             async def _toggle() -> None:
@@ -265,10 +289,12 @@ class ProfilePage:
                     if result == PermissionResult.DENIED:
                         e.control.value = False
                         self.snack.show(t("notification_permission_denied"), COLORS["danger"])
+                        update_notification_controls_state(False)
+                        return
                     else:
                         self.snack.show(t("notification_permission_granted"))
                 self.state.notifications_enabled = e.control.value
-                update_notification_visibility()
+                update_notification_controls_state(e.control.value)
             self.page.run_task(_toggle)
 
         def on_reminder_slider(e: ft.ControlEvent) -> None:
@@ -279,17 +305,26 @@ class ProfilePage:
             self.page.update()
 
         def on_test_notification(e: ft.ControlEvent) -> None:
-            if notification_service.backend == NotificationBackend.NONE:
-                self.snack.show(t("test_notification_unavailable"))
-                return
+            try:
+                backend = notification_service.backend
+                if backend == NotificationBackend.NONE:
+                    self.snack.show(f"{t('test_notification_unavailable')} (backend: none)", COLORS["danger"])
+                    return
 
-            async def _test() -> None:
-                await notification_service.show_immediate(
-                    title=t("test_notification_title"),
-                    body=t("test_notification_body"),
-                )
-                self.snack.show(t("test_notification_sent"))
-            self.page.run_task(_test)
+                async def _test() -> None:
+                    try:
+                        title = t("test_notification_title")
+                        body = t("test_notification_body")
+                        success = await notification_service.test_notification(title, body)
+                        if success:
+                            self.snack.show(f"{t('test_notification_sent')} ({backend.value})")
+                        else:
+                            self.snack.show(f"{t('test_notification_failed')} ({backend.value})", COLORS["danger"])
+                    except Exception as ex:
+                        self.snack.show(f"Error: {ex}", COLORS["danger"])
+                self.page.run_task(_test)
+            except Exception as ex:
+                self.snack.show(f"Error: {ex}", COLORS["danger"])
 
         notifications_switch = ft.Switch(
             value=self.state.notifications_enabled,
@@ -308,48 +343,47 @@ class ProfilePage:
         def on_reminder_24h(e: ft.ControlEvent) -> None:
             self.state.remind_24h_before = e.control.value
 
+        notifications_disabled = not self.state.notifications_enabled
+
         # Reminder checkboxes in 2x2 grid with equal-width columns
+        cb_1h = ft.Checkbox(
+            value=self.state.remind_1h_before and not notifications_disabled,
+            label=t("reminder_1h_before"),
+            on_change=on_reminder_1h,
+            disabled=notifications_disabled,
+        )
+        cb_6h = ft.Checkbox(
+            value=self.state.remind_6h_before and not notifications_disabled,
+            label=t("reminder_6h_before"),
+            on_change=on_reminder_6h,
+            disabled=notifications_disabled,
+        )
+        cb_12h = ft.Checkbox(
+            value=self.state.remind_12h_before and not notifications_disabled,
+            label=t("reminder_12h_before"),
+            on_change=on_reminder_12h,
+            disabled=notifications_disabled,
+        )
+        cb_24h = ft.Checkbox(
+            value=self.state.remind_24h_before and not notifications_disabled,
+            label=t("reminder_24h_before"),
+            on_change=on_reminder_24h,
+            disabled=notifications_disabled,
+        )
+
         reminder_checkboxes = ft.Column(
             [
                 ft.Row(
                     [
-                        ft.Container(
-                            content=ft.Checkbox(
-                                value=self.state.remind_1h_before,
-                                label=t("reminder_1h_before"),
-                                on_change=on_reminder_1h,
-                            ),
-                            expand=True,
-                        ),
-                        ft.Container(
-                            content=ft.Checkbox(
-                                value=self.state.remind_6h_before,
-                                label=t("reminder_6h_before"),
-                                on_change=on_reminder_6h,
-                            ),
-                            expand=True,
-                        ),
+                        ft.Container(content=cb_1h, expand=True),
+                        ft.Container(content=cb_6h, expand=True),
                     ],
                     spacing=0,
                 ),
                 ft.Row(
                     [
-                        ft.Container(
-                            content=ft.Checkbox(
-                                value=self.state.remind_12h_before,
-                                label=t("reminder_12h_before"),
-                                on_change=on_reminder_12h,
-                            ),
-                            expand=True,
-                        ),
-                        ft.Container(
-                            content=ft.Checkbox(
-                                value=self.state.remind_24h_before,
-                                label=t("reminder_24h_before"),
-                                on_change=on_reminder_24h,
-                            ),
-                            expand=True,
-                        ),
+                        ft.Container(content=cb_12h, expand=True),
+                        ft.Container(content=cb_24h, expand=True),
                     ],
                     spacing=0,
                 ),
@@ -363,6 +397,13 @@ class ProfilePage:
             divisions=70,
             value=reminder_mins,
             on_change=on_reminder_slider,
+            disabled=notifications_disabled,
+        )
+
+        custom_label = ft.Text(
+            t("custom_reminder"),
+            size=13,
+            color=COLORS["done_text"] if notifications_disabled else COLORS["white"],
         )
 
         notification_sub_controls = ft.Column(
@@ -370,7 +411,7 @@ class ProfilePage:
                 ft.Text(t("reminder_minutes_before"), size=13),
                 reminder_checkboxes,
                 ft.Divider(height=5, color="transparent"),
-                ft.Text(t("custom_reminder"), size=13),
+                custom_label,
                 ft.Row([reminder_slider, reminder_label], spacing=8),
                 ft.Divider(height=5, color="transparent"),
                 ft.TextButton(
@@ -380,7 +421,6 @@ class ProfilePage:
                 ),
             ],
             spacing=8,
-            visible=self.state.notifications_enabled,
         )
 
         def save(e: ft.ControlEvent) -> None:

@@ -50,10 +50,10 @@ class TimerController:
     def start_timer(self, task: Task) -> None:
         """Start the timer for a task."""
         if self.timer_svc.running:
-            self.snack.show("Stop current timer first", COLORS["danger"])
+            self.snack.show(t("stop_current_timer_first"), COLORS["danger"])
             return
         self.timer_svc.start(task)
-        self.snack.show(f"Timer started for '{task.title}'")
+        self.snack.show(t("timer_started_for").replace("{title}", task.title))
 
     def on_timer_stop(self, e: ft.ControlEvent) -> None:
         """Handle timer stop button click."""
@@ -83,7 +83,10 @@ class TimerController:
             return
 
         self.timer_svc.recover(entry, task)
-        self.snack.show(f"Timer recovered for '{task.title}' ({format_timer_display(self.timer_svc.seconds)} elapsed)")
+        elapsed_str = format_timer_display(self.timer_svc.seconds)
+        self.snack.show(
+            t("timer_recovered").replace("{title}", task.title).replace("{time}", elapsed_str)
+        )
         state.recovered_timer_entry = None
 
     def cleanup(self) -> None:
@@ -120,11 +123,14 @@ class TimerController:
         if data is None:
             min_minutes = MIN_TIMER_SECONDS // 60
             self.snack.show(
-                f"Timer discarded - minimum recorded time is {min_minutes} minutes",
-                COLORS["danger"]
+                t("timer_discarded").replace("{minutes}", str(min_minutes)),
+                COLORS["danger"],
             )
         else:
-            self.snack.show(f"Added {format_timer_display(data['elapsed'])} to '{data['task'].title}'")
+            time_display = format_timer_display(data['elapsed'])
+            self.snack.show(
+                t("time_added_to_task").replace("{time}", time_display).replace("{title}", data['task'].title)
+            )
 
             # Show timer completion notification
             task = data.get("task")
