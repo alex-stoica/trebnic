@@ -2,8 +2,9 @@ import flet as ft
 from typing import Callable, Dict, Optional, Any 
 
 from config import (
-    NavItem,  
-    PageType, 
+    NavItem,
+    PageType,
+    PADDING_2XL,
 )
 from models.entities import AppState
 
@@ -21,7 +22,6 @@ class NavigationManager:
         self._nav_items: Dict[NavItem, ft.ListTile] = {} 
         self._project_btns: Dict[str, Any] = {}
         self._projects_items: Optional[ft.Column] = None
-        self._projects_arrow: Optional[ft.Icon] = None
         self._drawer: Optional[ft.NavigationDrawer] = None
         self._sidebar: Optional[ft.Container] = None
         self._menu_btn: Optional[ft.IconButton] = None
@@ -36,7 +36,6 @@ class NavigationManager:
         nav_items: Dict[NavItem, ft.ListTile], 
         project_btns: Dict[str, Any],
         projects_items: ft.Column,
-        projects_arrow: ft.Icon,
         drawer: ft.NavigationDrawer,
         sidebar: ft.Container,
         menu_btn: ft.IconButton,
@@ -50,7 +49,6 @@ class NavigationManager:
         self._nav_items = nav_items
         self._project_btns = project_btns
         self._projects_items = projects_items
-        self._projects_arrow = projects_arrow
         self._drawer = drawer
         self._sidebar = sidebar
         self._menu_btn = menu_btn
@@ -66,13 +64,8 @@ class NavigationManager:
         # Don't clear selected_projects - allow combining nav + project filter
         self.state.current_page = PageType.TASKS
         if self.state.is_mobile and self._drawer:
-            self._drawer.open = False
+            self.page.run_task(self.page.close_drawer)
         self.update_nav()
-
-    def toggle_projects(self) -> None:
-        """Toggle the projects section expansion (no-op, always visible now)."""
-        # Projects are always visible, no toggle needed
-        pass
 
     def toggle_project(self, project_id: str) -> None:
         """Toggle selection of a specific project (mutually exclusive - only one at a time)."""
@@ -84,7 +77,7 @@ class NavigationManager:
             self.state.selected_projects.clear()
             self.state.selected_projects.add(project_id)
         if self.state.is_mobile and self._drawer:
-            self._drawer.open = False
+            self.page.run_task(self.page.close_drawer)
         self.update_nav()
 
     def navigate_to(self, page_name: PageType) -> None:  
@@ -133,7 +126,7 @@ class NavigationManager:
                 self._menu_btn.visible = True
             if self._drawer and self._nav_content:
                 self._drawer.controls = [
-                    ft.Container(padding=20, content=self._nav_content)
+                    ft.Container(padding=PADDING_2XL, content=self._nav_content)
                 ]
         else:
             if self._drawer:
@@ -145,10 +138,12 @@ class NavigationManager:
                 self._menu_btn.visible = False
 
     def open_drawer(self) -> None:
-        """Open the navigation drawer (mobile)."""
+        """Open the navigation drawer (mobile).
+
+        Uses page.show_drawer() which is async in Flet 0.80+.
+        """
         if self._drawer:
-            self._drawer.open = True
-            self.page.update()
+            self.page.run_task(self.page.show_drawer)
 
     def set_project_btns(self, project_btns: Dict[str, Any]) -> None:
         """Update the project buttons reference."""
@@ -176,9 +171,6 @@ class NavigationHandler:
 
     def on_upcoming_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.select_nav(NavItem.UPCOMING)  
-
-    def on_projects_toggle(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.toggle_projects()
 
     def on_menu_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.open_drawer()

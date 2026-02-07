@@ -4,7 +4,7 @@ from typing import Optional, Any, List
 
 logger = logging.getLogger(__name__)
 
-from config import COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG
+from config import COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG, SPACING_XS, PADDING_2XL
 from database import db
 from events import event_bus, AppEvent, Subscription
 from i18n import t
@@ -377,8 +377,9 @@ class TrebnicApp:
     def _build_nav_items(self) -> None:
         """Build navigation list tiles."""
         self.nav_inbox = ft.ListTile(
-            leading=ft.Icon(ft.Icons.INBOX),
+            leading=ft.Icon(ft.Icons.DRAFTS),
             title=ft.Text(t("inbox"), size=FONT_SIZE_LG),
+            dense=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_inbox_click,
         )
@@ -386,6 +387,7 @@ class TrebnicApp:
         self.nav_today = ft.ListTile(
             leading=ft.Icon(ft.Icons.TODAY),
             title=ft.Text(t("today"), size=FONT_SIZE_LG),
+            dense=True,
             selected=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_today_click,
@@ -394,6 +396,7 @@ class TrebnicApp:
         self.nav_calendar = ft.ListTile(
             leading=ft.Icon(ft.Icons.CALENDAR_VIEW_WEEK),
             title=ft.Text(t("calendar"), size=FONT_SIZE_LG),
+            dense=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_calendar_click,
         )
@@ -401,17 +404,13 @@ class TrebnicApp:
         self.nav_upcoming = ft.ListTile(
             leading=ft.Icon(ft.Icons.UPCOMING),
             title=ft.Text(t("upcoming"), size=FONT_SIZE_LG),
+            dense=True,
             selected_color=COLORS["accent"],
             on_click=self.nav_handler.on_upcoming_click,
         )
 
     def _build_projects_section(self) -> None:
         """Build the projects navigation section."""
-        # Arrow kept for nav_manager compatibility but hidden
-        self.projects_arrow = ft.Icon(
-            ft.Icons.KEYBOARD_ARROW_DOWN, size=20, color="grey", visible=False
-        )
-
         add_project_btn = ft.Container(
             content=ft.Text("➕", size=14),
             padding=5,
@@ -423,6 +422,7 @@ class TrebnicApp:
         self.nav_projects = ft.ListTile(
             leading=ft.Icon(ft.Icons.FOLDER_OUTLINED),
             title=ft.Text(t("projects"), size=FONT_SIZE_LG),
+            dense=True,
             selected_color=COLORS["accent"],
             trailing=add_project_btn,
         )
@@ -440,6 +440,7 @@ class TrebnicApp:
     def _build_nav_content(self) -> None:
         """Build the navigation content column."""
         self.nav_content = ft.Column(
+            spacing=SPACING_XS,
             controls=[
                 ft.Text("Trebnic", size=20, weight="bold"),
                 ft.Divider(color="grey"),
@@ -525,7 +526,6 @@ class TrebnicApp:
             nav_items=nav_items,
             project_btns=self.project_btns,
             projects_items=self.projects_items,
-            projects_arrow=self.projects_arrow,
             drawer=self.drawer,
             sidebar=self.sidebar,
             menu_btn=self.menu_btn,

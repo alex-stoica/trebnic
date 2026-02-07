@@ -10,6 +10,7 @@ from services.timer import TimerService
 from services.project_service import ProjectService
 from services.time_entry_service import TimeEntryService
 from services.settings_service import SettingsService
+from services.notification_service import notification_service
 from models.entities import AppState
 from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
@@ -54,7 +55,6 @@ class AppComponents:
         # Layout elements
         self.nav_items: Dict[str, ft.ListTile] = {}
         self.projects_items: Optional[ft.Column] = None
-        self.projects_arrow: Optional[ft.Icon] = None
         self.drawer: Optional[ft.NavigationDrawer] = None
         self.sidebar: Optional[ft.Container] = None
         self.menu_btn: Optional[ft.IconButton] = None
@@ -83,6 +83,7 @@ class AppInitializer:
         self._init_navigation()
         self._init_ui_components()
         self._init_timer_controller()
+        self._init_notification_service()
         self._init_task_handler()
         self._subscribe_to_events()
         return self.components
@@ -218,6 +219,19 @@ class AppInitializer:
             snack=self.components.snack,
             timer_widget=self.components.timer_widget,
         )
+
+    def _init_notification_service(self) -> None:
+        """Initialize the notification service.
+
+        Injects dependencies and starts the scheduler loop for task reminders.
+        """
+        notification_service.inject_dependencies(
+            page=self.page,
+            async_scheduler=self.page.run_task,
+            get_state=lambda: self.components.state,
+        )
+        notification_service.start_scheduler()
+        registry.register(Services.NOTIFICATION, notification_service)
 
     def _init_task_handler(self) -> None:
         """Initialize the task action handler.

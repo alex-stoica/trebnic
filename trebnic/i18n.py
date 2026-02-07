@@ -69,7 +69,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "delete_project_confirm": {"en": "Delete '{name}' and all its tasks?", "ro": "Ștergi '{name}' și toate treburile sale?"},
 
     # Navigation
-    "inbox": {"en": "Inbox", "ro": "La dospit"},
+    "inbox": {"en": "Draft", "ro": "La dospit"},
     "today": {"en": "Today", "ro": "Astăzi"},
     "calendar": {"en": "Calendar", "ro": "Calendar"},
     "upcoming": {"en": "Upcoming", "ro": "Viitoare"},
@@ -266,7 +266,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "time_range_hint": {"en": "5 min - 8 hrs 20 min", "ro": "5 min - 8 ore 20 min"},
     "task_details": {"en": "Task details", "ro": "Detalii treabă"},
     "section_today": {"en": "TODAY", "ro": "ASTĂZI"},
-    "section_inbox": {"en": "INBOX", "ro": "LA DOSPIT"},
+    "section_inbox": {"en": "DRAFT", "ro": "LA DOSPIT"},
     "section_upcoming": {"en": "UPCOMING", "ro": "VIITOARE"},
     "section_tasks": {"en": "TASKS", "ro": "TREBURI"},
     "section_done": {"en": "DONE", "ro": "GATA"},
@@ -319,6 +319,76 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
     # Auth dialogs
     "encryption_settings": {"en": "Encryption settings", "ro": "Setări de criptare"},
+    "encryption_enabled": {"en": "Encryption is enabled", "ro": "Criptarea este activată"},
+    "encryption_not_enabled": {"en": "Encryption is not enabled", "ro": "Criptarea nu este activată"},
+    "encryption_not_enabled_desc": {
+        "en": "Enable encryption to protect your tasks, notes, and project names with a master password.",
+        "ro": "Activează criptarea pentru a-ți proteja treburile, notițele și numele proiectelor cu o parolă principală.",
+    },
+    "set_up_encryption": {"en": "Set up encryption", "ro": "Configurează criptarea"},
+    "change_password": {"en": "Change password", "ro": "Schimbă parola"},
+    "update_master_password": {"en": "Update your master password", "ro": "Actualizează parola principală"},
+    "biometric_unlock": {"en": "Biometric unlock", "ro": "Deblocare biometrică"},
+    "biometric_unlock_desc": {"en": "Use Face ID / Touch ID / fingerprint", "ro": "Folosește Face ID / Touch ID / amprentă"},
+    "disable_encryption": {"en": "Disable encryption", "ro": "Dezactivează criptarea"},
+    "create_password": {"en": "Create password", "ro": "Creează parola"},
+    "choose_strong_password": {"en": "Choose a strong password", "ro": "Alege o parolă puternică"},
+    "confirm_password": {"en": "Confirm password", "ro": "Confirmă parola"},
+    "enter_password_again": {"en": "Enter password again", "ro": "Introdu parola din nou"},
+    "protect_data_with_encryption": {
+        "en": "Protect your data with encryption",
+        "ro": "Protejează-ți datele cu criptare",
+    },
+    "master_password_desc": {
+        "en": "Your master password encrypts all sensitive data. It's never stored - only you know it.",
+        "ro": "Parola ta principală criptează toate datele sensibile. Nu este stocată niciodată - doar tu o știi.",
+    },
+    "password_forget_warning": {
+        "en": "If you forget this password, your data cannot be recovered!",
+        "ro": "Dacă uiți această parolă, datele tale nu pot fi recuperate!",
+    },
+    "skip_for_now": {"en": "Skip for now", "ro": "Sari peste"},
+    "enable_encryption": {"en": "Enable encryption", "ro": "Activează criptarea"},
+    "passwords_do_not_match": {"en": "Passwords do not match", "ro": "Parolele nu se potrivesc"},
+    "setup_failed": {"en": "Setup failed", "ro": "Configurarea a eșuat"},
+    "password_min_length": {
+        "en": "Password must be at least {length} characters",
+        "ro": "Parola trebuie să aibă cel puțin {length} caractere",
+    },
+    "password_max_length": {
+        "en": "Password must be at most {length} characters",
+        "ro": "Parola trebuie să aibă cel mult {length} caractere",
+    },
+    "password_needs_uppercase": {
+        "en": "Password must contain at least one uppercase letter",
+        "ro": "Parola trebuie să conțină cel puțin o literă mare",
+    },
+    "password_needs_lowercase": {
+        "en": "Password must contain at least one lowercase letter",
+        "ro": "Parola trebuie să conțină cel puțin o literă mică",
+    },
+    "password_needs_digit": {
+        "en": "Password must contain at least one digit",
+        "ro": "Parola trebuie să conțină cel puțin o cifră",
+    },
+    "master_password": {"en": "Master password", "ro": "Parola principală"},
+    "enter_master_password": {"en": "Enter your master password", "ro": "Introdu parola ta principală"},
+    "please_enter_password": {"en": "Please enter your password", "ro": "Te rugăm să introduci parola"},
+    "incorrect_password": {"en": "Incorrect password", "ro": "Parolă incorectă"},
+    "your_data_is_encrypted": {"en": "Your data is encrypted", "ro": "Datele tale sunt criptate"},
+    "unlock": {"en": "Unlock", "ro": "Deblochează"},
+    "unlock_trebnic": {"en": "Unlock Trebnic", "ro": "Deblochează Trebnic"},
+    "current_password": {"en": "Current password", "ro": "Parola curentă"},
+    "new_password": {"en": "New password", "ro": "Parola nouă"},
+    "confirm_new_password": {"en": "Confirm new password", "ro": "Confirmă parola nouă"},
+    "please_enter_current_password": {
+        "en": "Please enter your current password",
+        "ro": "Te rugăm să introduci parola curentă",
+    },
+    "new_passwords_do_not_match": {"en": "New passwords do not match", "ro": "Parolele noi nu se potrivesc"},
+    "current_password_incorrect": {"en": "Current password is incorrect", "ro": "Parola curentă este incorectă"},
+    "failed": {"en": "Failed", "ro": "Eșuat"},
+    "change_master_password": {"en": "Change master password", "ro": "Schimbă parola principală"},
 
     # Notification settings
     "notification_settings": {"en": "Notification settings", "ro": "Setări notificări"},
@@ -339,12 +409,204 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "test_notification_mobile_only": {"en": "Test notifications are only available on mobile", "ro": "Notificările de test sunt disponibile doar pe mobil"},
     "test_notification_unavailable": {"en": "Notifications are not available on this device", "ro": "Notificările nu sunt disponibile pe acest dispozitiv"},
     "test_notification_sent": {"en": "Notification sent", "ro": "Notificare trimisă"},
+    "test_notification_failed": {"en": "Notification delivery failed", "ro": "Trimiterea notificării a eșuat"},
     "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},
     "notification_permission_granted": {"en": "Notifications enabled", "ro": "Notificări activate"},
     "task_reminder": {"en": "Task reminder", "ro": "Memento treabă"},
     "unlock_to_see_details": {"en": "Unlock Trebnic to see details", "ro": "Deblochează Trebnic pentru detalii"},
     "timer_complete": {"en": "Timer complete", "ro": "Cronometru finalizat"},
     "tracked_time_on_task": {"en": "Tracked {time} on {task}", "ro": "{time} înregistrat pe {task}"},
+
+    # Timer controller
+    "stop_current_timer_first": {
+        "en": "Stop current timer first",
+        "ro": "Oprește cronometrul curent mai întâi",
+    },
+    "timer_started_for": {
+        "en": "Timer started for '{title}'",
+        "ro": "Cronometru pornit pentru '{title}'",
+    },
+    "timer_recovered": {
+        "en": "Timer recovered for '{title}' ({time} elapsed)",
+        "ro": "Cronometru recuperat pentru '{title}' ({time} scurs)",
+    },
+    "timer_discarded": {
+        "en": "Timer discarded - minimum recorded time is {minutes} minutes",
+        "ro": "Cronometru anulat - timpul minim înregistrat este de {minutes} minute",
+    },
+    "time_added_to_task": {
+        "en": "Added {time} to '{title}'",
+        "ro": "{time} adăugat la '{title}'",
+    },
+
+    # Task tile - menu items and labels
+    "encrypted": {"en": "Encrypted", "ro": "Criptat"},
+    "unassigned": {"en": "Unassigned", "ro": "Neatribuit"},
+    "start_timer": {"en": "Start timer", "ro": "Pornește cronometru"},
+    "rename": {"en": "Rename", "ro": "Redenumește"},
+    "reschedule": {"en": "Reschedule", "ro": "Reprogramează"},
+    "postpone_by_1_day": {"en": "Postpone by 1 day", "ro": "Amână cu 1 zi"},
+    "set_recurrence": {"en": "Set recurrence", "ro": "Setează recurența"},
+    "duplicate_task": {"en": "Duplicate task", "ro": "Duplică treaba"},
+    "stats": {"en": "Stats", "ro": "Statistici"},
+    "notes": {"en": "Notes", "ro": "Notițe"},
+    "task_options": {"en": "Task options", "ro": "Opțiuni treabă"},
+
+    # Timer widget
+    "click_to_stop_timer": {
+        "en": "Click to stop timer",
+        "ro": "Click pentru a opri cronometrul",
+    },
+
+    # Task dialogs - Rename
+    "rename_task": {"en": "Rename task", "ro": "Redenumește treaba"},
+    "task_name_exists": {
+        "en": "A task with this name already exists",
+        "ro": "O treabă cu acest nume există deja",
+    },
+    "renamed_to": {"en": "Renamed to '{name}'", "ro": "Redenumit în '{name}'"},
+
+    # Task dialogs - Assign project
+    "assign_to_project": {"en": "Assign to project", "ro": "Atribuie proiectului"},
+    "unassign": {"en": "Unassign", "ro": "Dezatribuie"},
+    "task_assigned_to": {
+        "en": "Task assigned to {name}",
+        "ro": "Treabă atribuită la {name}",
+    },
+
+    # Task dialogs - Date picker
+    "select_date": {"en": "Select date", "ro": "Selectează data"},
+    "recurrent_tasks_use_pattern": {
+        "en": "Recurrent tasks use their recurrence pattern.",
+        "ro": "Treburile recurente folosesc modelul de recurență.",
+    },
+    "edit_recurrence_to_change": {
+        "en": "Edit recurrence settings to change schedule.",
+        "ro": "Editează setările de recurență pentru a schimba programul.",
+    },
+    "no_due_date": {"en": "🚫 No due date", "ro": "🚫 Fără dată limită"},
+    "tomorrow": {"en": "Tomorrow", "ro": "Mâine"},
+    "pick_a_date": {"en": "Pick a date...", "ro": "Alege o dată..."},
+    "due_date_cleared": {"en": "Due date cleared", "ro": "Dată limită ștearsă"},
+    "task_moved_to_draft": {
+        "en": "Task moved to Draft",
+        "ro": "Treabă mutată la Dospit",
+    },
+    "date_set_to": {"en": "Date set to {date}", "ro": "Dată setată la {date}"},
+    "date_set_to_see_today": {
+        "en": "Date set to {date} (see Today)",
+        "ro": "Dată setată la {date} (vezi Astăzi)",
+    },
+    "date_set_to_see_upcoming": {
+        "en": "Date set to {date} (see Upcoming)",
+        "ro": "Dată setată la {date} (vezi Viitoare)",
+    },
+
+    # Task dialogs - Recurrence
+    "on_these_days": {"en": "On these days", "ro": "În aceste zile"},
+    "freq_days": {"en": "Days", "ro": "Zile"},
+    "freq_weeks": {"en": "Weeks", "ro": "Săptămâni"},
+    "freq_months": {"en": "Months", "ro": "Luni"},
+    "enable_recurrence": {"en": "Enable recurrence", "ro": "Activează recurența"},
+    "never": {"en": "Never", "ro": "Niciodată"},
+    "on_date": {"en": "On date", "ro": "La data"},
+    "recur_from_completion": {
+        "en": "Recur from completion date",
+        "ro": "Recurent de la data finalizării",
+    },
+    "frequency_label": {"en": "Frequency", "ro": "Frecvență"},
+    "repeat_every": {"en": "Repeat every", "ro": "Repetă la fiecare"},
+    "behavior": {"en": "Behavior", "ro": "Comportament"},
+    "from_completion_explanation": {
+        "en": "When enabled, the next occurrence is calculated from the "
+              "completion date instead of the original due date. "
+              "Useful for habits like 'Every 30 days'.",
+        "ro": "Când este activat, următoarea apariție este calculată de la "
+              "data finalizării în loc de data limită originală. "
+              "Util pentru obiceiuri precum 'La fiecare 30 de zile'.",
+    },
+    "ends": {"en": "Ends", "ro": "Se termină"},
+    "recurrence_updated": {"en": "Recurrence updated", "ro": "Recurență actualizată"},
+    "recurrence_disabled": {
+        "en": "Recurrence disabled",
+        "ro": "Recurență dezactivată",
+    },
+    "recurrence_day_mon": {"en": "M", "ro": "L"},
+    "recurrence_day_tue": {"en": "T", "ro": "Ma"},
+    "recurrence_day_wed": {"en": "W", "ro": "Mi"},
+    "recurrence_day_thu": {"en": "T", "ro": "J"},
+    "recurrence_day_fri": {"en": "F", "ro": "V"},
+    "recurrence_day_sat": {"en": "S", "ro": "S"},
+    "recurrence_day_sun": {"en": "S", "ro": "D"},
+
+    # Task dialogs - Stats
+    "time_spent": {"en": "Time spent", "ro": "Timp petrecut"},
+    "remaining": {"en": "Remaining", "ro": "Rămas"},
+    "progress": {"en": "Progress", "ro": "Progres"},
+    "pct_complete": {"en": "{pct}% complete", "ro": "{pct}% finalizat"},
+    "time_entries_label": {"en": "Time entries", "ro": "Înregistrări de timp"},
+    "view_all_time_entries": {
+        "en": "View all time entries",
+        "ro": "Vezi toate înregistrările de timp",
+    },
+    "stats_title": {"en": "Stats: {title}", "ro": "Statistici: {title}"},
+    "project_colon": {"en": "Project: {name}", "ro": "Proiect: {name}"},
+    "one_time_entry": {"en": "1 time entry", "ro": "1 înregistrare de timp"},
+    "n_time_entries": {
+        "en": "{count} time entries",
+        "ro": "{count} înregistrări de timp",
+    },
+
+    # Task dialogs - Notes
+    "notes_hint": {
+        "en": "Write notes here... Markdown supported",
+        "ro": "Scrie notițe aici... Markdown suportat",
+    },
+    "preview": {"en": "Preview", "ro": "Previzualizare"},
+    "notes_saved": {"en": "Notes saved", "ro": "Notițe salvate"},
+    "notes_title": {"en": "Notes: {title}", "ro": "Notițe: {title}"},
+
+    # Task dialogs - Delete recurrence
+    "task_is_recurring": {
+        "en": "'{title}' is a recurring task.",
+        "ro": "'{title}' este o treabă recurentă.",
+    },
+    "delete_this_occurrence": {
+        "en": "Delete this occurrence only",
+        "ro": "Șterge doar această apariție",
+    },
+    "delete_occurrence_explanation": {
+        "en": "Removes only this instance. Future occurrences will still "
+              "be created when you complete tasks.",
+        "ro": "Elimină doar această instanță. Aparițiile viitoare vor fi "
+              "create în continuare când finalizezi treburi.",
+    },
+    "delete_all_occurrences": {
+        "en": "Delete all occurrences",
+        "ro": "Șterge toate aparițiile",
+    },
+    "delete_all_explanation": {
+        "en": "Removes this task and all other pending/completed instances "
+              "with the same recurrence.",
+        "ro": "Elimină această treabă și toate celelalte instanțe "
+              "în așteptare/finalizate cu aceeași recurență.",
+    },
+    "delete_recurring_task": {
+        "en": "Delete recurring task",
+        "ro": "Șterge treaba recurentă",
+    },
+
+    # Task dialogs - Duration completion
+    "how_long_spent": {
+        "en": "How long did you spend on this task?",
+        "ro": "Cât timp ai petrecut pe această treabă?",
+    },
+    "complete_title": {
+        "en": "Complete: {title}",
+        "ro": "Finalizează: {title}",
+    },
+    "skip": {"en": "Skip", "ro": "Sari"},
+    "complete_action": {"en": "Complete", "ro": "Finalizează"},
 }
 
 

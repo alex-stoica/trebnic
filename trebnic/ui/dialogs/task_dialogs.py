@@ -25,6 +25,7 @@ from ui.dialogs.base import open_dialog, create_option_item
 from ui.dialogs.dialog_state import RecurrenceState
 from ui.components.duration_knob import DurationKnob
 from events import event_bus, AppEvent
+from i18n import t
 
 
 class DatePickerManager:
@@ -96,8 +97,6 @@ _picker_manager = DatePickerManager()
 class RecurrenceDialogController:
     """Controller for the recurrence dialog."""
 
-    WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]
-
     def __init__(
         self,
         page: ft.Page,
@@ -113,6 +112,12 @@ class RecurrenceDialogController:
 
     def _build_controls(self) -> None:
         """Build all dialog controls."""
+        weekday_labels = [
+            t("recurrence_day_mon"), t("recurrence_day_tue"),
+            t("recurrence_day_wed"), t("recurrence_day_thu"),
+            t("recurrence_day_fri"), t("recurrence_day_sat"),
+            t("recurrence_day_sun"),
+        ]
         self.weekday_cbs = [
             ft.Checkbox(
                 label=d,
@@ -120,12 +125,12 @@ class RecurrenceDialogController:
                 scale=0.85,
                 on_change=lambda e, idx=i: self._on_weekday_change(e, idx),
             )
-            for i, d in enumerate(self.WEEKDAY_LABELS)
+            for i, d in enumerate(weekday_labels)
         ]
 
         self.weekdays_section = ft.Column(
             [
-                ft.Text("On these days", weight="bold", size=13),
+                ft.Text(t("on_these_days"), weight="bold", size=13),
                 ft.Row(self.weekday_cbs[:4], spacing=0),
                 ft.Row(self.weekday_cbs[4:], spacing=0),
             ],
@@ -136,9 +141,9 @@ class RecurrenceDialogController:
         self.freq_dd = ft.Dropdown(
             value=self.state.frequency.value,
             options=[
-                ft.dropdown.Option(RecurrenceFrequency.DAYS.value, "Days"),
-                ft.dropdown.Option(RecurrenceFrequency.WEEKS.value, "Weeks"),
-                ft.dropdown.Option(RecurrenceFrequency.MONTHS.value, "Months"),
+                ft.dropdown.Option(RecurrenceFrequency.DAYS.value, t("freq_days")),
+                ft.dropdown.Option(RecurrenceFrequency.WEEKS.value, t("freq_weeks")),
+                ft.dropdown.Option(RecurrenceFrequency.MONTHS.value, t("freq_months")),
             ],
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
@@ -159,7 +164,7 @@ class RecurrenceDialogController:
 
         self.enable_switch = ft.Switch(
             value=self.state.enabled,
-            label="Enable recurrence",
+            label=t("enable_recurrence"),
             on_change=self._on_enable_change,
         )
 
@@ -182,10 +187,10 @@ class RecurrenceDialogController:
             on_change=self._on_end_type_change,
             content=ft.Column(
                 [
-                    ft.Radio(value="never", label="Never"),
+                    ft.Radio(value="never", label=t("never")),
                     ft.Row(
                         [
-                            ft.Radio(value="on_date", label="On date"),
+                            ft.Radio(value="on_date", label=t("on_date")),
                             self.end_date_btn,
                         ],
                         spacing=8,
@@ -197,7 +202,7 @@ class RecurrenceDialogController:
 
         self.from_completion_switch = ft.Switch(
             value=self.state.from_completion,
-            label="Recur from completion date",
+            label=t("recur_from_completion"),
             on_change=self._on_from_completion_change,
         )
 
@@ -279,10 +284,10 @@ class RecurrenceDialogController:
                 [
                     self.enable_switch,
                     ft.Divider(height=15, color=COLORS["border"]),
-                    ft.Text("Frequency", weight="bold", size=13),
+                    ft.Text(t("frequency_label"), weight="bold", size=13),
                     ft.Row(
                         [
-                            ft.Text("Repeat every", size=13),
+                            ft.Text(t("repeat_every"), size=13),
                             self.interval_field,
                             self.freq_dd,
                         ],
@@ -291,16 +296,15 @@ class RecurrenceDialogController:
                     ft.Divider(height=10, color="transparent"),
                     self.weekdays_section,
                     ft.Divider(height=15, color=COLORS["border"]),
-                    ft.Text("Behavior", weight="bold", size=13),
+                    ft.Text(t("behavior"), weight="bold", size=13),
                     self.from_completion_switch,
                     ft.Text(
-                        "When enabled, the next occurrence is calculated from the completion date "
-                        "instead of the original due date. Useful for habits like 'Every 30 days'.",
+                        t("from_completion_explanation"),
                         size=11,
                         color=COLORS["done_text"],
                     ),
                     ft.Divider(height=15, color=COLORS["border"]),
-                    ft.Text("Ends", weight="bold", size=13),
+                    ft.Text(t("ends"), weight="bold", size=13),
                     self.end_type_group,
                 ],
                 spacing=10,
@@ -337,20 +341,19 @@ class TaskDialogs:
         current_nav = self.state.selected_nav
 
         if new_date is None:
-            # Task moved to Inbox
             if current_nav == NavItem.INBOX:
-                return "Due date cleared"
-            return "Task moved to Inbox"
+                return t("due_date_cleared")
+            return t("task_moved_to_draft")
         elif new_date <= today:
-            # Task is for today or overdue
+            date_str = new_date.strftime('%b %d')
             if current_nav == NavItem.TODAY:
-                return f"Date set to {new_date.strftime('%b %d')}"
-            return f"Date set to {new_date.strftime('%b %d')} (see Today)"
+                return t("date_set_to").replace("{date}", date_str)
+            return t("date_set_to_see_today").replace("{date}", date_str)
         else:
-            # Task is for the future
+            date_str = new_date.strftime('%b %d')
             if current_nav == NavItem.UPCOMING:
-                return f"Date set to {new_date.strftime('%b %d')}"
-            return f"Date set to {new_date.strftime('%b %d')} (see Upcoming)"
+                return t("date_set_to").replace("{date}", date_str)
+            return t("date_set_to_see_upcoming").replace("{date}", date_str)
 
     def rename(self, task: Task) -> None:
         error = ft.Text("", color=COLORS["danger"], size=12, visible=False)
@@ -367,14 +370,14 @@ class TaskDialogs:
             if not name:
                 return
             if self.task_service.task_name_exists(name, task):
-                error.value = "A task with this name already exists"
+                error.value = t("task_name_exists")
                 error.visible = True
                 self.page.update()
                 return
 
             async def _save() -> None:
                 await self.task_service.rename_task(task, name)
-                self.snack.show(f"Renamed to '{name}'")
+                self.snack.show(t("renamed_to").replace("{name}", name))
                 close(e)
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_save)
@@ -386,9 +389,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Rename Task",
+            t("rename_task"),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
         )
 
     def assign_project(self, task: Task) -> None:
@@ -396,7 +399,8 @@ class TaskDialogs:
             async def _select() -> None:
                 await self.task_service.assign_project(task, pid)
                 p = self.state.get_project_by_id(pid)
-                self.snack.show(f"Task assigned to {p.name if p else 'Unassigned'}")
+                name = p.name if p else t("unassigned")
+                self.snack.show(t("task_assigned_to").replace("{name}", name))
                 close()
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_select)
@@ -430,7 +434,7 @@ class TaskDialogs:
         unassign_row = ft.Row(
             [
                 ft.Icon(ft.Icons.CLOSE, color=COLORS["done_text"], size=18),
-                ft.Text("Unassign", size=14, color=COLORS["done_text"]),
+                ft.Text(t("unassign"), size=14, color=COLORS["done_text"]),
             ],
             spacing=12,
         )
@@ -450,9 +454,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Assign to Project",
+            t("assign_to_project"),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c)],
         )
 
     def _ensure_date_picker(self) -> ft.DatePicker:
@@ -474,11 +478,11 @@ class TaskDialogs:
                 content=ft.Column(
                     [
                         ft.Text(
-                            "Recurrent tasks use their recurrence pattern.",
+                            t("recurrent_tasks_use_pattern"),
                             color=COLORS["done_text"],
                         ),
                         ft.Text(
-                            "Edit recurrence settings to change schedule.",
+                            t("edit_recurrence_to_change"),
                             color=COLORS["done_text"],
                             size=12,
                         ),
@@ -488,9 +492,9 @@ class TaskDialogs:
             )
             open_dialog(
                 self.page,
-                "Select date",
+                t("select_date"),
                 content,
-                lambda c: [ft.TextButton("Close", on_click=c)],
+                lambda c: [ft.TextButton(t("close"), on_click=c)],
             )
             return
 
@@ -543,22 +547,22 @@ class TaskDialogs:
                 [
                     create_option_item(
                         ft.Icons.BLOCK,
-                        "🚫 No due date",
+                        t("no_due_date"),
                         clear,
                         color=COLORS["danger"],
                         text_color=COLORS["done_text"],
                     ),
                     ft.Divider(height=1, color=COLORS["border"]),
-                    create_option_item(ft.Icons.TODAY, "Today", lambda e: preset(0)),
+                    create_option_item(ft.Icons.TODAY, t("today"), lambda e: preset(0)),
                     create_option_item(
-                        ft.Icons.CALENDAR_TODAY, "Tomorrow", lambda e: preset(1)
+                        ft.Icons.CALENDAR_TODAY, t("tomorrow"), lambda e: preset(1)
                     ),
                     create_option_item(
-                        ft.Icons.DATE_RANGE, "Next week", lambda e: preset(7)
+                        ft.Icons.DATE_RANGE, t("next_week"), lambda e: preset(7)
                     ),
                     ft.Divider(height=1, color=COLORS["border"]),
                     create_option_item(
-                        ft.Icons.CALENDAR_MONTH, "Pick a date...", pick
+                        ft.Icons.CALENDAR_MONTH, t("pick_a_date"), pick
                     ),
                 ],
                 tight=True,
@@ -568,9 +572,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Select date",
+            t("select_date"),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c)],
         )
 
     def recurrence(self, task: Task) -> None:
@@ -580,7 +584,7 @@ class TaskDialogs:
         def on_save() -> None:
             async def _save() -> None:
                 await self.task_service.persist_task(task)
-                msg = "Recurrence updated" if task.recurrent else "Recurrence disabled"
+                msg = t("recurrence_updated") if task.recurrent else t("recurrence_disabled")
                 self.snack.show(msg)
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_save)  
@@ -596,8 +600,8 @@ class TaskDialogs:
                 on_close=close_fn,
             )
             return [
-                ft.TextButton("Cancel", on_click=close_fn),
-                accent_btn("Save", controller.save),
+                ft.TextButton(t("cancel"), on_click=close_fn),
+                accent_btn(t("save"), controller.save),
             ]
  
         temp_controller = RecurrenceDialogController(
@@ -610,11 +614,11 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Set recurrence",
+            t("set_recurrence"),
             content,
             lambda c: [
-                ft.TextButton("Cancel", on_click=c),
-                accent_btn("Save", lambda e: temp_controller.save(e)),
+                ft.TextButton(t("cancel"), on_click=c),
+                accent_btn(t("save"), lambda e: temp_controller.save(e)),
             ],
         )
         temp_controller.on_close = close
@@ -670,7 +674,7 @@ class TaskDialogs:
                     ft.Row(
                         [
                             ft.Icon(ft.Icons.SCHEDULE, color=COLORS["blue"]),
-                            ft.Text("Estimated", weight="bold"),
+                            ft.Text(t("estimated"), weight="bold"),
                         ],
                         spacing=10,
                     ),
@@ -690,14 +694,14 @@ class TaskDialogs:
         progress_card = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text("Progress", weight="bold"),
+                    ft.Text(t("progress"), weight="bold"),
                     ft.ProgressBar(
                         value=min(pct / 100, 1.0),
                         color=COLORS["accent"],
                         bgcolor=COLORS["input_bg"],
                     ),
                     ft.Text(
-                        f"{pct:.0f}% complete",
+                        t("pct_complete").replace("{pct}", f"{pct:.0f}"),
                         size=12,
                         color=COLORS["done_text"],
                     ),
@@ -714,7 +718,9 @@ class TaskDialogs:
                 [
                     ft.Icon(ft.Icons.FOLDER, size=16, color=COLORS["done_text"]),
                     ft.Text(
-                        f"Project: {project.name if project else 'Unassigned'}",
+                        t("project_colon").replace(
+                            "{name}", project.name if project else t("unassigned")
+                        ),
                         size=12,
                         color=COLORS["done_text"],
                     ),
@@ -725,7 +731,10 @@ class TaskDialogs:
         )
 
         entries_count = len(time_entries)
-        entries_text = f"{entries_count} time {'entry' if entries_count == 1 else 'entries'}"
+        entries_text = (
+            t("one_time_entry") if entries_count == 1
+            else t("n_time_entries").replace("{count}", str(entries_count))
+        )
 
         def view_entries(e: ft.ControlEvent) -> None:
             close(e)
@@ -739,7 +748,7 @@ class TaskDialogs:
                     ft.Icon(ft.Icons.HISTORY, color=COLORS["accent"], size=18),
                     ft.Column(
                         [
-                            ft.Text("Time Entries", weight="bold", size=13),
+                            ft.Text(t("time_entries_label"), weight="bold", size=13),
                             ft.Text(entries_text, color=COLORS["done_text"], size=12),
                         ],
                         spacing=2,
@@ -748,7 +757,7 @@ class TaskDialogs:
                     ft.IconButton(
                         icon=ft.Icons.ARROW_FORWARD,
                         icon_color=COLORS["accent"],
-                        tooltip="View all time entries",
+                        tooltip=t("view_all_time_entries"),
                         on_click=view_entries,
                     ),
                 ],
@@ -767,13 +776,13 @@ class TaskDialogs:
                 [
                     stat_card(
                         ft.Icons.TIMER,
-                        "Time spent",
+                        t("time_spent"),
                         TimeFormatter.seconds_to_display(task.spent_seconds),
                         COLORS["accent"],
                     ),
                     stat_card(
                         ft.Icons.HOURGLASS_EMPTY,
-                        "Remaining",
+                        t("remaining"),
                         TimeFormatter.seconds_to_display(remaining),
                         COLORS["orange"],
                     ),
@@ -789,9 +798,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            f"Stats: {task.title}",
+            t("stats_title").replace("{title}", task.title),
             content,
-            lambda c: [ft.TextButton("Close", on_click=c)],
+            lambda c: [ft.TextButton(t("close"), on_click=c)],
         )
 
     def notes(self, task: Task) -> None:
@@ -801,7 +810,7 @@ class TaskDialogs:
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=8,
-            hint_text="Write notes here... Markdown supported",
+            hint_text=t("notes_hint"),
             height=NOTES_FIELD_HEIGHT,
         )
 
@@ -821,7 +830,7 @@ class TaskDialogs:
             visible=False,
         )
 
-        toggle_btn = ft.TextButton("Preview", icon=ft.Icons.VISIBILITY)
+        toggle_btn = ft.TextButton(t("preview"), icon=ft.Icons.VISIBILITY)
 
         def toggle(e: ft.ControlEvent) -> None:
             is_preview = not preview.visible
@@ -829,7 +838,7 @@ class TaskDialogs:
                 md.value = field.value or "*No notes yet*"
             field.visible = not is_preview
             preview.visible = is_preview
-            toggle_btn.text = "Edit" if is_preview else "Preview"
+            toggle_btn.text = t("edit") if is_preview else t("preview")
             toggle_btn.icon = ft.Icons.EDIT if is_preview else ft.Icons.VISIBILITY
             self.page.update()
 
@@ -839,7 +848,7 @@ class TaskDialogs:
             async def _save() -> None:
                 await self.task_service.set_task_notes(task, field.value)
                 close(e)
-                self.snack.show("Notes saved")
+                self.snack.show(t("notes_saved"))
             self.page.run_task(_save)
 
         content = ft.Container(
@@ -858,9 +867,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            f"Notes: {task.title}",
+            t("notes_title").replace("{title}", task.title),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c), accent_btn("Save", save)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
         )
 
     def delete_recurrence(
@@ -889,30 +898,30 @@ class TaskDialogs:
             content=ft.Column(
                 [
                     ft.Text(
-                        f"'{task.title}' is a recurring task.",
+                        t("task_is_recurring").replace("{title}", task.title),
                         size=14,
                     ),
                     ft.Divider(height=15, color="transparent"),
                     create_option_item(
                         ft.Icons.DELETE_OUTLINE,
-                        "Delete this occurrence only",
+                        t("delete_this_occurrence"),
                         delete_this,
                         color=COLORS["orange"],
                     ),
                     ft.Text(
-                        "Removes only this instance. Future occurrences will still be created when you complete tasks.",
+                        t("delete_occurrence_explanation"),
                         size=11,
                         color=COLORS["done_text"],
                     ),
                     ft.Divider(height=10, color="transparent"),
                     create_option_item(
                         ft.Icons.DELETE_FOREVER,
-                        "Delete all occurrences",
+                        t("delete_all_occurrences"),
                         delete_all,
                         color=COLORS["danger"],
                     ),
                     ft.Text(
-                        "Removes this task and all other pending/completed instances with the same recurrence.",
+                        t("delete_all_explanation"),
                         size=11,
                         color=COLORS["done_text"],
                     ),
@@ -924,9 +933,9 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            "Delete recurring task",
+            t("delete_recurring_task"),
             content,
-            lambda c: [ft.TextButton("Cancel", on_click=c)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c)],
         )
 
     def duration_completion(
@@ -971,7 +980,7 @@ class TaskDialogs:
             content=ft.Column(
                 [
                     ft.Text(
-                        "How long did you spend on this task?",
+                        t("how_long_spent"),
                         size=14,
                         color=COLORS["done_text"],
                         text_align=ft.TextAlign.CENTER,
@@ -990,10 +999,10 @@ class TaskDialogs:
 
         _, close = open_dialog(
             self.page,
-            f"Complete: {task.title}",
+            t("complete_title").replace("{title}", task.title),
             content,
             lambda c: [
-                ft.TextButton("Skip", on_click=skip),
-                accent_btn("Complete", save),
+                ft.TextButton(t("skip"), on_click=skip),
+                accent_btn(t("complete_action"), save),
             ],
         )
