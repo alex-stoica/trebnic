@@ -394,6 +394,100 @@ def open_change_password_dialog(
     dialog, _ = open_dialog(page, t("change_master_password"), content, make_actions)
 
 
+def _open_disable_confirmation(
+    page: ft.Page,
+    on_disable: Callable[[str], Awaitable[bool]],
+) -> None:
+    """Open confirmation dialog for disabling encryption.
+
+    Requires the user to enter their master password to confirm.
+
+    Args:
+        page: Flet page
+        on_disable: Async callback (password) -> success
+    """
+    password_field = _create_password_field(
+        t("master_password"),
+        t("enter_password_to_confirm"),
+    )
+    error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
+    loading = ft.ProgressRing(width=16, height=16, stroke_width=2, visible=False)
+
+    async def handle_confirm(e: Optional[ft.ControlEvent] = None) -> None:
+        password = password_field.value or ""
+        if not password:
+            error_text.value = t("please_enter_password")
+            error_text.visible = True
+            page.update()
+            return
+
+        loading.visible = True
+        error_text.visible = False
+        page.update()
+
+        try:
+            success = await on_disable(password)
+            if success:
+                page.pop_dialog()
+            else:
+                error_text.value = t("incorrect_password")
+                error_text.visible = True
+                password_field.value = ""
+                password_field.focus()
+        except (DatabaseError, OSError, ValueError) as ex:
+            error_text.value = f"{t('failed')}: {ex}"
+            error_text.visible = True
+        finally:
+            loading.visible = False
+            page.update()
+
+    password_field.on_submit = lambda e: page.run_task(handle_confirm)
+
+    content = ft.Column(
+        [
+            ft.Icon(ft.Icons.WARNING_AMBER, size=48, color=COLORS["danger"]),
+            ft.Text(
+                t("disable_encryption_warning"),
+                size=FONT_SIZE_MD,
+                color=COLORS["danger"],
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                t("disable_encryption_desc"),
+                size=FONT_SIZE_SM,
+                color=COLORS["done_text"],
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Container(height=SPACING_MD),
+            password_field,
+            error_text,
+        ],
+        width=DIALOG_WIDTH_LG,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        spacing=SPACING_MD,
+    )
+
+    def make_actions(close: Callable[[], None]):
+        return [
+            ft.TextButton(t("cancel"), on_click=lambda e: close()),
+            ft.Row(
+                [
+                    loading,
+                    ft.Button(
+                        t("disable_encryption"),
+                        icon=ft.Icons.LOCK_OPEN,
+                        bgcolor=COLORS["danger"],
+                        color=COLORS["white"],
+                        on_click=lambda e: page.run_task(handle_confirm),
+                    ),
+                ],
+                spacing=SPACING_MD,
+            ),
+        ]
+
+    dialog, _ = open_dialog(page, t("disable_encryption"), content, make_actions)
+
+
 def open_encryption_settings_dialog(
     page: ft.Page,
     is_enabled: bool,
@@ -401,7 +495,7 @@ def open_encryption_settings_dialog(
     is_passkey_enabled: bool,
     on_setup: Callable[[], None],
     on_change_password: Callable[[], None],
-    on_disable: Callable[[], Awaitable[None]],
+    on_disable: Callable[[str], Awaitable[bool]],
     on_toggle_passkey: Callable[[bool], Awaitable[None]],
 ) -> None:
     """Open encryption settings dialog.
@@ -413,7 +507,7 @@ def open_encryption_settings_dialog(
         is_passkey_enabled: Whether biometric auth is enabled
         on_setup: Callback to open setup dialog
         on_change_password: Callback to open change password dialog
-        on_disable: Async callback to disable encryption
+        on_disable: Async callback (password) -> success to disable encryption
         on_toggle_passkey: Async callback to toggle passkey (True = enable)
     """
 
@@ -482,11 +576,10 @@ def open_encryption_settings_dialog(
                 )
             )
 
-        # Disable encryption option
-        async def handle_disable(e):
-            # TODO: Show confirmation dialog
-            await on_disable()
+        # Disable encryption option - closes settings dialog, opens confirmation
+        def handle_disable_click(e):
             page.pop_dialog()
+            _open_disable_confirmation(page, on_disable)
 
         rows.append(
             ft.Container(
@@ -495,7 +588,7 @@ def open_encryption_settings_dialog(
                     icon=ft.Icons.LOCK_OPEN,
                     icon_color=COLORS["danger"],
                     style=ft.ButtonStyle(color=COLORS["danger"]),
-                    on_click=lambda e: page.run_task(handle_disable),
+                    on_click=handle_disable_click,
                 ),
                 padding=ft.Padding.only(top=SPACING_LG),
             )

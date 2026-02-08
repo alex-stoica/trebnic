@@ -191,12 +191,12 @@ class FeedbackPage:
                     ], spacing=10),
                     ft.Text(
                         t("support_desc_1"),
-                        size=FONT_SIZE_SM,
+                        size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
                     ft.Text(
                         t("support_desc_2"),
-                        size=FONT_SIZE_SM,
+                        size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
                     ft.Container(height=5),
@@ -217,7 +217,7 @@ class FeedbackPage:
 
         # Feedback Form - store as instance attrs so _on_send_click can read them
         self._category_dd = ft.Dropdown(
-            label=t("category"),
+            hint_text=t("category"),
             value=t("issue"),
             options=[
                 ft.dropdown.Option(t("issue")),
@@ -227,19 +227,16 @@ class FeedbackPage:
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS,
-            label_style=ft.TextStyle(size=FONT_SIZE_SM),
         )
 
         self._message_field = ft.TextField(
-            label=t("message"),
+            hint_text=t("message_hint"),
             multiline=True,
             min_lines=5,
             max_lines=10,
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=BORDER_RADIUS,
-            hint_text=t("message_hint"),
-            label_style=ft.TextStyle(size=FONT_SIZE_SM),
         )
 
         feedback_card = ft.Container(

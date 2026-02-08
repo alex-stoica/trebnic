@@ -9,10 +9,10 @@ The `_seed_email_config()` function detects a revoked DB key and replaces it —
 reads the replacement from `os.getenv()` first, which returns the SAME revoked key
 from the stale `.env` file. The revoked key gets written right back.
 
-**Fix**: Check the env var against the revoked set too:
+**Fix**: Check the env var against the revoked set too, falling back to `_CRED_API_KEY` (from `credentials.py`):
 ```python
 env_key = os.getenv("RESEND_API_KEY", "")
-api_key = env_key if env_key and env_key not in _REVOKED_KEYS else _FALLBACK_KEY
+api_key = env_key if env_key and env_key not in _REVOKED_KEYS else _CRED_API_KEY
 ```
 
 ## Root cause: silent exception swallowing
