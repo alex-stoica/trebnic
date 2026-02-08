@@ -253,7 +253,20 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "network_error": {"en": "Network error", "ro": "Eroare de rețea"},
     "please_enter_message": {"en": "Please enter a message", "ro": "Te rugăm să introduci un mesaj"},
     "sending_feedback": {"en": "Sending feedback...", "ro": "Se trimite feedback..."},
-    "feedback_not_configured": {"en": "Feedback not configured. Check .env file.", "ro": "Feedback neconfigurat. Verifică fișierul .env."},
+    "feedback_not_configured": {
+        "en": "Feedback not configured. Set up your API key below.",
+        "ro": "Feedback neconfigurat. Configurează cheia API mai jos.",
+    },
+    "email_config": {"en": "Email configuration", "ro": "Configurare email"},
+    "email_config_desc": {
+        "en": "Configure your Resend API key to enable feedback",
+        "ro": "Configurează cheia API Resend pentru a activa feedback-ul",
+    },
+    "resend_api_key": {"en": "Resend API key", "ro": "Cheie API Resend"},
+    "feedback_email_label": {"en": "Feedback email", "ro": "Email feedback"},
+    "config_saved": {"en": "Configuration saved", "ro": "Configurare salvată"},
+    "configured": {"en": "Configured", "ro": "Configurat"},
+    "not_configured": {"en": "Not configured", "ro": "Neconfigurat"},
     "need_help_link": {"en": "Need help using Trebnic? View the guide", "ro": "Ai nevoie de ajutor cu Trebnic? Vezi ghidul"},
 
     # Task view
@@ -389,6 +402,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "current_password_incorrect": {"en": "Current password is incorrect", "ro": "Parola curentă este incorectă"},
     "failed": {"en": "Failed", "ro": "Eșuat"},
     "change_master_password": {"en": "Change master password", "ro": "Schimbă parola principală"},
+    "password_changed": {"en": "Password changed successfully", "ro": "Parola a fost schimbată cu succes"},
 
     # Notification settings
     "notification_settings": {"en": "Notification settings", "ro": "Setări notificări"},

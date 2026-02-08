@@ -3,7 +3,6 @@
 Contains colors, dimensions, enums (NavItem, PageType, RecurrenceFrequency), and magic values.
 Import from here instead of hardcoding values elsewhere to ensure consistency across the app.
 """
-import os
 from enum import Enum
 from pathlib import Path
 
@@ -160,12 +159,6 @@ PROJECT_NAME_MAX_LENGTH = 50
 GAP_THRESHOLD_SECONDS = 60
 TIME_ENTRY_ROW_HEIGHT = 60
 MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes   
- 
-# Resend email API for feedback (free: 100 emails/day)
-# Get your API key at https://resend.com/api-keys
-# Fallback values for mobile (env vars not available)
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "") or "re_HnHAZnqJ_2UmbtCVJDF8ChFmTfj8WTJU3"
-FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "") or "alexstoica@protonmail.com"
 
 # ============================================================================
 # Encryption & Authentication

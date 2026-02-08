@@ -31,9 +31,9 @@ ARGON2_PARALLELISM = 4
 PBKDF2_ITERATIONS = 600_000
 ```
 
-## Circular Import Solution
+## Circular import solution
 
-### The Problem
+### The problem
 
 ```
 database.py → services.crypto → services/__init__.py → services.logic → database.py
@@ -41,27 +41,25 @@ database.py → services.crypto → services/__init__.py → services.logic → 
 
 This creates an `ImportError` at startup.
 
-### The Solution: Lazy Import
+### The solution: service registry
 
-Despite the "no imports inside functions" rule, this is the accepted exception:
+`database.py` uses the service registry to look up the crypto service at runtime, avoiding any direct import of `services.crypto`:
 
 ```python
 # database.py
-_crypto = None
+from registry import registry, Services
 
-def _get_crypto():
-    """Lazy import to avoid circular dependency."""
-    global _crypto
-    if _crypto is None:
-        from services.crypto import crypto
-        _crypto = crypto
-    return _crypto
+def _encrypt_value(value: str) -> str:
+    crypto = registry.get(Services.CRYPTO)
+    if crypto is None:
+        return value
+    return crypto.encrypt_if_unlocked(value)
 ```
 
-**Why this is acceptable:**
-- Import happens once, cached globally
-- Only alternative would require restructuring the entire codebase
-- Pattern is well-documented in Python community for this exact case
+**Why this works:**
+- No import of `services.crypto` in `database.py` — breaks the cycle
+- Registry is populated during app initialization after all modules are loaded
+- Clean dependency injection — `database.py` only depends on `registry.py`
 
 ## Encryption Format
 

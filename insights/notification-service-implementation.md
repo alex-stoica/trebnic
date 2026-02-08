@@ -23,12 +23,11 @@ Storing notifications in `scheduled_notifications` table provides:
 The `NotificationBackend` enum cleanly separates detection from delivery:
 ```python
 class NotificationBackend(Enum):
-    FLET_LOCAL = "flet_local"
-    ANDROID_NATIVE = "android_native"
-    PLYER_FALLBACK = "plyer"
+    PLYER = "plyer"
+    PYJNIUS = "pyjnius"
     NONE = "none"
 ```
-Each backend has its own `_deliver_*` method, making it easy to add new backends.
+Each backend has its own `_deliver_*` method (`_deliver_plyer_notification`, `_deliver_android_notification`), making it easy to add new backends.
 
 ### 4. Event-driven rescheduling
 Subscribing to task lifecycle events (`TASK_CREATED`, `TASK_UPDATED`, etc.) ensures notifications stay in sync with task changes without polling.
@@ -71,51 +70,20 @@ Notifications that fire during quiet hours are skipped (not delivered, not marke
 
 **Alternative considered:** Mark as delivered but don't show. Chose current approach to allow catch-up behavior.
 
-## Integration points (not yet implemented)
+## Integration status
 
-### 1. App initializer registration
-```python
-# In app_initializer.py _init_services():
-from services.notification_service import notification_service
-notification_service.inject_dependencies(
-    page=self.page,
-    async_scheduler=self.page.run_task,
-    get_state=lambda: self.components.state,
-)
-registry.register(Services.NOTIFICATION, notification_service)
-```
+The following integration points are now implemented:
 
-### 2. Starting the scheduler
-```python
-# After app is fully initialized:
-notification_service.start_scheduler()
-```
+- **App initializer**: `app_initializer.py` wires up the service
+- **Scheduler**: Runs every 60 seconds checking for due reminders
+- **Timer completion**: `timer_controller.py` sends notifications on timer stop
+- **Settings UI**: Profile page has notification toggles and test button
+- **Settings persistence**: Notification preferences saved via SettingsService
 
-### 3. Timer completion notification
-```python
-# In TimerController or where timer stops:
-if timer_data and isinstance(timer_data, dict):
-    task = timer_data.get("task")
-    elapsed = timer_data.get("elapsed", 0)
-    if task and elapsed > 0:
-        await notification_service.schedule_timer_complete_notification(task, elapsed)
-```
-
-### 4. Settings UI
-Add to ProfilePage or new settings dialog:
-- Toggle for `notifications_enabled`
-- Toggle for `notify_timer_complete`
-- Toggle for `notify_due_reminders`
-- Number input for `reminder_minutes_before`
-- Time pickers for `quiet_hours_start` and `quiet_hours_end`
-
-### 5. Settings persistence
-Update `SettingsService` to load/save notification settings:
-```python
-state.notifications_enabled = await db.get_setting("notifications_enabled", False)
-state.notify_timer_complete = await db.get_setting("notify_timer_complete", True)
-# ... etc
-```
+### Platform status
+- **Windows**: Working (plyer backend, pure Python + ctypes)
+- **Android**: Not working (plyer imports but fails silently, pyjnius won't load)
+- See `insights/proposed_notification_plan.md` for details on Android blockers
 
 ## Testing considerations
 

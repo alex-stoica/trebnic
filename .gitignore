@@ -22,7 +22,15 @@ storage/
 Thumbs.db
 Desktop.ini
 
-# Environment
+# Build artifacts
+build/
+nul
+
+# Developer utilities
+cpy_files.py
+
+# Environment & credentials
 .env
 .env.local
-.env.*.local  
+.env.*.local
+credentials.py

@@ -1,5 +1,8 @@
 # Biometric Authentication Implementation
 
+> **Status**: Crypto primitives exist in `services/crypto.py` (`wrap_key_for_biometric`) and i18n keys
+> are defined, but the UI integration is **not wired up**. This doc describes the intended architecture.
+
 ## Overview
 
 Implemented biometric authentication in `services/auth.py` using:

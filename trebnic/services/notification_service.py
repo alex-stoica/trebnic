@@ -24,7 +24,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
 from config import NotificationType, PermissionResult
-from database import db
+from database import db, DatabaseError
 from events import event_bus, AppEvent, Subscription
 from i18n import t
 from models.entities import Task
@@ -254,7 +254,7 @@ class NotificationService:
 
         except asyncio.CancelledError:
             logger.info("Notification scheduler loop cancelled")
-        except Exception as e:
+        except (DatabaseError, OSError, RuntimeError) as e:
             logger.error(f"Error in notification scheduler loop: {e}")
             self._running = False
 
@@ -275,7 +275,7 @@ class NotificationService:
                 await self._deliver_notification(notification)
                 await db.mark_notification_delivered(notification["id"])
 
-        except Exception as e:
+        except (DatabaseError, OSError) as e:
             logger.error(f"Error processing pending notifications: {e}")
 
     def _is_app_locked(self) -> bool:
@@ -342,7 +342,7 @@ class NotificationService:
                 lambda: self._show_android_notification(title, body, task_id)
             )
             return True
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Error showing Android notification: {e}")
             return False
 
@@ -397,7 +397,7 @@ class NotificationService:
             notification_id = task_id if task_id else abs(hash(title)) % 100000
             notification_manager.notify(notification_id, builder.build())
 
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Error in Android notification: {e}")
             raise
 
@@ -422,7 +422,7 @@ class NotificationService:
                 )
             )
             return True
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Error showing plyer notification: {e}")
             return False
 
@@ -437,7 +437,7 @@ class NotificationService:
                 "payload": payload,
             })
 
-        except Exception as ex:
+        except (OSError, RuntimeError, ValueError) as ex:
             logger.error(f"Error handling notification tap: {ex}")
 
     async def _reschedule_for_task(self, task_id: int) -> None:
@@ -603,7 +603,7 @@ class NotificationService:
         # Mark all pending notifications as canceled in database
         try:
             await db.cancel_all_pending_notifications()
-        except Exception as e:
+        except DatabaseError as e:
             logger.error(f"Error canceling pending notifications: {e}")
 
         # Note: android_notify doesn't provide a clear method

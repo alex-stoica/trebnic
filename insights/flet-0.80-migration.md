@@ -65,6 +65,24 @@ page.show_dialog(dialog)
 page.pop_dialog()  # closes topmost dialog, no argument needed
 ```
 
+### Drawer API
+```python
+# Old (doesn't work in 0.80)
+drawer.open = True
+page.update()
+
+# New - use async methods
+page.drawer = drawer  # required: attach drawer to page first
+page.run_task(page.show_drawer)  # open drawer
+page.run_task(page.close_drawer)  # close drawer
+# Or if already in async context:
+await page.show_drawer()
+await page.close_drawer()
+```
+**Important:** `show_drawer()` / `close_drawer()` operate on `page.drawer`. Make sure the drawer
+is assigned to the page before calling these methods. Setting `drawer.open = True/False` directly
+no longer works.
+
 ### page.run_task
 Now requires a coroutine **function**, not a coroutine object:
 ```python
@@ -73,6 +91,11 @@ page.run_task(my_async_func())
 
 # New - requires the function itself
 page.run_task(my_async_func)
+
+# For methods that need arguments, use a wrapper:
+async def wrapper() -> None:
+    await my_async_func(arg1, arg2)
+page.run_task(wrapper)
 ```
 
 ### Async cleanup ordering

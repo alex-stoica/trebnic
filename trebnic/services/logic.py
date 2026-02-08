@@ -1,12 +1,19 @@
 import asyncio
 import logging
+import os
 from datetime import date, timedelta
 from typing import List, Tuple, Optional
+
+try:
+    from credentials import RESEND_API_KEY as _CRED_API_KEY, FEEDBACK_EMAIL as _CRED_EMAIL
+except ImportError:
+    _CRED_API_KEY = ""
+    _CRED_EMAIL = ""
 
 import flet as ft
 
 from config import NavItem
-from database import db
+from database import db, DatabaseError
 from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
@@ -36,6 +43,29 @@ class TaskService:
         self._page = page
 
     @staticmethod
+    async def _seed_email_config() -> None:
+        """Seed email config into DB. Env var takes priority; fallback for mobile.
+
+        Replaces revoked keys automatically so users don't get stuck with dead keys.
+        Called from both load_state_async() and reset().
+        """
+        _REVOKED_KEYS = {
+            "re_HnHAZnqJ_2UmbtCVJDF8ChFmTfj8WTJU3",
+            "re_LVAviERE_8xQcuJ836TxSSRxsN8KnDoRp",
+        }
+        current_key = await db.get_setting("resend_api_key", "")
+        if not current_key or current_key in _REVOKED_KEYS:
+            env_key = os.getenv("RESEND_API_KEY", "")
+            # Priority: env var (if not revoked) > credentials.py > empty
+            api_key = env_key if env_key and env_key not in _REVOKED_KEYS else _CRED_API_KEY
+            if api_key:
+                await db.set_setting("resend_api_key", api_key)
+        if not await db.get_setting("feedback_email"):
+            email = os.getenv("FEEDBACK_EMAIL", "") or _CRED_EMAIL
+            if email:
+                await db.set_setting("feedback_email", email)
+
+    @staticmethod
     async def load_state_async() -> AppState:
         """Load application state from database."""
         state = AppState()
@@ -62,6 +92,8 @@ class TaskService:
         state.email_weekly_stats = await db.get_setting("email_weekly_stats", False)
         state.language = await db.get_setting("language", "en")
         set_language(state.language)
+
+        await TaskService._seed_email_config()
 
         # Check for incomplete time entry (timer was running when app closed)
         incomplete_entry = await db.load_incomplete_time_entry()
@@ -191,7 +223,7 @@ class TaskService:
         task.title = new_title
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.title = old_title
             raise
 
@@ -201,7 +233,7 @@ class TaskService:
         task.due_date = due_date
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.due_date = old_date
             raise
 
@@ -211,7 +243,7 @@ class TaskService:
         task.notes = notes
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.notes = old_notes
             raise
 
@@ -221,7 +253,7 @@ class TaskService:
         task.spent_seconds = spent_seconds
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.spent_seconds = old_seconds
             raise
 
@@ -351,7 +383,7 @@ class TaskService:
         task.due_date = current + timedelta(days=1)
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.due_date = old_date
             raise
         return task.due_date
@@ -424,6 +456,7 @@ class TaskService:
         """Reset database to default state."""
         await db.clear_all()
         await db.seed_default_data()
+        await TaskService._seed_email_config()
         self.state.tasks.clear()
         self.state.done_tasks.clear()
         self.state.projects.clear()
@@ -448,7 +481,7 @@ class TaskService:
         task.project_id = project_id
         try:
             await self.persist_task(task)
-        except Exception:
+        except DatabaseError:
             task.project_id = old_project_id
             raise
 

@@ -45,7 +45,7 @@ list.insert(new_idx, list.pop(old_idx))
 
 **Initial Workaround**: Manipulate `task_list.controls` directly (pop/insert) instead of calling refresh.
 
-**Better Solution**: Persist to DB immediately, then call refresh to rebuild from DB. Since we create NEW draggable objects each time, Flet's stale cache is irrelevant.
+**Better Solution**: Persist to DB immediately, then call refresh to rebuild from DB. Since we create NEW Container wrappers each time, Flet's stale cache is irrelevant.
 
 ## The Final Working Solution
 
@@ -83,7 +83,7 @@ def _on_reorder(self, e: ft.OnReorderEvent) -> None:
 
 ## Key Principles
 
-1. **Store task ID on draggables**: Use `data=task.id` on `ReorderableDraggable` to identify tasks reliably.
+1. **Store task ID on controls**: Use `data=task.id` on `Container` wrappers inside `ReorderableListView` to identify tasks reliably.
 
 2. **UI state is source of truth for order**: When reordering, read the current UI order (via task IDs), then sync DB to match.
 

@@ -44,9 +44,8 @@ Any dialog that:
 ## Detection
 
 Look for service method calls in dialog callbacks that aren't wrapped in:
-- `async def` + `await`
+- `async def` + `await` (Flet 0.80+ natively supports async event handlers)
 - `page.run_task()`
-- `service.run_sync()` (deprecated pattern)
 
 ## Correct Patterns by Context
 

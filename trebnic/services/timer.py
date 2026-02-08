@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from config import MIN_TIMER_SECONDS
+from database import DatabaseError
 from events import event_bus, AppEvent
 from models.entities import Task, TimeEntry
 
@@ -106,7 +107,7 @@ class TimerService:
 
         except asyncio.CancelledError:
             logger.info("Timer loop cancelled")
-        except Exception as e:
+        except (DatabaseError, RuntimeError, OSError) as e:
             logger.error(f"Error in timer loop: {e}")
             self.running = False
 
@@ -119,7 +120,7 @@ class TimerService:
             await self._time_entry_svc.save_time_entry(self.current_entry)
             self.current_entry.end_time = None
             logger.debug(f"Heartbeat saved at {self.seconds}s")
-        except Exception as e:
+        except (DatabaseError, OSError) as e:
             logger.warning(f"Failed to save heartbeat: {e}")
 
     def stop(self) -> None:

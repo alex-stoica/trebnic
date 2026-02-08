@@ -67,7 +67,7 @@ def show_encryption_settings(self):
     )
 ```
 
-The settings dialog calls `page.close(dialog)` before invoking the callback.
+The settings dialog calls `page.pop_dialog()` before invoking the callback.
 
 ## Key Never Stored
 

@@ -42,9 +42,11 @@ except ImportError:
 # Try to import cryptography for AES-GCM
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.exceptions import InvalidTag
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
+    InvalidTag = Exception
     logger.warning("cryptography library not available - encryption disabled")
 
 
@@ -347,7 +349,7 @@ class CryptoService:
         try:
             plaintext_bytes = self._aesgcm.decrypt(data.nonce, data.ciphertext, None)
             return plaintext_bytes.decode('utf-8')
-        except Exception as e:
+        except (InvalidTag, ValueError) as e:
             # Decryption failed - wrong key, corrupted data, or tampered
             logger.warning(f"Decryption failed: {e}")
             return None
@@ -464,7 +466,7 @@ def unwrap_key_from_biometric(wrapped_key_b64: str, biometric_secret: bytes, sal
         # Unwrap the encryption key
         aesgcm = AESGCM(wrapping_key)
         return aesgcm.decrypt(nonce, wrapped, None)
-    except Exception as e:
+    except (InvalidTag, ValueError) as e:
         logger.warning(f"Key unwrapping failed: {e}")
         return None
 

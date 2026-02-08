@@ -9,8 +9,8 @@ Consolidated to a single async API with explicit sync bridging where needed.
 ### Key Changes
 
 1. **Removed all sync wrapper methods** - No more `method()` + `method_async()` pairs
-2. **Renamed `_schedule_async` to `run_sync`** - Explicit name for the sync bridge utility
-3. **All data operations are now async** - Single implementation per operation
+2. **All data operations are now async** - Single implementation per operation
+3. **Sync bridging uses `page.run_task()`** - No custom `run_sync` utility; Flet's built-in method handles scheduling async work from sync contexts
 4. **Kept sync only for**:
    - `load_state()` - static method for app startup before event loop exists
    - Pure in-memory checks (`validate_project_name`, `task_name_exists`)
@@ -35,13 +35,15 @@ def on_click(e):
 
 **Callbacks that must be sync (e.g., TimerService):**
 ```python
-def _save_time_entry_sync(self, entry: TimeEntry) -> int:
-    return self.service.run_sync(self.service.save_time_entry(entry))
+# Use page.run_task to schedule async work from sync context
+async def save_orphaned_entry():
+    await self.timer_svc._time_entry_svc.save_time_entry(entry)
+self.page.run_task(save_orphaned_entry)
 ```
 
 ### Code Reduction
 - Before: ~630 lines in logic.py
-- After: ~482 lines
+- After: ~498 lines (as of 2026-02)
 - Eliminated ~25 duplicate method definitions
 
 ### Files Modified
@@ -56,7 +58,6 @@ def _save_time_entry_sync(self, entry: TimeEntry) -> int:
 - `ui/dialogs/project_dialogs.py` - Async handlers
 
 ### Key Learnings
-1. Flet natively supports async event handlers - use `page.run_task()` for async work from sync callbacks
-2. Keep `run_sync()` as explicit bridge for the few places that truly need sync (cleanup, timer callbacks)
-3. Internal async methods can keep `_async` suffix to distinguish from sync wrappers in the same class
-4. Don't create unnecessary abstractions - simple `page.run_task(async_fn)` pattern is clear and works well
+1. Flet natively supports async event handlers — use `async def` handlers directly or `page.run_task()` from sync callbacks
+2. No custom sync bridge needed — `page.run_task(async_fn)` handles all sync-to-async bridging
+3. Don't create unnecessary abstractions — simple `page.run_task(async_fn)` pattern is clear and works well

@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Awaitable
 
+from database import DatabaseError
 from services.crypto import (
     crypto,
     generate_salt,
@@ -34,6 +35,7 @@ from services.crypto import (
     wrap_key_for_biometric,
     unwrap_key_from_biometric,
     generate_biometric_secret,
+    InvalidTag,
 )
 
 # Cross-platform keyring for secure credential storage
@@ -215,7 +217,7 @@ def _check_windows_hello_available() -> bool:
                 return True
         except (ValueError, AttributeError):
             pass
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.debug(f"Windows Hello check failed: {e}")
 
     return False
@@ -234,7 +236,7 @@ def _check_touchid_available() -> bool:
             error
         )
         return can_evaluate
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.debug(f"Touch ID check failed: {e}")
         return False
 
@@ -273,7 +275,7 @@ async def _prompt_windows_hello(reason: str) -> BiometricResult:
     except ImportError:
         logger.warning("winrt package not installed for Windows Hello support")
         return BiometricResult.NOT_AVAILABLE
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.error(f"Windows Hello authentication failed: {e}")
         return BiometricResult.FAILED
 
@@ -360,7 +362,7 @@ async def _prompt_touchid(reason: str) -> BiometricResult:
                         loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
                 else:
                     loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.error(f"Touch ID thread error: {e}")
                 loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
 
@@ -369,7 +371,7 @@ async def _prompt_touchid(reason: str) -> BiometricResult:
 
         return await future
 
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.error(f"Touch ID authentication failed: {e}")
         return BiometricResult.FAILED
 
@@ -393,7 +395,7 @@ def _check_android_biometric_available() -> bool:
         result = biometric_manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         return result == BiometricManager.BIOMETRIC_SUCCESS
 
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.debug(f"Android biometric check failed: {e}")
         return False
 
@@ -468,7 +470,7 @@ async def _prompt_android_biometric(reason: str) -> BiometricResult:
                 # Must run on UI thread
                 activity.runOnUiThread(lambda: prompt.authenticate(prompt_info))
 
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.error(f"Android biometric thread error: {e}")
                 loop.call_soon_threadsafe(future.set_result, BiometricResult.FAILED)
 
@@ -477,7 +479,7 @@ async def _prompt_android_biometric(reason: str) -> BiometricResult:
 
         return await future
 
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.error(f"Android biometric authentication failed: {e}")
         return BiometricResult.FAILED
 
@@ -627,7 +629,7 @@ class PasskeyService:
         except KeyringError as e:
             logger.error(f"Failed to store biometric secret in keyring: {e}")
             return False
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.error(f"Unexpected error storing biometric data: {e}")
             return False
 
@@ -716,7 +718,7 @@ class PasskeyService:
         except (ValueError, TypeError) as e:
             logger.error(f"Failed to decode biometric data: {e}")
             return None
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Unexpected error retrieving key: {e}")
             return None
 
@@ -748,7 +750,7 @@ class PasskeyService:
         except KeyringError as e:
             logger.error(f"Failed to delete key from keyring: {e}")
             return False
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"Unexpected error deleting key: {e}")
             return False
 
@@ -772,7 +774,7 @@ class PasskeyService:
             )
             return key_b64 is not None
 
-        except Exception:
+        except (OSError, RuntimeError):
             return False
 
 
@@ -1081,7 +1083,7 @@ class AuthService:
             try:
                 plaintext_bytes = old_aesgcm.decrypt(data.nonce, data.ciphertext, None)
                 return plaintext_bytes.decode('utf-8')
-            except Exception as e:
+            except (InvalidTag, ValueError) as e:
                 logger.warning(f"Decryption with old key failed: {e}")
                 return None
 
@@ -1104,7 +1106,7 @@ class AuthService:
                     encrypt_with_new_key
                 )
                 logger.info(f"Re-encrypted {tasks_count} tasks and {projects_count} projects")
-            except Exception as e:
+            except DatabaseError as e:
                 # Rollback: restore old key
                 crypto._key = old_key
                 crypto._aesgcm = old_aesgcm
@@ -1161,7 +1163,7 @@ class AuthService:
             try:
                 tasks_count, projects_count = await decrypt_data_fn(decrypt_fn, identity_fn)
                 logger.info(f"Decrypted {tasks_count} tasks and {projects_count} projects")
-            except Exception as e:
+            except DatabaseError as e:
                 logger.error(f"Failed to decrypt data: {e}")
                 raise
 

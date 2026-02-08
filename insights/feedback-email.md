@@ -21,11 +21,37 @@
 
 1. Sign up at resend.com with the email you want to receive feedback at
 2. Create API key at resend.com/api-keys
-3. Add to `.env`:
+3. Create `trebnic/credentials.py` (gitignored):
+   ```python
+   RESEND_API_KEY = "re_xxxxx"
+   FEEDBACK_EMAIL = "your@email.com"
+   ```
+4. Optionally also set in `.env` for desktop development:
    ```
    RESEND_API_KEY=re_xxxxx
    FEEDBACK_EMAIL=your@email.com
    ```
+
+## Credential storage
+
+Credentials are stored in the SQLite settings table and seeded on first run. Priority chain:
+
+1. **env var** (`.env` via `load_dotenv`) — desktop development
+2. **`credentials.py`** (gitignored, bundled into APK by `flet build apk`) — mobile builds
+3. **Manual entry** via feedback page config UI — fallback for any platform
+
+```python
+# services/logic.py — seeding on first load
+try:
+    from credentials import RESEND_API_KEY as _CRED_API_KEY, FEEDBACK_EMAIL as _CRED_EMAIL
+except ImportError:
+    _CRED_API_KEY = ""
+    _CRED_EMAIL = ""
+```
+
+Once seeded, `feedback_view.py` reads values from DB via `db.get_setting("resend_api_key")`. The feedback page also has a config section where users can enter/update credentials manually.
+
+**Future improvement:** Replace direct Resend API calls with a backend proxy (e.g. Cloudflare Worker) so zero secrets live in the app code or APK.
 
 ## Mobile builds
 
@@ -44,41 +70,13 @@ except ImportError:
     pass
 ```
 
-### Mobile feedback with hardcoded keys
-
-Since `.env` isn't available on mobile, use fallback hardcoded values:
-
-```python
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "") or "re_xxxxx"
-FEEDBACK_EMAIL = os.getenv("FEEDBACK_EMAIL", "") or "your@email.com"
-```
-
-Risk is minimal:
-- Free tier: 100 emails/day cap
-- Can only send to your own verified email
-- Worst case: spam your inbox, regenerate the key
-
 ### Avoid external packages for HTTP on mobile
 
-The `resend` SDK doesn't work on Android even though it appears to be pure Python. Use Python's built-in `urllib.request` instead - zero dependencies, works everywhere.
+The `resend` SDK doesn't work on Android even though it appears to be pure Python. Use Python's built-in `urllib.request` instead — zero dependencies, works everywhere.
 
 ## Code
 
-### Desktop (with resend SDK)
-```python
-import resend
-
-resend.api_key = RESEND_API_KEY
-resend.Emails.send({
-    "from": "App Name <onboarding@resend.dev>",
-    "to": [FEEDBACK_EMAIL],
-    "subject": "Feedback",
-    "html": "<p>Message here</p>",
-})
-```
-
-### Mobile-compatible (urllib - no dependencies)
-The `resend` SDK doesn't work on Android (missing module errors even when in requirements.txt). Use stdlib `urllib` instead:
+The app uses stdlib `urllib.request` on all platforms (desktop and mobile). The `resend` SDK caused missing module errors on Android.
 
 ```python
 import json
@@ -86,7 +84,7 @@ import urllib.request
 
 payload = json.dumps({
     "from": "App Name <onboarding@resend.dev>",
-    "to": [FEEDBACK_EMAIL],
+    "to": [feedback_email],
     "subject": "Feedback",
     "html": "<p>Message here</p>",
 }).encode("utf-8")
@@ -95,12 +93,10 @@ req = urllib.request.Request(
     "https://api.resend.com/emails",
     data=payload,
     headers={
-        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     },
     method="POST",
 )
 urllib.request.urlopen(req, timeout=30)
 ```
-
-This uses only Python stdlib - works everywhere without dependency issues.
