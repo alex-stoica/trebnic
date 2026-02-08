@@ -184,12 +184,14 @@ class AuthController:
         if self._auth is None:
             return
 
-        async def handle_disable() -> None:
-            # TODO: Show confirmation dialog first
-            # For now, just disable (user already entered password in earlier dialog)
-            if self._auth.is_unlocked:
-                # Need to get password again for verification
-                pass
+        async def handle_disable(password: str) -> bool:
+            success = await self._auth.disable_encryption(
+                password,
+                decrypt_data_fn=db.reencrypt_all_data,
+            )
+            if success and self.snack:
+                self.snack.show(t("encryption_disabled"), COLORS["green"])
+            return success
 
         async def handle_toggle_passkey(enable: bool) -> None:
             if enable:

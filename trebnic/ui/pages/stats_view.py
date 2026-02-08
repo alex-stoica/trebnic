@@ -20,7 +20,7 @@ from config import (
     PADDING_XL,
     PADDING_2XL,
 )
-from events import event_bus, AppEvent
+from events import event_bus, AppEvent, Subscription
 from i18n import t
 from models.entities import AppState
 from services.stats import stats_service
@@ -45,12 +45,31 @@ class StatsPage:
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
         self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
 
-        # Subscribe to events that should trigger stats refresh
-        self._task_deleted_sub = event_bus.subscribe(AppEvent.TASK_DELETED, self._on_data_changed)
-        self._project_deleted_sub = event_bus.subscribe(AppEvent.PROJECT_DELETED, self._on_data_changed)
+        # Subscribe to all events that affect stats data
+        self._subscriptions: List[Subscription] = [
+            event_bus.subscribe(event, self._on_data_changed)
+            for event in (
+                AppEvent.TASK_DELETED,
+                AppEvent.TASK_COMPLETED,
+                AppEvent.TASK_UNCOMPLETED,
+                AppEvent.TASK_UPDATED,
+                AppEvent.TASK_CREATED,
+                AppEvent.TIMER_STOPPED,
+                AppEvent.PROJECT_DELETED,
+                AppEvent.PROJECT_CREATED,
+                AppEvent.PROJECT_UPDATED,
+                AppEvent.DATA_RESET,
+            )
+        ]
+
+    def cleanup(self) -> None:
+        """Unsubscribe from all events. Call when the page is destroyed."""
+        for sub in self._subscriptions:
+            sub.unsubscribe()
+        self._subscriptions.clear()
 
     def _on_data_changed(self, data: Any) -> None:
-        """Handle task/project deletion - reload data and rebuild content."""
+        """Handle data changes - reload time entries and rebuild content."""
         self._load_data()
 
     def _load_data(self) -> None:
@@ -251,16 +270,31 @@ class StatsPage:
             tracked_height = int((day_stat.tracked_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
             tracked_height = max(tracked_height, 2) if day_stat.tracked_seconds > 0 else 0
 
-            est_done_height = int((day_stat.estimated_done_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
-            est_done_height = max(est_done_height, 2) if day_stat.estimated_done_seconds > 0 else 0
+            est_done_secs = day_stat.estimated_done_seconds
+            est_done_height = (
+                int((est_done_secs / max_seconds) * max_bar_height)
+                if max_seconds > 0 else 0
+            )
+            est_done_height = max(est_done_height, 2) if est_done_secs > 0 else 0
 
-            est_pending_height = int((day_stat.estimated_pending_seconds / max_seconds) * max_bar_height) if max_seconds > 0 else 0
-            est_pending_height = max(est_pending_height, 2) if day_stat.estimated_pending_seconds > 0 else 0
+            est_pend_secs = day_stat.estimated_pending_seconds
+            est_pending_height = (
+                int((est_pend_secs / max_seconds) * max_bar_height)
+                if max_seconds > 0 else 0
+            )
+            est_pending_height = max(est_pending_height, 2) if est_pend_secs > 0 else 0
 
             # Format durations for tooltips
-            tracked_text = seconds_to_time(day_stat.tracked_seconds) if day_stat.tracked_seconds > 0 else "0m"
-            est_done_text = seconds_to_time(day_stat.estimated_done_seconds) if day_stat.estimated_done_seconds > 0 else "0m"
-            est_pending_text = seconds_to_time(day_stat.estimated_pending_seconds) if day_stat.estimated_pending_seconds > 0 else "0m"
+            tracked_text = (
+                seconds_to_time(day_stat.tracked_seconds)
+                if day_stat.tracked_seconds > 0 else "0m"
+            )
+            est_done_text = (
+                seconds_to_time(est_done_secs) if est_done_secs > 0 else "0m"
+            )
+            est_pending_text = (
+                seconds_to_time(est_pend_secs) if est_pend_secs > 0 else "0m"
+            )
 
             # Day label with date
             day_label = day_stat.date.strftime("%a")
@@ -449,12 +483,11 @@ class StatsPage:
                         [
                             ft.Icon(ft.Icons.BAR_CHART, size=20, color=COLORS["accent"]),
                             ft.Text(t("weekly_time"), weight="bold", size=FONT_SIZE_LG),
-                            ft.Container(expand=True),
-                            legend,
                         ],
                         spacing=SPACING_MD,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
+                    legend,
                     week_nav,
                     ft.Container(height=SPACING_MD),
                     chart_content,

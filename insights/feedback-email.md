@@ -34,11 +34,14 @@
 
 ## Credential storage
 
-Credentials are stored in the SQLite settings table and seeded on first run. Priority chain:
+Credentials are stored in the SQLite settings table and seeded on first run via `_seed_email_config()` in `services/logic.py`. Priority chain:
 
-1. **env var** (`.env` via `load_dotenv`) — desktop development
-2. **`credentials.py`** (gitignored, bundled into APK by `flet build apk`) — mobile builds
-3. **Manual entry** via feedback page config UI — fallback for any platform
+1. **Database** (SQLite settings table) — checked first, used if non-empty and not revoked
+2. **env var** (`.env` via `load_dotenv`) — desktop development fallback
+3. **`credentials.py`** (gitignored, imported as `_CRED_API_KEY` / `_CRED_EMAIL`) — final fallback
+4. **Manual entry** via feedback page config UI — user can override on any platform
+
+Revoked keys are tracked in `_REVOKED_KEYS` set inside `_seed_email_config()`. If the current DB key or env var matches a revoked key, it falls back to `_CRED_API_KEY`.
 
 ```python
 # services/logic.py — seeding on first load
@@ -51,7 +54,7 @@ except ImportError:
 
 Once seeded, `feedback_view.py` reads values from DB via `db.get_setting("resend_api_key")`. The feedback page also has a config section where users can enter/update credentials manually.
 
-**Future improvement:** Replace direct Resend API calls with a backend proxy (e.g. Cloudflare Worker) so zero secrets live in the app code or APK.
+**Security note:** `credentials.py` gets bundled into the APK by `flet build`. The API key ships inside every APK binary. Future improvement: replace direct Resend API calls with a backend proxy (e.g. Cloudflare Worker) so zero secrets live in the app.
 
 ## Mobile builds
 

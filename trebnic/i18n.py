@@ -65,8 +65,14 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "project_name": {"en": "Project name", "ro": "Numele proiectului"},
     "project_updated": {"en": "Project '{name}' updated", "ro": "Proiectul '{name}' a fost actualizat"},
     "project_created": {"en": "Project '{name}' created", "ro": "Proiectul '{name}' a fost creat"},
-    "project_deleted": {"en": "Project '{name}' deleted ({count} tasks removed)", "ro": "Proiectul '{name}' a fost șters ({count} treburi eliminate)"},
-    "delete_project_confirm": {"en": "Delete '{name}' and all its tasks?", "ro": "Ștergi '{name}' și toate treburile sale?"},
+    "project_deleted": {
+        "en": "Project '{name}' deleted ({count} tasks removed)",
+        "ro": "Proiectul '{name}' a fost șters ({count} treburi eliminate)",
+    },
+    "delete_project_confirm": {
+        "en": "Delete '{name}' and all its tasks?",
+        "ro": "Ștergi '{name}' și toate treburile sale?",
+    },
 
     # Navigation
     "inbox": {"en": "Draft", "ro": "La dospit"},
@@ -93,7 +99,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "weekly_time": {"en": "Weekly time", "ro": "Timp săptămânal"},
     "tracked": {"en": "Tracked", "ro": "Înregistrat"},
     "est_done": {"en": "Est. done", "ro": "Est. finalizat"},
-    "est_pending": {"en": "Est. pending", "ro": "Est. nefinalizat"},
+    "est_pending": {"en": "Est. pending", "ro": "Est. în aștept."},
     "estimated": {"en": "Estimated", "ro": "Estimat"},
     "previous_week": {"en": "Previous week", "ro": "Săptămâna anterioară"},
     "next_week": {"en": "Next week", "ro": "Săptămâna următoare"},
@@ -120,12 +126,17 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "how_to_use": {"en": "How to use Trebnic", "ro": "Cum să folosești Trebnic"},
     "privacy_first_title": {"en": "Privacy-first task manager", "ro": "Manager de treburi cu confidențialitate"},
     "privacy_first_desc": {
-        "en": "Trebnic is built with your privacy at its core. All your data stays on your device - "
-              "we never collect, track, or share any of your information. No accounts, no cloud sync, "
-              "no analytics. Your tasks, your device, your privacy.",
-        "ro": "Trebnic este construit cu confidențialitatea ta în centru. Toate datele tale rămân pe dispozitivul tău - "
-              "nu colectăm, nu urmărim, nu partajăm niciodată informațiile tale. Fără conturi, fără sincronizare în cloud, "
-              "fără analize. Treburile tale, dispozitivul tău, confidențialitatea ta.",
+        "en": (
+            "Trebnic is built with your privacy at its core. All your data stays on your device - "
+            "we never collect, track, or share any of your information. No accounts, no cloud sync, "
+            "no analytics. Your tasks, your device, your privacy."
+        ),
+        "ro": (
+            "Trebnic este construit cu confidențialitatea ta în centru. Toate datele tale rămân "
+            "pe dispozitivul tău - nu colectăm, nu urmărim, nu partajăm niciodată informațiile tale. "
+            "Fără conturi, fără sincronizare în cloud, fără analize. Treburile tale, dispozitivul "
+            "tău, confidențialitatea ta."
+        ),
     },
     "works_offline": {"en": "Works offline", "ro": "Funcționează offline"},
     "optional_encryption": {"en": "Optional encryption", "ro": "Criptare opțională"},
@@ -138,17 +149,25 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
               "Glisează la dreapta pentru a porni cronometrul, glisează la stânga pentru a șterge.",
     },
     "tasks_help_2": {
-        "en": "Long-press or tap the menu icon for more options: edit title, set due date, "
-              "configure recurrence, view time stats, or move to a different project.",
-        "ro": "Apasă lung sau apasă iconița de meniu pentru mai multe opțiuni: editare titlu, setare dată limită, "
-              "configurare recurență, vizualizare statistici timp, sau mutare într-un alt proiect.",
+        "en": (
+            "Long-press or tap the menu icon for more options: edit title, set due date, "
+            "configure recurrence, view time stats, or move to a different project."
+        ),
+        "ro": (
+            "Apasă lung sau apasă iconița de meniu pentru mai multe opțiuni: editare titlu, "
+            "setare dată limită, configurare recurență, vizualizare statistici timp, sau "
+            "mutare într-un alt proiect."
+        ),
     },
     "projects_section": {"en": "Projects", "ro": "Proiecte"},
     "projects_help_1": {
         "en": "Use the sidebar to organize tasks into projects. Tap a project to filter tasks. "
               "Create new projects from the sidebar menu. Each project can have its own icon and color.",
-        "ro": "Folosește bara laterală pentru a organiza treburile în proiecte. Apasă un proiect pentru a filtra treburile. "
-              "Creează proiecte noi din meniul barei laterale. Fiecare proiect poate avea propria iconiță și culoare.",
+        "ro": (
+            "Folosește bara laterală pentru a organiza treburile în proiecte. Apasă un proiect "
+            "pentru a filtra treburile. Creează proiecte noi din meniul barei laterale. Fiecare "
+            "proiect poate avea propria iconiță și culoare."
+        ),
     },
     "projects_help_2": {
         "en": "Project filtering combines with your current view. For example, selecting 'Today' in the "
@@ -187,8 +206,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "recurring_help_2": {
         "en": "Choose from daily, weekly, or monthly intervals. For example: every 2 days, every week, "
               "or every 3 months. You can also select specific days of the week for weekly recurrence.",
-        "ro": "Alege între intervale zilnice, săptămânale sau lunare. De exemplu: la fiecare 2 zile, în fiecare săptămână, "
-              "sau la fiecare 3 luni. Poți selecta și zile specifice ale săptămânii pentru recurența săptămânală.",
+        "ro": (
+            "Alege între intervale zilnice, săptămânale sau lunare. De exemplu: la fiecare 2 zile, "
+            "în fiecare săptămână, sau la fiecare 3 luni. Poți selecta și zile specifice ale "
+            "săptămânii pentru recurența săptămânală."
+        ),
     },
     "recurring_help_3": {
         "en": "When you complete a recurring task, it automatically reschedules to the next occurrence. "
@@ -202,25 +224,37 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "calendar_help_1": {
         "en": "View tasks organized by week. Swipe left or right to navigate between weeks. "
               "Tasks are shown on their due dates, helping you plan ahead.",
-        "ro": "Vezi treburile organizate pe săptămâni. Glisează la stânga sau la dreapta pentru a naviga între săptămâni. "
-              "Treburile sunt afișate la datele lor limită, ajutându-te să planifici din timp.",
+        "ro": (
+            "Vezi treburile organizate pe săptămâni. Glisează la stânga sau la dreapta pentru a "
+            "naviga între săptămâni. Treburile sunt afișate la datele lor limită, ajutându-te să "
+            "planifici din timp."
+        ),
     },
     "security_section": {"en": "Security and encryption", "ro": "Securitate și criptare"},
     "security_help_1": {
         "en": "For extra privacy, enable encryption in Settings to protect sensitive data with a "
               "master password. Task titles, notes, and project names are encrypted using AES-256-GCM.",
-        "ro": "Pentru confidențialitate suplimentară, activează criptarea în Setări pentru a proteja datele sensibile cu o "
-              "parolă principală. Titlurile treburilor, notițele și numele proiectelor sunt criptate folosind AES-256-GCM.",
+        "ro": (
+            "Pentru confidențialitate suplimentară, activează criptarea în Setări pentru a proteja "
+            "datele sensibile cu o parolă principală. Titlurile treburilor, notițele și numele "
+            "proiectelor sunt criptate folosind AES-256-GCM."
+        ),
     },
     "security_help_2": {
         "en": "Your master password never leaves your device and is never stored - only a verification "
               "hash is kept to confirm you entered the correct password. On supported devices, use "
               "fingerprint or face unlock for convenient access.",
-        "ro": "Parola ta principală nu părăsește niciodată dispozitivul și nu este stocată - doar un hash de verificare "
-              "este păstrat pentru a confirma că ai introdus parola corectă. Pe dispozitivele compatibile, folosește "
-              "amprenta sau deblocarea facială pentru acces convenabil.",
+        "ro": (
+            "Parola ta principală nu părăsește niciodată dispozitivul și nu este stocată - doar un "
+            "hash de verificare este păstrat pentru a confirma că ai introdus parola corectă. Pe "
+            "dispozitivele compatibile, folosește amprenta sau deblocarea facială pentru acces "
+            "convenabil."
+        ),
     },
-    "feedback_link": {"en": "Have feedback or want to support Trebnic?", "ro": "Ai feedback sau vrei să susții Trebnic?"},
+    "feedback_link": {
+        "en": "Have feedback or want to support Trebnic?",
+        "ro": "Ai feedback sau vrei să susții Trebnic?",
+    },
     "motivational_footer": {
         "en": "Don't be NETrebnic - be Trebnic and get your tasks done!",
         "ro": "Nu fi NETrebnic - fii Trebnic și termină-ți treburile!",
@@ -245,7 +279,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "feature_request": {"en": "Feature request", "ro": "Funcționalitate nouă"},
     "other": {"en": "Other", "ro": "Altele"},
     "message": {"en": "Message", "ro": "Mesaj"},
-    "message_hint": {"en": "Describe the issue or feature request...", "ro": "Descrie problema sau cererea de funcționalitate..."},
+    "message_hint": {
+        "en": "Describe the issue or feature request...",
+        "ro": "Descrie problema sau cererea de funcționalitate...",
+    },
     "send_feedback": {"en": "Send feedback", "ro": "Trimite feedback"},
     "found_bug": {"en": "Found a bug? Have an idea? Let us know!", "ro": "Ai găsit un bug? Ai o idee? Spune-ne!"},
     "feedback_sent": {"en": "Feedback sent, thank you!", "ro": "Feedback trimis, mulțumim!"},
@@ -267,13 +304,19 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "config_saved": {"en": "Configuration saved", "ro": "Configurare salvată"},
     "configured": {"en": "Configured", "ro": "Configurat"},
     "not_configured": {"en": "Not configured", "ro": "Neconfigurat"},
-    "need_help_link": {"en": "Need help using Trebnic? View the guide", "ro": "Ai nevoie de ajutor cu Trebnic? Vezi ghidul"},
+    "need_help_link": {
+        "en": "Need help using Trebnic? View the guide",
+        "ro": "Ai nevoie de ajutor cu Trebnic? Vezi ghidul",
+    },
 
     # Task view
     "all_caught_up": {"en": "All caught up!", "ro": "Totul la zi!"},
     "enjoy_your_day": {"en": "Enjoy your day!", "ro": "Bucură-te de ziua ta!"},
     "add_details": {"en": "Add details", "ro": "Detalii"},
-    "add_details_tooltip": {"en": "Click to add tags, due date, and more", "ro": "Click pentru a adăuga etichete, dată limită și altele"},
+    "add_details_tooltip": {
+        "en": "Click to add tags, due date, and more",
+        "ro": "Click pentru a adăuga etichete, dată limită și altele",
+    },
     "add_new_task": {"en": "Add a new task...", "ro": "Pune o treabă nouă..."},
     "estimated_time": {"en": "Estimated time", "ro": "Timp estimat"},
     "time_range_hint": {"en": "5 min - 8 hrs 20 min", "ro": "5 min - 8 ore 20 min"},
@@ -310,7 +353,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "efficiency": {"en": "Efficiency", "ro": "Eficiență"},
     "break_label": {"en": "Break", "ro": "Pauză"},
     "no_time_entries": {"en": "No time entries yet", "ro": "Încă nu există înregistrări de timp"},
-    "start_timer_hint": {"en": "Start a timer on this task to track your time", "ro": "Pornește un cronometru pe această treabă pentru a-ți înregistra timpul"},
+    "start_timer_hint": {
+        "en": "Start a timer on this task to track your time",
+        "ro": "Pornește un cronometru pe această treabă pentru a-ți înregistra timpul",
+    },
     "time_entries_title": {"en": "Time entries", "ro": "Înregistrări de timp"},
     "total_label": {"en": "Total", "ro": "Total"},
     "click_duration_hint": {"en": "Click duration to edit", "ro": "Click pe durată pentru a edita"},
@@ -336,14 +382,36 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "encryption_not_enabled": {"en": "Encryption is not enabled", "ro": "Criptarea nu este activată"},
     "encryption_not_enabled_desc": {
         "en": "Enable encryption to protect your tasks, notes, and project names with a master password.",
-        "ro": "Activează criptarea pentru a-ți proteja treburile, notițele și numele proiectelor cu o parolă principală.",
+        "ro": (
+            "Activează criptarea pentru a-ți proteja treburile, notițele și numele proiectelor "
+            "cu o parolă principală."
+        ),
     },
     "set_up_encryption": {"en": "Set up encryption", "ro": "Configurează criptarea"},
     "change_password": {"en": "Change password", "ro": "Schimbă parola"},
     "update_master_password": {"en": "Update your master password", "ro": "Actualizează parola principală"},
     "biometric_unlock": {"en": "Biometric unlock", "ro": "Deblocare biometrică"},
-    "biometric_unlock_desc": {"en": "Use Face ID / Touch ID / fingerprint", "ro": "Folosește Face ID / Touch ID / amprentă"},
+    "biometric_unlock_desc": {
+        "en": "Use Face ID / Touch ID / fingerprint",
+        "ro": "Folosește Face ID / Touch ID / amprentă",
+    },
     "disable_encryption": {"en": "Disable encryption", "ro": "Dezactivează criptarea"},
+    "disable_encryption_warning": {
+        "en": "This will permanently remove encryption from all your data.",
+        "ro": "Aceasta va elimina permanent criptarea de pe toate datele tale.",
+    },
+    "disable_encryption_desc": {
+        "en": "Your data will be decrypted and stored as plain text. Enter your master password to confirm.",
+        "ro": "Datele tale vor fi decriptate și stocate ca text simplu. Introdu parola principală pentru a confirma.",
+    },
+    "enter_password_to_confirm": {
+        "en": "Enter password to confirm",
+        "ro": "Introdu parola pentru a confirma",
+    },
+    "encryption_disabled": {
+        "en": "Encryption has been disabled",
+        "ro": "Criptarea a fost dezactivată",
+    },
     "create_password": {"en": "Create password", "ro": "Creează parola"},
     "choose_strong_password": {"en": "Choose a strong password", "ro": "Alege o parolă puternică"},
     "confirm_password": {"en": "Confirm password", "ro": "Confirmă parola"},
@@ -420,8 +488,14 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "test_notification": {"en": "Test notification", "ro": "Notificare test"},
     "test_notification_title": {"en": "Test notification", "ro": "Notificare test"},
     "test_notification_body": {"en": "Notifications are working!", "ro": "Notificările funcționează!"},
-    "test_notification_mobile_only": {"en": "Test notifications are only available on mobile", "ro": "Notificările de test sunt disponibile doar pe mobil"},
-    "test_notification_unavailable": {"en": "Notifications are not available on this device", "ro": "Notificările nu sunt disponibile pe acest dispozitiv"},
+    "test_notification_mobile_only": {
+        "en": "Test notifications are only available on mobile",
+        "ro": "Notificările de test sunt disponibile doar pe mobil",
+    },
+    "test_notification_unavailable": {
+        "en": "Notifications are not available on this device",
+        "ro": "Notificările nu sunt disponibile pe acest dispozitiv",
+    },
     "test_notification_sent": {"en": "Notification sent", "ro": "Notificare trimisă"},
     "test_notification_failed": {"en": "Notification delivery failed", "ro": "Trimiterea notificării a eșuat"},
     "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},

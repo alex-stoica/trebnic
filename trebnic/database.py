@@ -121,10 +121,14 @@ class Database:
         created lazily and reused for all operations.
         """
         if self._conn is None:
-            self._conn = await aiosqlite.connect(DB_PATH)
-            self._conn.row_factory = aiosqlite.Row
-            await self._conn.execute("PRAGMA journal_mode=WAL")
-            await self._conn.execute("PRAGMA busy_timeout=5000")
+            try:
+                self._conn = await aiosqlite.connect(DB_PATH)
+                self._conn.row_factory = aiosqlite.Row
+                await self._conn.execute("PRAGMA journal_mode=WAL")
+                await self._conn.execute("PRAGMA busy_timeout=5000")
+            except (sqlite3.Error, OSError) as e:
+                self._conn = None
+                raise DatabaseError(f"Cannot open database at {DB_PATH}: {e}") from e
         return self._conn
 
     async def _get_lock(self) -> asyncio.Lock:
@@ -212,7 +216,8 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
-                CREATE INDEX IF NOT EXISTS idx_notifications_trigger ON scheduled_notifications(trigger_time, delivered);
+                CREATE INDEX IF NOT EXISTS idx_notifications_trigger
+                    ON scheduled_notifications(trigger_time, delivered);
             """)
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error initializing database schema: {e}")

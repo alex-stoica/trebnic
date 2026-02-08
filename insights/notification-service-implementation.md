@@ -83,7 +83,7 @@ The following integration points are now implemented:
 ### Platform status
 - **Windows**: Working (plyer backend, pure Python + ctypes)
 - **Android**: Not working (plyer imports but fails silently, pyjnius won't load)
-- See `insights/proposed_notification_plan.md` for details on Android blockers
+- Android blockers: plyer imports but fails silently, pyjnius won't load on current Flet build
 
 ## Testing considerations
 
