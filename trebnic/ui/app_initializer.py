@@ -126,6 +126,8 @@ class AppInitializer:
         self.components.settings_service = SettingsService(self.components.state)
 
         self.components.snack = SnackService(self.page)
+        if self.components.auth_ctrl:
+            self.components.auth_ctrl.snack = self.components.snack
         self.components.timer_svc = TimerService()
 
         registry.register(Services.TASK, self.components.service)

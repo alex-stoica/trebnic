@@ -28,6 +28,7 @@ dependencies = [
     "httpx>=0.28.0,<1.0.0",
     "python-dotenv>=1.2.1,<2.0.0",
     "resend>=2.21.0,<3.0.0",
+    "plyer>=2.1.0",
 ]
 
 [project.urls]
@@ -47,9 +48,8 @@ product = "Trebnic"
 module = "main"
 source_dir = "trebnic"
 
-# Temporarily disabled android deps for debugging
-# [tool.flet.android]
-# dependencies = ["pyjnius", "android-notify==1.60.8.dev0"]
+[tool.flet.android]
+dependencies = ["pyjnius"]
 
 [tool.flet.android.permission]
 "android.permission.POST_NOTIFICATIONS" = true

@@ -101,7 +101,7 @@ class TimerController:
         self.timer_widget.update_time(seconds)
         try:
             self.timer_widget.update()
-        except Exception:
+        except RuntimeError:
             pass  # Widget disposed, service keeps running
 
     def _on_started(self, task: Task) -> None:
@@ -109,7 +109,7 @@ class TimerController:
         self.timer_widget.start(task.title)
         try:
             self.timer_widget.update()
-        except Exception:
+        except RuntimeError:
             pass
 
     def _on_stopped(self, data: Optional[dict]) -> None:
@@ -117,7 +117,7 @@ class TimerController:
         self.timer_widget.stop()
         try:
             self.page.update()
-        except Exception:
+        except RuntimeError:
             pass
 
         if data is None:

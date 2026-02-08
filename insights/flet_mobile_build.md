@@ -25,9 +25,10 @@ Without this, the Rich library (used by Flet CLI) crashes on Windows with Unicod
 ### 2. Create `requirements.txt` Next to `main.py`
 ```
 # trebnic/trebnic/requirements.txt (same folder as main.py)
-flet>=0.28.3,<0.29.0
+flet>=0.80.0
 aiosqlite>=0.19.0,<1.0.0
 ```
+> **Note:** This was updated from `flet>=0.28.3,<0.29.0` after migration to Flet 0.80.
 
 ### 3. Run Build FROM the App Source Directory
 ```bash

@@ -320,10 +320,10 @@ class ProfilePage:
                             self.snack.show(f"{t('test_notification_sent')} ({backend.value})")
                         else:
                             self.snack.show(f"{t('test_notification_failed')} ({backend.value})", COLORS["danger"])
-                    except Exception as ex:
+                    except (OSError, RuntimeError, ValueError) as ex:
                         self.snack.show(f"Error: {ex}", COLORS["danger"])
                 self.page.run_task(_test)
-            except Exception as ex:
+            except (OSError, RuntimeError, ValueError) as ex:
                 self.snack.show(f"Error: {ex}", COLORS["danger"])
 
         notifications_switch = ft.Switch(

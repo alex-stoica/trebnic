@@ -1,6 +1,7 @@
 import aiosqlite
 import asyncio
 import json
+import sqlite3
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -154,7 +155,7 @@ class Database:
         if self._conn is not None:
             try:
                 await self._conn.close()
-            except Exception as e:
+            except (sqlite3.Error, OSError) as e:
                 logger.warning(f"Error closing database connection: {e}")
             finally:
                 self._conn = None
@@ -213,7 +214,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
                 CREATE INDEX IF NOT EXISTS idx_notifications_trigger ON scheduled_notifications(trigger_time, delivered);
             """)
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error initializing database schema: {e}")
             raise DatabaseError(f"Failed to initialize schema: {e}") from e
 
@@ -279,7 +280,7 @@ class Database:
                     "CREATE INDEX IF NOT EXISTS idx_notifications_trigger "
                     "ON scheduled_notifications(trigger_time, delivered)"
                 )
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
 
@@ -363,7 +364,7 @@ class Database:
             }
             await self.save_task(gym_task)
 
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error seeding default data: {e}")
             raise DatabaseError(f"Failed to seed default data: {e}") from e
 
@@ -428,7 +429,7 @@ class Database:
                 )
                 await conn.commit()
                 return t["id"]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving task: {e}")
             raise DatabaseError(f"Failed to save task: {e}") from e
 
@@ -438,7 +439,7 @@ class Database:
                 await conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
                 await conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error deleting task {task_id}: {e}")
             raise DatabaseError(f"Failed to delete task: {e}") from e
 
@@ -489,7 +490,7 @@ class Database:
                 )
                 await conn.commit()
                 return len(task_ids)
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error deleting recurring tasks '{title}': {e}")
             raise DatabaseError(f"Failed to delete recurring tasks: {e}") from e
 
@@ -511,7 +512,7 @@ class Database:
                     [(order, task_id) for task_id, order in task_orders]
                 )
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error updating task sort orders: {e}")
             raise DatabaseError(f"Failed to update task sort orders: {e}") from e
 
@@ -543,7 +544,7 @@ class Database:
                             )
                         result.append(task_dict)
                     return result
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading tasks: {e}")
             raise DatabaseError(f"Failed to load tasks: {e}") from e
 
@@ -564,7 +565,7 @@ class Database:
                     (p["id"], name, p["icon"], p["color"])
                 )
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving project: {e}")
             raise DatabaseError(f"Failed to save project: {e}") from e
 
@@ -587,7 +588,7 @@ class Database:
                 await conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
                 await conn.commit()
                 return count
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error deleting project {project_id}: {e}")
             raise DatabaseError(f"Failed to delete project: {e}") from e
 
@@ -602,7 +603,7 @@ class Database:
                         project["name"] = _decrypt_field(project.get("name", ""))
                         result.append(project)
                     return result
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading projects: {e}")
             raise DatabaseError(f"Failed to load projects: {e}") from e
 
@@ -625,7 +626,7 @@ class Database:
                 )
                 await conn.commit()
                 return entry["id"]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving time entry: {e}")
             raise DatabaseError(f"Failed to save time entry: {e}") from e
 
@@ -641,7 +642,7 @@ class Database:
                     query = "SELECT * FROM time_entries ORDER BY start_time DESC"
                     async with conn.execute(query) as cursor:
                         return [dict(r) async for r in cursor]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading time entries: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
@@ -654,7 +655,7 @@ class Database:
                     (task_id,)
                 ) as cursor:
                     return [dict(r) async for r in cursor]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading time entries for task {task_id}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
@@ -670,7 +671,7 @@ class Database:
                     (date_str,)
                 ) as cursor:
                     return [dict(r) async for r in cursor]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading time entries for date {target_date}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
 
@@ -680,7 +681,7 @@ class Database:
             async with self._get_connection() as conn:
                 await conn.execute("DELETE FROM time_entries WHERE id=?", (entry_id,))
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error deleting time entry {entry_id}: {e}")
             raise DatabaseError(f"Failed to delete time entry: {e}") from e
 
@@ -697,7 +698,7 @@ class Database:
                 ) as cursor:
                     row = await cursor.fetchone()
                     return dict(row) if row else None
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading incomplete time entry: {e}")
             return None
 
@@ -716,7 +717,7 @@ class Database:
                 ) as cursor:
                     result = await cursor.fetchone()
                     return int(result[0] or 0)
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error getting total tracked today: {e}")
             raise DatabaseError(f"Failed to get total tracked today: {e}") from e
 
@@ -730,7 +731,7 @@ class Database:
                 ) as cursor:
                     row = await cursor.fetchone()
                     return json.loads(row["value"]) if row else default
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.warning(f"Error getting setting {key}: {e}")
             return default
 
@@ -742,7 +743,7 @@ class Database:
                     (key, json.dumps(value))
                 )
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error setting {key}: {e}")
             raise DatabaseError(f"Failed to save setting: {e}") from e
 
@@ -754,7 +755,7 @@ class Database:
                     "DELETE FROM tasks; DELETE FROM projects; DELETE FROM settings;"
                 )
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error clearing database: {e}")
             raise DatabaseError(f"Failed to clear database: {e}") from e
 
@@ -766,7 +767,7 @@ class Database:
                 ) as cursor:
                     row = await cursor.fetchone()
                     return row[0] == 0
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error checking if database is empty: {e}")
             raise DatabaseError(f"Failed to check database: {e}") from e
 
@@ -854,7 +855,7 @@ class Database:
                             )
                         result.append(task_dict)
                     return result
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading filtered tasks: {e}")
             raise DatabaseError(f"Failed to load filtered tasks: {e}") from e
 
@@ -875,7 +876,7 @@ class Database:
                     projects = [dict(r) async for r in cursor]
 
                 return tasks, projects
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading encrypted data: {e}")
             raise DatabaseError(f"Failed to load encrypted data: {e}") from e
 
@@ -952,7 +953,7 @@ class Database:
                 await conn.commit()
                 return tasks_updated, projects_updated
 
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error re-encrypting data: {e}")
             raise DatabaseError(f"Failed to re-encrypt data: {e}") from e
 
@@ -1002,7 +1003,7 @@ class Database:
                 )
                 await conn.commit()
                 return notification["id"]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving notification: {e}")
             raise DatabaseError(f"Failed to save notification: {e}") from e
 
@@ -1024,7 +1025,7 @@ class Database:
                     (trigger_before,)
                 ) as cursor:
                     return [dict(r) async for r in cursor]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading pending notifications: {e}")
             raise DatabaseError(f"Failed to load pending notifications: {e}") from e
 
@@ -1037,7 +1038,7 @@ class Database:
                     (notification_id,)
                 )
                 await conn.commit()
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error marking notification delivered: {e}")
             raise DatabaseError(f"Failed to mark notification delivered: {e}") from e
 
@@ -1056,7 +1057,7 @@ class Database:
                 )
                 await conn.commit()
                 return cursor.rowcount
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error canceling notifications for task {task_id}: {e}")
             raise DatabaseError(f"Failed to cancel notifications: {e}") from e
 
@@ -1075,7 +1076,7 @@ class Database:
                 )
                 await conn.commit()
                 return cursor.rowcount
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error deleting notifications for task {task_id}: {e}")
             raise DatabaseError(f"Failed to delete notifications: {e}") from e
 
@@ -1089,7 +1090,7 @@ class Database:
                     (task_id,)
                 ) as cursor:
                     return [dict(r) async for r in cursor]
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading notifications for task {task_id}: {e}")
             raise DatabaseError(f"Failed to load notifications: {e}") from e
 
@@ -1107,7 +1108,7 @@ class Database:
                 )
                 await conn.commit()
                 return cursor.rowcount
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error canceling all pending notifications: {e}")
             raise DatabaseError(f"Failed to cancel notifications: {e}") from e
 

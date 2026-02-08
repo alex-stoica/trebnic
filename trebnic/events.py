@@ -170,7 +170,7 @@ class EventBus:
             for callback in callbacks:
                 try:
                     callback(data)
-                except Exception as e:
+                except Exception as e:  # Intentionally broad: dispatcher must survive any handler failure
                     logger.error(f"Error in event handler for {event}: {e}")
 
     def clear(self) -> None:

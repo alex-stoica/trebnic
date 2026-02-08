@@ -15,6 +15,7 @@ from config import (
     PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH,
     FONT_SIZE_SM, FONT_SIZE_MD, SPACING_MD, SPACING_LG,
 )
+from database import DatabaseError
 from i18n import t
 from ui.dialogs.base import open_dialog
 
@@ -217,7 +218,7 @@ def open_setup_password_dialog(
         try:
             await on_setup(password)
             page.pop_dialog()
-        except Exception as ex:
+        except (DatabaseError, OSError, ValueError) as ex:
             error_text.value = f"{t('setup_failed')}: {ex}"
             error_text.visible = True
         finally:
@@ -347,13 +348,12 @@ def open_change_password_dialog(
             success = await on_change(current, new_password)
             if success:
                 page.pop_dialog()
-                # TODO: Show success snackbar
             else:
                 error_text.value = t("current_password_incorrect")
                 error_text.visible = True
                 current_field.value = ""
                 current_field.focus()
-        except Exception as ex:
+        except (DatabaseError, OSError, ValueError) as ex:
             error_text.value = f"{t('failed')}: {ex}"
             error_text.visible = True
         finally:

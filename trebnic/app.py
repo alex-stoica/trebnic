@@ -131,11 +131,11 @@ class TrebnicApp:
         async def cleanup_all() -> None:
             try:
                 await notification_service.cleanup()
-            except Exception as e:
+            except Exception as e:  # Intentionally broad: cleanup must complete even if one step fails
                 logger.warning(f"Error cleaning up notification service: {e}")
             try:
                 await db.close()
-            except Exception as e:
+            except Exception as e:  # Intentionally broad: cleanup must complete even if one step fails
                 logger.warning(f"Error closing database on cleanup: {e}")
 
         try:

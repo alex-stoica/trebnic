@@ -11,7 +11,9 @@ import flet as ft
 import logging
 from typing import Callable, Optional, Awaitable
 
+from config import COLORS
 from database import db
+from i18n import t
 from services.auth import AuthService, AuthState, get_auth_service
 from ui.dialogs.auth_dialogs import (
     open_unlock_dialog,
@@ -44,13 +46,15 @@ class AuthController:
         auth_ctrl.show_encryption_settings()
     """
 
-    def __init__(self, page: ft.Page) -> None:
+    def __init__(self, page: ft.Page, snack=None) -> None:
         """Initialize the auth controller.
 
         Args:
             page: Flet page for showing dialogs
+            snack: Optional SnackService for showing feedback messages
         """
         self.page = page
+        self.snack = snack
         self._auth: Optional[AuthService] = None
         self._on_unlocked: Optional[Callable[[], Awaitable[None]]] = None
         self._on_locked: Optional[Callable[[], None]] = None
@@ -164,11 +168,14 @@ class AuthController:
             return
 
         async def handle_change(old_password: str, new_password: str) -> bool:
-            return await self._auth.change_master_password(
+            success = await self._auth.change_master_password(
                 old_password,
                 new_password,
                 reencrypt_data_fn=db.reencrypt_all_data
             )
+            if success and self.snack:
+                self.snack.show(t("password_changed"), COLORS["green"])
+            return success
 
         open_change_password_dialog(self.page, on_change=handle_change)
 

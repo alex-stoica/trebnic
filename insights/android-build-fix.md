@@ -6,7 +6,7 @@
 - **Error**: `ModuleNotFoundError: No module named 'flet'`
 - **Likely origin**: Started when adding notification functionality (commits after `08ab2ea`)
 - Notification feature required new libraries (plyer, pyjnius, android-notify, etc.)
-- Gemini Pro 3 attempted fixes that introduced bad config (flet==0.80.4 doesn't exist)
+- Gemini Pro 3 attempted fixes that introduced bad config (pinned a non-existent flet version)
 
 ## Investigation
 
@@ -22,14 +22,14 @@
 - NO `trebnic/pyproject.toml`
 - NO `trebnic/poetry.lock`
 
-**Current broken state:**
+**Broken state at time of investigation:**
 - Root `pyproject.toml`: same flet version + many new deps
-- `trebnic/pyproject.toml`: EXISTS with `flet = "^0.80.4"` (NON-EXISTENT VERSION!)
-- `trebnic/requirements.txt`: has `flet==0.80.4` (WRONG!)
+- `trebnic/pyproject.toml`: EXISTS with `flet = "^0.80.4"` (non-existent version at the time)
+- `trebnic/requirements.txt`: has `flet==0.80.4` (wrong pinned version)
 - `trebnic/poetry.lock`: EXISTS (confuses build?)
 
 ### Suspected root cause
-`flet==0.80.4` does not exist. Current flet is ~0.28.x. This typo/hallucination causes "no module named flet".
+`flet==0.80.4` did not exist at the time. The pinned version was a hallucination from Gemini Pro 3, causing "no module named flet".
 
 ### Key files to watch
 - `pyproject.toml` (root)
