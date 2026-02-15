@@ -25,6 +25,7 @@ API breaking changes encountered when upgrading from flet 0.28.x to 0.80.x.
 | 17 | `Dropdown(on_change=...)` removed | Changed to `on_select=` in `task_dialogs.py` |
 | 18 | `page.run_task` requires coroutine function, not object | Changed `run_task(func())` to `run_task(func)` in `timer.py` |
 | 19 | Multiple `page.run_task()` calls execute in parallel | Combined sequential async operations into single function in `app.py` |
+| 20 | `run_task` with method call returns coroutine object | `run_task(self._finalize_stop(...))` passes a coroutine object, not a function. Wrap in `async def` closure. Same bug in `recover()` with `self._tick_loop()`. TypeError is silently swallowed by Flet's event handler, making stop button appear unresponsive |
 
 ---
 
@@ -96,6 +97,14 @@ page.run_task(my_async_func)
 async def wrapper() -> None:
     await my_async_func(arg1, arg2)
 page.run_task(wrapper)
+
+# WRONG - calling the method creates a coroutine object, not a function:
+page.run_task(self.some_method(arg1, arg2))  # TypeError (silently swallowed!)
+
+# WRONG - calling a no-arg method also creates a coroutine object:
+page.run_task(self._tick_loop())  # TypeError
+# RIGHT:
+page.run_task(self._tick_loop)  # passes the function itself
 ```
 
 ### Async cleanup ordering
