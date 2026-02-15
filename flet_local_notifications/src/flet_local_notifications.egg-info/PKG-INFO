@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: flet-local-notifications
+Version: 0.1.0
+Summary: Flet extension for native local notifications
+Requires-Python: >=3.10
+Requires-Dist: flet>=0.80.0

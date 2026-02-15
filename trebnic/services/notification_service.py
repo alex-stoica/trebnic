@@ -2,9 +2,8 @@
 Notification service for Trebnic.
 
 This module provides cross-platform notification support using:
-- Flet built-in notifications (primary): page.send_notification() available in Flet 0.21+
-- plyer (fallback): Cross-platform notifications for desktop
-- Android native (via pyjnius): Android-specific notifications (legacy)
+- Flet local notifications extension (Android): native notifications via flutter_local_notifications
+- plyer (desktop): cross-platform notifications for Windows/Linux/Mac
 
 The service schedules notifications based on task due dates and timer events,
 storing them in the database for crash recovery and rescheduling.
@@ -41,27 +40,23 @@ SCHEDULER_INTERVAL_SECONDS = 60
 
 class NotificationBackend(Enum):
     """Available notification backends."""
+    FLET_EXTENSION = "flet_extension"
     PLYER = "plyer"
-    PYJNIUS = "pyjnius"
     NONE = "none"
 
 
-# Backend availability detection
+# Backend availability detection — try extension first (Android), then plyer (desktop)
 PLYER_AVAILABLE = False
-PYJNIUS_AVAILABLE = False
-_is_android = False
+FLET_EXTENSION_AVAILABLE = False
 
-# Try pyjnius - if it imports, we're on Android
 try:
-    from jnius import autoclass
-    PYJNIUS_AVAILABLE = True
-    _is_android = True
-    logger.info("pyjnius available - running on Android")
+    from flet_local_notifications import FletLocalNotifications
+    FLET_EXTENSION_AVAILABLE = True
+    logger.info("Flet local notifications extension available")
 except ImportError:
-    logger.info("pyjnius not available - not on Android")
+    logger.info("flet_local_notifications not available")
 
-# plyer for desktop (Windows/Linux/Mac) - only if not on Android
-if not _is_android:
+if not FLET_EXTENSION_AVAILABLE:
     try:
         from plyer import notification as plyer_notification
         PLYER_AVAILABLE = True
@@ -74,12 +69,12 @@ def _detect_notification_backend() -> NotificationBackend:
     """Detect the best available notification backend.
 
     Priority:
-    1. pyjnius when on Android
+    1. Flet extension (Android — pip-installed via dev_packages)
     2. plyer for desktop (Windows/Linux/Mac)
     3. None if nothing available
     """
-    if _is_android and PYJNIUS_AVAILABLE:
-        return NotificationBackend.PYJNIUS
+    if FLET_EXTENSION_AVAILABLE:
+        return NotificationBackend.FLET_EXTENSION
 
     if PLYER_AVAILABLE:
         return NotificationBackend.PLYER
@@ -117,6 +112,9 @@ class NotificationService:
         self._schedule_async: Optional[Callable[..., asyncio.Task]] = None
         self._get_state: Optional[Callable[[], Any]] = None
 
+        # Flet extension instance (Android only)
+        self._flet_notifications = None
+
         # Async control
         self._running = False
         self._stop_event: asyncio.Event = asyncio.Event()
@@ -143,29 +141,40 @@ class NotificationService:
         self._schedule_async = async_scheduler
         self._get_state = get_state
 
+        # Instantiate Flet extension on Android.
+        # Service auto-registers via Service.init() → context.page._services.register_service().
+        # Do NOT add to page.overlay or page.services manually.
+        if self._backend == NotificationBackend.FLET_EXTENSION and FLET_EXTENSION_AVAILABLE:
+            self._flet_notifications = FletLocalNotifications(on_notification_tap=self._on_notification_tapped)
+            logger.info("Flet local notifications extension instantiated")
+
     async def request_permission(self) -> PermissionResult:
         """Request notification permission.
 
-        On Android 13+, runtime permission is required. On desktop, permission
-        is assumed granted (no runtime permission needed).
+        On Android 13+, runtime permission is required via the extension.
+        On desktop, permission is assumed granted (no runtime permission needed).
 
         Returns:
             PermissionResult indicating whether permission was granted/denied.
         """
-        # Plyer handles permissions - just return granted
         if self._backend == NotificationBackend.PLYER:
             logger.info("Plyer backend - assuming permission granted")
             return PermissionResult.GRANTED
 
-        # Desktop platforms don't need runtime permission
-        if not _is_android:
-            logger.info("Desktop platform - notification permission not required")
-            return PermissionResult.NOT_REQUIRED
+        if self._backend == NotificationBackend.FLET_EXTENSION and self._flet_notifications is not None:
+            # Check current status first to avoid redundant permission dialogs
+            try:
+                status = await self._flet_notifications.check_permissions()
+                if status.lower() == "true":
+                    logger.info("Notification permission already granted")
+                    return PermissionResult.GRANTED
+            except (OSError, RuntimeError, TypeError, ValueError) as e:
+                logger.warning(f"Failed to check permission status: {e}")
 
-        # android_notify handles permissions internally
-        if PYJNIUS_AVAILABLE:
-            # Permission is declared in pyproject.toml and requested by OS
-            return PermissionResult.GRANTED
+            result = await self._flet_notifications.request_permissions()
+            granted = str(result).lower() == "true"
+            logger.info(f"Flet extension permission result: {granted}")
+            return PermissionResult.GRANTED if granted else PermissionResult.DENIED
 
         return PermissionResult.NOT_REQUIRED
 
@@ -315,8 +324,8 @@ class NotificationService:
 
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
-        elif self._backend == NotificationBackend.PYJNIUS:
-            await self._deliver_android_notification(title, body, task_id)
+        elif self._backend == NotificationBackend.FLET_EXTENSION:
+            await self._deliver_extension_notification(title, body, task_id)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
             "notification_id": notification.get("id"),
@@ -324,82 +333,34 @@ class NotificationService:
             "task_id": task_id,
         })
 
-    async def _deliver_android_notification(
+    async def _deliver_extension_notification(
         self, title: str, body: str, task_id: Optional[int]
     ) -> bool:
-        """Deliver notification via android_notify package.
+        """Deliver notification via Flet local notifications extension (Android).
 
         Returns:
             True if notification was delivered successfully, False otherwise.
         """
-        if not PYJNIUS_AVAILABLE:
+        if self._flet_notifications is None:
             return False
 
         try:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: self._show_android_notification(title, body, task_id)
-            )
-            return True
-        except (OSError, RuntimeError) as e:
-            logger.error(f"Error showing Android notification: {e}")
-            return False
-
-    def _show_android_notification(
-        self, title: str, body: str, task_id: Optional[int]
-    ) -> None:
-        """Show Android notification using pyjnius.
-
-        Uses Flet's activity pattern (not Kivy).
-        See: https://flet.dev/blog/tap-into-native-android-and-ios-apis-with-Pyjnius-and-pyobjus/
-        """
-        import os
-        try:
-            from jnius import autoclass
-
-            # Get activity using Flet's environment variable
-            activity_class = os.getenv("MAIN_ACTIVITY_HOST_CLASS_NAME")
-            if not activity_class:
-                raise RuntimeError("MAIN_ACTIVITY_HOST_CLASS_NAME not set")
-
-            ActivityHost = autoclass(activity_class)
-            activity = ActivityHost.mActivity
-            context = activity.getApplicationContext()
-
-            # Android classes
-            Context = autoclass("android.content.Context")
-            NotificationBuilder = autoclass("android.app.Notification$Builder")
-            NotificationManager = autoclass("android.app.NotificationManager")
-            Build = autoclass("android.os.Build")
-
-            notification_manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
-            channel_id = "trebnic_reminders"
-
-            # Create notification channel for Android 8+ (API 26)
-            if Build.VERSION.SDK_INT >= 26:
-                NotificationChannel = autoclass("android.app.NotificationChannel")
-                channel = NotificationChannel(
-                    channel_id,
-                    "Task Reminders",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                )
-                notification_manager.createNotificationChannel(channel)
-                builder = NotificationBuilder(context, channel_id)
-            else:
-                builder = NotificationBuilder(context)
-
-            builder.setContentTitle(title)
-            builder.setContentText(body)
-            builder.setSmallIcon(context.getApplicationInfo().icon)
-            builder.setAutoCancel(True)
-
             notification_id = task_id if task_id else abs(hash(title)) % 100000
-            notification_manager.notify(notification_id, builder.build())
-
-        except (OSError, RuntimeError) as e:
-            logger.error(f"Error in Android notification: {e}")
-            raise
+            payload_str = json.dumps({"task_id": task_id})
+            result = await self._flet_notifications.show_notification(
+                notification_id=notification_id,
+                title=title,
+                body=body,
+                payload=payload_str,
+            )
+            if result != "ok":
+                logger.warning(f"Notification delivery failed: {result}")
+                return False
+            logger.info(f"Notification sent (flet extension): id={notification_id}")
+            return True
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
+            logger.error(f"Error showing extension notification: {e}")
+            return False
 
     async def _deliver_plyer_notification(self, title: str, body: str) -> bool:
         """Deliver notification via plyer (desktop fallback).
@@ -427,9 +388,15 @@ class NotificationService:
             return False
 
     def _on_notification_tapped(self, e: Any) -> None:
-        """Handle notification tap (Flet backend only)."""
+        """Handle notification tap from the Flet extension.
+
+        The extension sends e.data as a JSON string containing the payload
+        (which includes task_id).
+        """
         try:
-            payload = json.loads(e.payload) if e.payload else {}
+            # Extension sends payload as e.data (string)
+            data_str = e.data if hasattr(e, "data") else (e.payload if hasattr(e, "payload") else "")
+            payload = json.loads(data_str) if data_str else {}
             task_id = payload.get("task_id")
 
             event_bus.emit(AppEvent.NOTIFICATION_TAPPED, {
@@ -580,8 +547,8 @@ class NotificationService:
 
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
-        elif self._backend == NotificationBackend.PYJNIUS:
-            await self._deliver_android_notification(title, body, task_id)
+        elif self._backend == NotificationBackend.FLET_EXTENSION:
+            await self._deliver_extension_notification(title, body, task_id)
 
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
             "task_id": task_id,
@@ -606,8 +573,7 @@ class NotificationService:
         except DatabaseError as e:
             logger.error(f"Error canceling pending notifications: {e}")
 
-        # Note: android_notify doesn't provide a clear method
-        # OS handles notification cleanup when app closes
+        self._flet_notifications = None
 
     def _is_notifications_enabled(self) -> bool:
         """Check if notifications are enabled in settings."""
@@ -658,11 +624,14 @@ class NotificationService:
         Returns:
             True if notification was delivered successfully, False otherwise.
         """
+        logger.info(f"Sending test notification: title={title}")
+        result = False
         if self._backend == NotificationBackend.PLYER:
-            return await self._deliver_plyer_notification(title, body)
-        elif self._backend == NotificationBackend.PYJNIUS:
-            return await self._deliver_android_notification(title, body, None)
-        return False
+            result = await self._deliver_plyer_notification(title, body)
+        elif self._backend == NotificationBackend.FLET_EXTENSION:
+            result = await self._deliver_extension_notification(title, body, None)
+        logger.info(f"Test notification result: {result}")
+        return result
 
     @classmethod
     def reset_instance(cls) -> None:

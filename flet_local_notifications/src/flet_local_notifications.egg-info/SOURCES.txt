@@ -1,0 +1,12 @@
+pyproject.toml
+src/flet_local_notifications/__init__.py
+src/flet_local_notifications/flet_local_notifications.py
+src/flet_local_notifications.egg-info/PKG-INFO
+src/flet_local_notifications.egg-info/SOURCES.txt
+src/flet_local_notifications.egg-info/dependency_links.txt
+src/flet_local_notifications.egg-info/requires.txt
+src/flet_local_notifications.egg-info/top_level.txt
+src/flutter/flet_local_notifications/pubspec.yaml
+src/flutter/flet_local_notifications/lib/flet_local_notifications.dart
+src/flutter/flet_local_notifications/lib/src/extension.dart
+src/flutter/flet_local_notifications/lib/src/notifications_service.dart

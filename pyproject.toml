@@ -29,6 +29,7 @@ dependencies = [
     "python-dotenv>=1.2.1,<2.0.0",
     "resend>=2.21.0,<3.0.0",
     "plyer>=2.1.0",
+    "flet-local-notifications",
 ]
 
 [project.urls]
@@ -47,9 +48,10 @@ product = "Trebnic"
 [tool.flet.app]
 module = "main"
 source_dir = "trebnic"
+exclude = ["flet_local_notifications"]
 
-[tool.flet.android]
-dependencies = ["pyjnius"]
+[tool.flet.dev_packages]
+flet-local-notifications = "flet_local_notifications"
 
 [tool.flet.android.permission]
 "android.permission.POST_NOTIFICATIONS" = true
