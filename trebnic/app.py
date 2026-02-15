@@ -46,6 +46,9 @@ class TrebnicApp:
         # Register cleanup on page close
         self.page.on_close = self._on_page_close
 
+        # Sync timer on app resume (Android screen-off suspends event loop, losing ticks)
+        self.page.on_app_lifecycle_state_change = self._on_app_lifecycle_state_change
+
         # Initialize auth and check if unlock needed
         self.page.run_task(self._init_auth)
 
@@ -113,6 +116,12 @@ class TrebnicApp:
     def _on_page_close(self, e: ft.ControlEvent) -> None:
         """Handle page close - cleanup resources."""
         self._cleanup()
+
+    def _on_app_lifecycle_state_change(self, e: ft.AppLifecycleStateChangeEvent) -> None:
+        """Handle app lifecycle changes - sync timer on resume from background."""
+        if e.state in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
+            if self.timer_svc.running:
+                event_bus.emit(AppEvent.TIMER_SYNC)
 
     def _cleanup(self) -> None:
         """Clean up all resources."""

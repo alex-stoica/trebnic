@@ -46,6 +46,9 @@ class TimerController:
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TIMER_STOPPED, self._on_stopped)
         )
+        self._subscriptions.append(
+            event_bus.subscribe(AppEvent.TIMER_SYNC, self._on_sync)
+        )
 
     def start_timer(self, task: Task) -> None:
         """Start the timer for a task."""
@@ -112,6 +115,10 @@ class TimerController:
         except RuntimeError:
             pass
 
+    def _on_sync(self, data: None) -> None:
+        """Handle timer sync event - recalculate from wall clock."""
+        self.timer_svc.sync_from_wall_clock()
+
     def _on_stopped(self, data: Optional[dict]) -> None:
         """Handle timer stopped event - update UI, show message, and notification."""
         self.timer_widget.stop()
@@ -129,7 +136,8 @@ class TimerController:
         else:
             time_display = format_timer_display(data['elapsed'])
             self.snack.show(
-                t("time_added_to_task").replace("{time}", time_display).replace("{title}", data['task'].title)
+                t("time_added_to_task").replace("{time}", time_display).replace("{title}", data['task'].title),
+                COLORS["green"],
             )
 
             # Show timer completion notification

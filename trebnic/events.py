@@ -42,6 +42,7 @@ class AppEvent(Enum):
     TIMER_STARTED = auto()
     TIMER_STOPPED = auto()
     TIMER_TICK = auto()
+    TIMER_SYNC = auto()
 
     # Navigation and UI events
     NAV_CHANGED = auto()

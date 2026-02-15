@@ -131,9 +131,11 @@ class TimerService:
         self.running = False
         self._stop_event.set()
 
-        # Capture state before clearing
+        # Capture state before clearing - use wall clock for accuracy (ticks may be lost during screen-off)
         task = self.active_task
         elapsed = self.seconds
+        if self.start_time:
+            elapsed = max(elapsed, int((datetime.now() - self.start_time).total_seconds()))
         should_save = elapsed >= MIN_TIMER_SECONDS
         entry = self.current_entry
         entry_id_to_delete = entry.id if entry and not should_save else None
@@ -144,11 +146,11 @@ class TimerService:
         self.start_time = None
         self.current_entry = None
 
-        # Schedule async finalization
+        # Schedule async finalization (wrap in closure - run_task requires function, not coroutine object)
         if self._schedule_async:
-            self._schedule_async(
-                self._finalize_stop(task, elapsed, should_save, entry, entry_id_to_delete)
-            )
+            async def _do_finalize():
+                await self._finalize_stop(task, elapsed, should_save, entry, entry_id_to_delete)
+            self._schedule_async(_do_finalize)
 
     async def _finalize_stop(
         self,
@@ -159,20 +161,25 @@ class TimerService:
         entry_id_to_delete: Optional[int],
     ) -> None:
         """Finalize timer stop - save or delete entry."""
-        if should_save:
-            if entry:
-                entry.end_time = datetime.now()
-                await self._time_entry_svc.save_time_entry(entry)
+        try:
+            if should_save:
+                if entry:
+                    entry.end_time = datetime.now()
+                    await self._time_entry_svc.save_time_entry(entry)
 
-            if task:
-                task.spent_seconds += elapsed
-                await self._task_svc.persist_task(task)
+                if task:
+                    task.spent_seconds += elapsed
+                    await self._task_svc.persist_task(task)
 
-            event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
-            event_bus.emit(AppEvent.REFRESH_UI)
-        else:
-            if entry_id_to_delete:
-                await self._time_entry_svc.delete_time_entry(entry_id_to_delete)
+                event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
+                event_bus.emit(AppEvent.REFRESH_UI)
+            else:
+                if entry_id_to_delete:
+                    await self._time_entry_svc.delete_time_entry(entry_id_to_delete)
+                event_bus.emit(AppEvent.TIMER_STOPPED, None)
+        except (DatabaseError, OSError) as e:
+            logger.error(f"Error finalizing timer stop: {e}")
+            # Always emit stop event so UI cleans up
             event_bus.emit(AppEvent.TIMER_STOPPED, None)
 
     def recover(self, entry: TimeEntry, task: Task) -> None:
@@ -190,10 +197,20 @@ class TimerService:
         self._stop_event.clear()
         self._last_heartbeat_seconds = elapsed
 
-        self._schedule_async(self._tick_loop())
+        self._schedule_async(self._tick_loop)
 
         event_bus.emit(AppEvent.TIMER_STARTED, task)
         event_bus.emit(AppEvent.TIMER_TICK, elapsed)
+
+    def sync_from_wall_clock(self) -> None:
+        """Recalculate elapsed seconds from wall clock after app resume."""
+        if not self.running or not self.start_time:
+            return
+        new_seconds = int((datetime.now() - self.start_time).total_seconds())
+        if new_seconds > self.seconds:
+            logger.info(f"Timer sync: {self.seconds}s -> {new_seconds}s (recovered {new_seconds - self.seconds}s)")
+            self.seconds = new_seconds
+            event_bus.emit(AppEvent.TIMER_TICK, self.seconds)
 
     def cleanup(self) -> None:
         """Clean up timer resources."""
