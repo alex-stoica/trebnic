@@ -17,6 +17,7 @@ from services.logic import TaskService
 from ui.helpers import format_duration, accent_btn, SnackService
 from ui.components.task_tile import TaskTile
 from ui.dialogs.base import open_dialog
+from events import event_bus, AppEvent
 
 
 class TasksView:
@@ -139,12 +140,13 @@ class TasksView:
             if len(self.state.selected_projects) == 1 else None
         )
 
-        await self.service.add_task(
+        task = await self.service.add_task(
             title=title,
             project_id=project_id,
             estimated_seconds=self.pending_details["estimated_minutes"] * 60,
             due_date=self._get_default_due_date(),
         )
+        event_bus.emit(AppEvent.TASK_CREATED, task)
 
         self.pending_details["estimated_minutes"] = self.state.default_estimated_minutes
         self.details_btn.content.controls[1].value = t("add_details")

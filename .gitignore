@@ -29,6 +29,10 @@ nul
 # Developer utilities
 cpy_files.py
 
+# Claude
+.claude/
+CLAUDE.md
+
 # Environment & credentials
 .env
 .env.local

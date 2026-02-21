@@ -22,31 +22,11 @@ Python (ft.Service)
           -> Android NotificationManager
 ```
 
-## Extension structure
+## Extension
 
-```
-flet_local_notifications/
-├── pyproject.toml
-└── src/
-    ├── flet_local_notifications/
-    │   ├── __init__.py
-    │   └── flet_local_notifications.py   # Python ft.Service subclass
-    └── flutter/
-        └── flet_local_notifications/
-            ├── pubspec.yaml              # depends on flutter_local_notifications ^19.0.0
-            └── lib/
-                ├── flet_local_notifications.dart
-                └── src/
-                    ├── extension.dart             # class MUST be named "Extension"
-                    └── notifications_service.dart
-```
+The extension is published as `flet-android-notifications` on PyPI. No local extension directory needed.
 
-**Extension pyproject.toml critical rules**:
-- Do NOT add `[tool.setuptools.packages.find]` — it overrides namespace discovery
-- No `__init__.py` in `flutter/` dirs
-- `[tool.setuptools.package-data]` must include `"flutter.flet_local_notifications" = ["**/*"]`
-
-**Service auto-registration**: Just instantiate `FletLocalNotifications()`. Do NOT add to `page.overlay` or `page.services`. It auto-registers via `Service.init()`.
+**Service auto-registration**: Just instantiate `FletAndroidNotifications()`. Do NOT add to `page.overlay` or `page.services`. It auto-registers via `Service.init()`.
 
 ## Flet extension API cheat sheet
 
@@ -80,11 +60,6 @@ No directory traversal. If pyproject.toml is in the parent dir, all `[tool.flet.
 ### Commas in version specs break serious_python on Windows
 `dart run serious_python:main ... -r "pkg>=x.y,<z.0"` fails. Use `requirements.txt` (pip reads it directly).
 
-### Stale `build/lib/` in extension (CRITICAL)
-`flet build apk` packages Dart code from `build/lib/` (if it exists) instead of `src/`. Edits to `src/` have zero effect on the APK.
-
-**Fix**: Delete `flet_local_notifications/build/` before building. Use `pip install -e` (editable).
-
 ### archive 4.0.7 flat extraction bug
 `serious_python` extracts `app.zip` to flat files with backslash names on Android. Fixed by `_fix_flat_extraction()` in `main.py` that detects and restructures on first launch.
 
@@ -99,13 +74,7 @@ No directory traversal. If pyproject.toml is in the parent dir, all `[tool.flet.
 ## Build procedure
 
 ```bash
-# Ensure extension source is current
-rm -rf flet_local_notifications/build/
-pip install -e flet_local_notifications/
-cp -r flet_local_notifications/src/flutter/flet_local_notifications/* \
-      trebnic/build/flutter-packages/flet_local_notifications/
-
-# Build and install
+# flet-android-notifications is installed from PyPI automatically
 cd trebnic && flet build apk
 adb install -r build/apk/app-release.apk
 ```

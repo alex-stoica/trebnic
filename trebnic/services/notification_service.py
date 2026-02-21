@@ -28,7 +28,7 @@ from events import event_bus, AppEvent, Subscription
 from i18n import t
 from models.entities import Task
 from registry import registry, Services
-from ui.formatters.time_formatter import TimeFormatter
+from formatters import TimeFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +50,11 @@ PLYER_AVAILABLE = False
 FLET_EXTENSION_AVAILABLE = False
 
 try:
-    from flet_local_notifications import FletLocalNotifications
+    from flet_android_notifications import FletAndroidNotifications, NotificationError
     FLET_EXTENSION_AVAILABLE = True
-    logger.info("Flet local notifications extension available")
+    logger.info("Flet Android notifications extension available")
 except ImportError:
-    logger.info("flet_local_notifications not available")
+    logger.info("flet_android_notifications not available")
 
 if not FLET_EXTENSION_AVAILABLE:
     try:
@@ -145,8 +145,8 @@ class NotificationService:
         # Service auto-registers via Service.init() → context.page._services.register_service().
         # Do NOT add to page.overlay or page.services manually.
         if self._backend == NotificationBackend.FLET_EXTENSION and FLET_EXTENSION_AVAILABLE:
-            self._flet_notifications = FletLocalNotifications(on_notification_tap=self._on_notification_tapped)
-            logger.info("Flet local notifications extension instantiated")
+            self._flet_notifications = FletAndroidNotifications(on_notification_tap=self._on_notification_tapped)
+            logger.info("Flet Android notifications extension instantiated")
 
     async def request_permission(self) -> PermissionResult:
         """Request notification permission.
@@ -162,19 +162,14 @@ class NotificationService:
             return PermissionResult.GRANTED
 
         if self._backend == NotificationBackend.FLET_EXTENSION and self._flet_notifications is not None:
-            # Check current status first to avoid redundant permission dialogs
             try:
-                status = await self._flet_notifications.check_permissions()
-                if status.lower() == "true":
-                    logger.info("Notification permission already granted")
-                    return PermissionResult.GRANTED
-            except (OSError, RuntimeError, TypeError, ValueError) as e:
-                logger.warning(f"Failed to check permission status: {e}")
-
-            result = await self._flet_notifications.request_permissions()
-            granted = str(result).lower() == "true"
-            logger.info(f"Flet extension permission result: {granted}")
-            return PermissionResult.GRANTED if granted else PermissionResult.DENIED
+                result = await self._flet_notifications.request_permissions()
+                granted = str(result).lower() == "true"
+                logger.info(f"Flet extension permission result: {granted}")
+                return PermissionResult.GRANTED if granted else PermissionResult.DENIED
+            except NotificationError as e:
+                logger.error(f"Error requesting notification permission: {e}")
+                return PermissionResult.DENIED
 
         return PermissionResult.NOT_REQUIRED
 
@@ -194,6 +189,7 @@ class NotificationService:
         self._subscribe_to_events()
         # Flet 0.80 requires coroutine function, not coroutine object
         self._schedule_async(self._scheduler_loop)
+        self._schedule_async(self._reschedule_all_tasks)
         logger.info("Notification scheduler started")
 
     def stop_scheduler(self) -> None:
@@ -210,6 +206,8 @@ class NotificationService:
             AppEvent.TASK_UPDATED,
             AppEvent.TASK_DELETED,
             AppEvent.TASK_COMPLETED,
+            AppEvent.TASK_UNCOMPLETED,
+            AppEvent.TASK_POSTPONED,
             AppEvent.TIMER_STOPPED,
         ]
         for event in events_to_subscribe:
@@ -347,19 +345,19 @@ class NotificationService:
         try:
             notification_id = task_id if task_id else abs(hash(title)) % 100000
             payload_str = json.dumps({"task_id": task_id})
-            result = await self._flet_notifications.show_notification(
+            await self._flet_notifications.show_notification(
                 notification_id=notification_id,
                 title=title,
                 body=body,
                 payload=payload_str,
+                channel_id="trebnic_reminders",
+                channel_name="Task reminders",
+                channel_description="Task reminders from Trebnic",
             )
-            if result != "ok":
-                logger.warning(f"Notification delivery failed: {result}")
-                return False
             logger.info(f"Notification sent (flet extension): id={notification_id}")
             return True
-        except (OSError, RuntimeError, TypeError, ValueError) as e:
-            logger.error(f"Error showing extension notification: {e}")
+        except NotificationError as e:
+            logger.error(f"Notification delivery failed: {e}")
             return False
 
     async def _deliver_plyer_notification(self, title: str, body: str) -> bool:
@@ -390,22 +388,39 @@ class NotificationService:
     def _on_notification_tapped(self, e: Any) -> None:
         """Handle notification tap from the Flet extension.
 
-        The extension sends e.data as a JSON string containing the payload
-        (which includes task_id).
+        The new extension sends e.data as JSON: {"payload": "...", "action_id": "..."}.
+        The inner payload is itself a JSON string containing task_id.
         """
         try:
-            # Extension sends payload as e.data (string)
-            data_str = e.data if hasattr(e, "data") else (e.payload if hasattr(e, "payload") else "")
-            payload = json.loads(data_str) if data_str else {}
+            data_str = e.data if hasattr(e, "data") else ""
+            outer = json.loads(data_str) if data_str else {}
+
+            # Extract and parse the inner payload
+            payload_str = outer.get("payload", "")
+            payload = json.loads(payload_str) if payload_str else {}
             task_id = payload.get("task_id")
+            action_id = outer.get("action_id")
 
             event_bus.emit(AppEvent.NOTIFICATION_TAPPED, {
                 "task_id": task_id,
                 "payload": payload,
+                "action_id": action_id,
             })
 
         except (OSError, RuntimeError, ValueError) as ex:
             logger.error(f"Error handling notification tap: {ex}")
+
+    async def _reschedule_all_tasks(self) -> None:
+        """Reschedule notifications for all tasks with due dates on startup."""
+        if not self._is_notifications_enabled():
+            return
+        state = self._get_state() if self._get_state else None
+        if state is None:
+            return
+        for task in state.tasks:
+            if task.due_date and task.id:
+                await self._reschedule_for_task(task.id)
+        logger.info(f"Startup reschedule complete for {len(state.tasks)} tasks")
 
     async def _reschedule_for_task(self, task_id: int) -> None:
         """Reschedule notifications for a task.
@@ -455,13 +470,20 @@ class NotificationService:
             if trigger_time <= now:
                 continue
 
+            if reminder_minutes < 60:
+                time_desc = f"{reminder_minutes}min"
+            elif reminder_minutes < 1440:
+                time_desc = f"{reminder_minutes // 60}h"
+            else:
+                time_desc = f"{reminder_minutes // 1440}d"
+
             notification = {
                 "ntype": NotificationType.DUE_REMINDER.value,
                 "task_id": task_id,
                 "trigger_time": trigger_time.isoformat(),
                 "payload": json.dumps({
-                    "title": "Task reminder",
-                    "body": task.title,
+                    "title": t("task_reminder"),
+                    "body": t("task_due_in").replace("{time}", time_desc).replace("{task}", task.title),
                     "task_id": task_id,
                 }),
                 "delivered": 0,
@@ -495,15 +517,15 @@ class NotificationService:
         # Schedule immediate notification
         trigger_time = datetime.now().isoformat()
 
-        minutes = elapsed_seconds // 60
-        body = f"Tracked {minutes} minutes on {task.title}"
+        time_str = TimeFormatter.seconds_to_display(elapsed_seconds)
+        body = t("tracked_time_on_task").replace("{time}", time_str).replace("{task}", task.title)
 
         notification = {
             "ntype": NotificationType.TIMER_COMPLETE.value,
             "task_id": task.id,
             "trigger_time": trigger_time,
             "payload": json.dumps({
-                "title": "Timer complete",
+                "title": t("timer_complete"),
                 "body": body,
                 "task_id": task.id,
                 "elapsed_seconds": elapsed_seconds,

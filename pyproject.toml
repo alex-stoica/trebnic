@@ -22,14 +22,14 @@ classifiers = [
 ]
 dependencies = [
     "flet>=0.80.0",
-    "aiosqlite>=0.19.0,<1.0.0",
-    "cryptography>=46.0.3,<47.0.0",
-    "argon2-cffi>=25.1.0,<26.0.0",
-    "httpx>=0.28.0,<1.0.0",
-    "python-dotenv>=1.2.1,<2.0.0",
-    "resend>=2.21.0,<3.0.0",
+    "aiosqlite>=0.19.0",
+    "cryptography>=46.0.3",
+    "argon2-cffi>=25.1.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.2.1",
+    "resend>=2.21.0",
     "plyer>=2.1.0",
-    "flet-local-notifications",
+    "flet-android-notifications",
 ]
 
 [project.urls]
@@ -47,11 +47,8 @@ product = "Trebnic"
 
 [tool.flet.app]
 module = "main"
-source_dir = "trebnic"
-exclude = ["flet_local_notifications"]
-
-[tool.flet.dev_packages]
-flet-local-notifications = "flet_local_notifications"
+path = "trebnic"
+exclude = ["flet_android_notifications"]
 
 [tool.flet.android.permission]
 "android.permission.POST_NOTIFICATIONS" = true

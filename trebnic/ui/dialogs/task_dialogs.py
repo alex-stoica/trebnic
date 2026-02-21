@@ -514,6 +514,7 @@ class TaskDialogs:
                 async def _handle() -> None:
                     await self.task_service.set_task_due_date(task, new_date)
                     self.snack.show(self._get_date_change_message(new_date))
+                    event_bus.emit(AppEvent.TASK_UPDATED, task)
                     event_bus.emit(AppEvent.REFRESH_UI)
                 self.page.run_task(_handle)
 
@@ -526,6 +527,7 @@ class TaskDialogs:
                 await self.task_service.set_task_due_date(task, new_date)
                 self.snack.show(self._get_date_change_message(new_date))
                 close()
+                event_bus.emit(AppEvent.TASK_UPDATED, task)
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_preset)
 
@@ -534,6 +536,7 @@ class TaskDialogs:
                 await self.task_service.set_task_due_date(task, None)
                 self.snack.show(self._get_date_change_message(None))
                 close()
+                event_bus.emit(AppEvent.TASK_UPDATED, task)
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_clear)
 
@@ -586,8 +589,9 @@ class TaskDialogs:
                 await self.task_service.persist_task(task)
                 msg = t("recurrence_updated") if task.recurrent else t("recurrence_disabled")
                 self.snack.show(msg)
+                event_bus.emit(AppEvent.TASK_UPDATED, task)
                 event_bus.emit(AppEvent.REFRESH_UI)
-            self.page.run_task(_save)  
+            self.page.run_task(_save)
 
         controller: Optional[RecurrenceDialogController] = None
 

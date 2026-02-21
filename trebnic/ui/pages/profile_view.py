@@ -13,6 +13,7 @@ from config import (
     DIALOG_WIDTH_MD,
 )
 from models.entities import AppState
+from database import DatabaseError
 from services.logic import TaskService
 from services.notification_service import notification_service, NotificationBackend
 from services.settings_service import SettingsService
@@ -229,7 +230,6 @@ class ProfilePage:
             max=DURATION_SLIDER_MAX,
             divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,
             value=self.state.default_estimated_minutes // DURATION_SLIDER_STEP,
-            label="{value}",
             on_change=on_slider,
         )
 
@@ -248,39 +248,7 @@ class ProfilePage:
         reminder_label = ft.Text(
             t("hours_before").replace("{hours}", str(hours)),
             size=12,
-            color=COLORS["done_text"] if not self.state.notifications_enabled else COLORS["white"],
         )
-
-        # Store checkbox references for toggling
-        cb_1h: ft.Checkbox = None
-        cb_6h: ft.Checkbox = None
-        cb_12h: ft.Checkbox = None
-        cb_24h: ft.Checkbox = None
-        reminder_slider: ft.Slider = None
-        custom_label: ft.Text = None
-
-        def update_notification_controls_state(enabled: bool) -> None:
-            """Update all notification controls based on enabled state."""
-            # Update checkboxes - when enabled, check all; when disabled, uncheck all
-            cb_1h.value = enabled
-            cb_6h.value = enabled
-            cb_12h.value = enabled
-            cb_24h.value = enabled
-            cb_1h.disabled = not enabled
-            cb_6h.disabled = not enabled
-            cb_12h.disabled = not enabled
-            cb_24h.disabled = not enabled
-            # Also update state to match
-            self.state.remind_1h_before = enabled
-            self.state.remind_6h_before = enabled
-            self.state.remind_12h_before = enabled
-            self.state.remind_24h_before = enabled
-            # Update slider
-            reminder_slider.disabled = not enabled
-            # Update labels color
-            reminder_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
-            custom_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
-            self.page.update()
 
         def on_notifications_toggle(e: ft.ControlEvent) -> None:
             async def _toggle() -> None:
@@ -289,12 +257,12 @@ class ProfilePage:
                     if result == PermissionResult.DENIED:
                         e.control.value = False
                         self.snack.show(t("notification_permission_denied"), COLORS["danger"])
-                        update_notification_controls_state(False)
+                        self.page.update()
                         return
                     else:
                         self.snack.show(t("notification_permission_granted"))
                 self.state.notifications_enabled = e.control.value
-                update_notification_controls_state(e.control.value)
+                self.page.update()
             self.page.run_task(_toggle)
 
         def on_reminder_slider(e: ft.ControlEvent) -> None:
@@ -343,32 +311,26 @@ class ProfilePage:
         def on_reminder_24h(e: ft.ControlEvent) -> None:
             self.state.remind_24h_before = e.control.value
 
-        notifications_disabled = not self.state.notifications_enabled
-
         # Reminder checkboxes in 2x2 grid with equal-width columns
         cb_1h = ft.Checkbox(
-            value=self.state.remind_1h_before and not notifications_disabled,
+            value=self.state.remind_1h_before,
             label=t("reminder_1h_before"),
             on_change=on_reminder_1h,
-            disabled=notifications_disabled,
         )
         cb_6h = ft.Checkbox(
-            value=self.state.remind_6h_before and not notifications_disabled,
+            value=self.state.remind_6h_before,
             label=t("reminder_6h_before"),
             on_change=on_reminder_6h,
-            disabled=notifications_disabled,
         )
         cb_12h = ft.Checkbox(
-            value=self.state.remind_12h_before and not notifications_disabled,
+            value=self.state.remind_12h_before,
             label=t("reminder_12h_before"),
             on_change=on_reminder_12h,
-            disabled=notifications_disabled,
         )
         cb_24h = ft.Checkbox(
-            value=self.state.remind_24h_before and not notifications_disabled,
+            value=self.state.remind_24h_before,
             label=t("reminder_24h_before"),
             on_change=on_reminder_24h,
-            disabled=notifications_disabled,
         )
 
         reminder_checkboxes = ft.Column(
@@ -397,13 +359,11 @@ class ProfilePage:
             divisions=70,
             value=reminder_mins,
             on_change=on_reminder_slider,
-            disabled=notifications_disabled,
         )
 
         custom_label = ft.Text(
             t("custom_reminder"),
             size=13,
-            color=COLORS["done_text"] if notifications_disabled else COLORS["white"],
         )
 
         notification_sub_controls = ft.Column(
@@ -429,7 +389,17 @@ class ProfilePage:
                     int(slider.value) * DURATION_SLIDER_STEP
                 )
                 self.state.email_weekly_stats = email_cb.value
-                await self.settings_service.save_settings()
+                # Sync notification checkbox values to state before saving
+                self.state.remind_1h_before = cb_1h.value
+                self.state.remind_6h_before = cb_6h.value
+                self.state.remind_12h_before = cb_12h.value
+                self.state.remind_24h_before = cb_24h.value
+                self.state.reminder_minutes_before = int(reminder_slider.value)
+                try:
+                    await self.settings_service.save_settings()
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+                    return
                 if self.tasks_view:
                     self.tasks_view.pending_details["estimated_minutes"] = (
                         self.state.default_estimated_minutes

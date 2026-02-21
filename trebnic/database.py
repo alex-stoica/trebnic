@@ -16,9 +16,25 @@ from registry import registry, Services
 # Defined here to avoid circular import with services module
 LOCKED_PLACEHOLDER = "[Locked]"
 
-DB_PATH = Path("trebnic.db")
+_DEFAULT_DB_PATH = Path("trebnic.db")
+DB_PATH: Path = _DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
+
+
+def configure_db_path(path: Path) -> None:
+    """Set a custom database path before any connection is opened.
+
+    Raises:
+        RuntimeError: If the database connection is already open.
+    """
+    global DB_PATH
+    if Database._instance is not None and Database._instance._conn is not None:
+        raise RuntimeError(
+            "Cannot change DB_PATH after a database connection has been opened. "
+            "Call configure_db_path() before any database operations."
+        )
+    DB_PATH = path
 
 
 class DatabaseError(Exception):

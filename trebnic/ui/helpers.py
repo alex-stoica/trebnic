@@ -76,6 +76,7 @@ class SnackService:
         color: Optional[str] = None,
         update: bool = True,
     ) -> None:
+        self.snack.open = False
         self.snack.content = ft.Text(message, color=COLORS["white"])
         self.snack.bgcolor = color or COLORS["card"]
         self.snack.open = True

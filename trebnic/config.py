@@ -14,6 +14,10 @@ except ImportError:
     pass  # dotenv not available on mobile, skip loading .env
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUSINESS LOGIC - Enums and constants used by services (MCP-safe, no UI deps)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class RecurrenceFrequency(Enum):
     """Enum for task recurrence frequency types."""
     DAYS = "days"
@@ -33,10 +37,10 @@ class PermissionResult(Enum):
     """Result of notification permission request."""
     GRANTED = "granted"
     DENIED = "denied"
-    NOT_REQUIRED = "not_required"  # Desktop platforms don't need runtime permission 
+    NOT_REQUIRED = "not_required"  # Desktop platforms don't need runtime permission
 
 
-class NavItem(Enum): 
+class NavItem(Enum):
     """Enum for navigation items."""
     INBOX = "inbox"
     TODAY = "today"
@@ -54,7 +58,17 @@ class PageType(Enum):
     FEEDBACK = "feedback"
     STATS = "stats"
 
-PROJECT_ICONS = [ 
+DEFAULT_ESTIMATED_SECONDS = 900
+MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes
+GAP_THRESHOLD_SECONDS = 60
+
+DURATION_SLIDER_STEP = 5
+DURATION_SLIDER_MIN = 1
+DURATION_SLIDER_MAX = 100
+DURATION_KNOB_MIN_MINUTES = 5
+DURATION_KNOB_MAX_MINUTES = 500
+
+PROJECT_ICONS = [
     "📁", "🏃", "💼", "🧹", "📚", "🎮", "🎨", "🏠", "💡", "🎯",
     "🚀", "⭐", "🔥", "💎", "🌟", "🎵", "📱", "💻", "🎬", "📷",
     "✈️", "🏋️", "🍕", "☕", "🛒", "💰", "📊", "🔧", "📝", "🎓",
@@ -82,86 +96,9 @@ PROJECT_COLORS = [
     {"name": "Yellow", "value": "#eefa47"},
     {"name": "Maroon", "value": "#672A0E"},
 ]
- 
-BORDER_RADIUS = 10
-BORDER_RADIUS_SM = 5 
-BORDER_RADIUS_MD = 8 
-BORDER_RADIUS_LG = 20 
-
-MOBILE_BREAKPOINT = 768
-ANIMATION_DELAY = 0.35
-DATE_PICKER_YEARS = 2
- 
-DEFAULT_ESTIMATED_SECONDS = 900
-DURATION_SLIDER_STEP = 5
-DURATION_SLIDER_MIN = 1
-DURATION_SLIDER_MAX = 100
-DURATION_KNOB_MIN_MINUTES = 5  
-DURATION_KNOB_MAX_MINUTES = 500  
-SNACK_DURATION_MS = 2000 
- 
-DIALOG_WIDTH_SM = 280
-DIALOG_WIDTH_MD = 300
-DIALOG_WIDTH_LG = 320
-DIALOG_WIDTH_XL = 350
-
-CALENDAR_HEADER_HEIGHT = 48
-ICON_PICKER_HEIGHT = 280
-NOTES_FIELD_HEIGHT = 280
-COLOR_PICKER_HEIGHT = 250 
- 
-ICON_GRID_RUNS_COUNT = 6 
-ICON_GRID_MAX_EXTENT = 45 
-ICON_GRID_SPACING = 5 
- 
-FONT_SIZE_XS = 9 
-FONT_SIZE_SM = 10 
-FONT_SIZE_MD = 12 
-FONT_SIZE_BASE = 13 
-FONT_SIZE_LG = 14 
-FONT_SIZE_XL = 16 
-FONT_SIZE_2XL = 18 
-FONT_SIZE_3XL = 20 
-FONT_SIZE_4XL = 24 
-FONT_SIZE_5XL = 32 
- 
-ICON_SIZE_XS = 14 
-ICON_SIZE_SM = 16 
-ICON_SIZE_MD = 18 
-ICON_SIZE_LG = 20 
-ICON_SIZE_XL = 24 
-ICON_SIZE_2XL = 48 
-ICON_SIZE_3XL = 64 
- 
-SPACING_XS = 2 
-SPACING_SM = 4 
-SPACING_MD = 8 
-SPACING_LG = 10 
-SPACING_XL = 12 
-SPACING_2XL = 15 
-SPACING_3XL = 20 
-
-PADDING_XS = 2
-PADDING_SM = 4
-PADDING_MD = 8
-PADDING_LG = 10
-PADDING_XL = 12
-PADDING_2XL = 15
-PADDING_3XL = 20
-PADDING_4XL = 40
-
-OPACITY_DONE = 0.6
-
-SIDEBAR_WIDTH = 250
-SIDEBAR_ITEM_PADDING_LEFT = 50
-PROJECT_NAME_MAX_LENGTH = 50
-
-GAP_THRESHOLD_SECONDS = 60
-TIME_ENTRY_ROW_HEIGHT = 60
-MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes   
 
 # ============================================================================
-# Encryption & Authentication
+# Encryption & authentication
 # ============================================================================
 
 # Fields that should be encrypted when encryption is enabled
@@ -169,7 +106,7 @@ MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes
 ENCRYPTED_FIELDS = [
     ("tasks", "title"),
     ("tasks", "notes"),
-    ("projects", "name"), 
+    ("projects", "name"),
 ]
 
 # Minimum password requirements
@@ -183,6 +120,10 @@ AUTO_LOCK_TIMEOUT = 0  # Disabled by default
 # Session timeout after app goes to background (mobile)
 BACKGROUND_LOCK_TIMEOUT = 300  # 5 minutes
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UI CONSTANTS - Layout, colors, dimensions (Flet UI only)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 COLORS = {
     "bg": "#1e1e1e",
@@ -207,3 +148,72 @@ COLORS = {
     "estimated_done": "#ef6c00",  # Medium-dark orange for completed estimates
     "estimated_pending": "#ff9800",  # Medium orange for pending estimates
 }
+
+BORDER_RADIUS = 10
+BORDER_RADIUS_SM = 5
+BORDER_RADIUS_MD = 8
+BORDER_RADIUS_LG = 20
+
+MOBILE_BREAKPOINT = 768
+ANIMATION_DELAY = 0.35
+DATE_PICKER_YEARS = 2
+
+SNACK_DURATION_MS = 2000
+
+DIALOG_WIDTH_SM = 280
+DIALOG_WIDTH_MD = 300
+DIALOG_WIDTH_LG = 320
+DIALOG_WIDTH_XL = 350
+
+CALENDAR_HEADER_HEIGHT = 48
+ICON_PICKER_HEIGHT = 280
+NOTES_FIELD_HEIGHT = 280
+COLOR_PICKER_HEIGHT = 250
+
+ICON_GRID_RUNS_COUNT = 6
+ICON_GRID_MAX_EXTENT = 45
+ICON_GRID_SPACING = 5
+
+FONT_SIZE_XS = 9
+FONT_SIZE_SM = 10
+FONT_SIZE_MD = 12
+FONT_SIZE_BASE = 13
+FONT_SIZE_LG = 14
+FONT_SIZE_XL = 16
+FONT_SIZE_2XL = 18
+FONT_SIZE_3XL = 20
+FONT_SIZE_4XL = 24
+FONT_SIZE_5XL = 32
+
+ICON_SIZE_XS = 14
+ICON_SIZE_SM = 16
+ICON_SIZE_MD = 18
+ICON_SIZE_LG = 20
+ICON_SIZE_XL = 24
+ICON_SIZE_2XL = 48
+ICON_SIZE_3XL = 64
+
+SPACING_XS = 2
+SPACING_SM = 4
+SPACING_MD = 8
+SPACING_LG = 10
+SPACING_XL = 12
+SPACING_2XL = 15
+SPACING_3XL = 20
+
+PADDING_XS = 2
+PADDING_SM = 4
+PADDING_MD = 8
+PADDING_LG = 10
+PADDING_XL = 12
+PADDING_2XL = 15
+PADDING_3XL = 20
+PADDING_4XL = 40
+
+OPACITY_DONE = 0.6
+
+SIDEBAR_WIDTH = 250
+SIDEBAR_ITEM_PADDING_LEFT = 50
+PROJECT_NAME_MAX_LENGTH = 50
+
+TIME_ENTRY_ROW_HEIGHT = 60

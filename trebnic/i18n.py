@@ -504,6 +504,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "unlock_to_see_details": {"en": "Unlock Trebnic to see details", "ro": "Deblochează Trebnic pentru detalii"},
     "timer_complete": {"en": "Timer complete", "ro": "Cronometru finalizat"},
     "tracked_time_on_task": {"en": "Tracked {time} on {task}", "ro": "{time} înregistrat pe {task}"},
+    "task_due_in": {"en": "\"{task}\" is due in {time}", "ro": "\"{task}\" scade în {time}"},
 
     # Timer controller
     "stop_current_timer_first": {

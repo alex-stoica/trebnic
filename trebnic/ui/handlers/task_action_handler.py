@@ -121,8 +121,10 @@ class TaskActionHandler:
     async def _do_complete_async(self, task: Task) -> None:
         """Actually complete the task after any duration entry."""
         new_task = await self._service.complete_task(task)
+        event_bus.emit(AppEvent.TASK_COMPLETED, task)
         if new_task:
             self._snack.show(f"Next occurrence scheduled for {new_task.due_date.strftime('%b %d')}")
+            event_bus.emit(AppEvent.TASK_CREATED, new_task)
         self._refresh_ui()
 
     def _do_complete(self, task: Task) -> None:
@@ -135,6 +137,7 @@ class TaskActionHandler:
         """Handle task uncomplete request."""
         async def _uncomplete() -> None:
             if await self._service.uncomplete_task(task):
+                event_bus.emit(AppEvent.TASK_UNCOMPLETED, task)
                 self._refresh_ui()
 
         self._page.run_task(_uncomplete)
@@ -244,6 +247,7 @@ class TaskActionHandler:
                 msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')}"
             self._snack.show(msg, update=False)
             self._refresh_ui()
+            event_bus.emit(AppEvent.TASK_UPDATED, task)
             event_bus.emit(AppEvent.TASK_POSTPONED, task)
             self._page.update()
 

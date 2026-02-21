@@ -1,8 +1,9 @@
 import asyncio
+import concurrent.futures
 import logging
 import os
 from datetime import date, timedelta
-from typing import List, Tuple, Optional
+from typing import Any, List, Tuple, Optional
 
 try:
     from credentials import RESEND_API_KEY as _CRED_API_KEY, FEEDBACK_EMAIL as _CRED_EMAIL
@@ -10,10 +11,9 @@ except ImportError:
     _CRED_API_KEY = ""
     _CRED_EMAIL = ""
 
-import flet as ft
-
 from config import NavItem
 from database import db, DatabaseError
+from events import AppEvent
 from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
@@ -34,11 +34,11 @@ class TaskService:
     All data operations are async. Use page.run_task() or await for async calls.
     """
 
-    def __init__(self, state: AppState, page: Optional[ft.Page] = None) -> None:
+    def __init__(self, state: AppState, page: Optional[Any] = None) -> None:
         self.state = state
         self._page = page
 
-    def set_page(self, page: ft.Page) -> None:
+    def set_page(self, page: Any) -> None:
         """Set the Flet page for async task scheduling."""
         self._page = page
 
@@ -93,6 +93,15 @@ class TaskService:
         state.language = await db.get_setting("language", "en")
         set_language(state.language)
 
+        # Notification settings
+        state.notifications_enabled = await db.get_setting("notifications_enabled", False)
+        state.notify_timer_complete = await db.get_setting("notify_timer_complete", True)
+        state.remind_1h_before = await db.get_setting("remind_1h_before", True)
+        state.remind_6h_before = await db.get_setting("remind_6h_before", True)
+        state.remind_12h_before = await db.get_setting("remind_12h_before", True)
+        state.remind_24h_before = await db.get_setting("remind_24h_before", True)
+        state.reminder_minutes_before = await db.get_setting("reminder_minutes_before", 60)
+
         await TaskService._seed_email_config()
 
         # Check for incomplete time entry (timer was running when app closed)
@@ -112,7 +121,6 @@ class TaskService:
 
         if loop is not None:
             # Already in an async context - create task and run
-            import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, TaskService.load_state_async())
                 return future.result()
@@ -143,7 +151,6 @@ class TaskService:
         self.state.projects.extend(new_state.projects)
 
         # Notify UI to rebuild via registry
-        from events import AppEvent  # AppEvent enum is safe to import
         event_bus = registry.get(Services.EVENT_BUS)
         if event_bus:
             event_bus.emit(AppEvent.REFRESH_UI)
@@ -174,7 +181,6 @@ class TaskService:
             self.state.projects.clear()
             self.state.projects.extend(new_state.projects)
 
-            from events import AppEvent  # AppEvent enum is safe to import
             event_bus = registry.get(Services.EVENT_BUS)
             if event_bus:
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -404,17 +410,26 @@ class TaskService:
             else:
                 self.state.tasks.append(task)
 
-    async def get_filtered_tasks(self, done_limit: int = 50) -> Tuple[List[Task], List[Task]]:
+    async def get_filtered_tasks(
+        self,
+        done_limit: int = 50,
+        nav: Optional[NavItem] = None,
+        project_ids: Optional[List[str]] = None,
+    ) -> Tuple[List[Task], List[Task]]:
         """Get filtered tasks using efficient SQL queries.
 
         Args:
             done_limit: Maximum number of done tasks to return (prevents loading
                        thousands of historical tasks into memory).
+            nav: Navigation filter. Falls back to self.state.selected_nav if None.
+            project_ids: Project IDs to filter by. Falls back to self.state.selected_projects if None.
 
         Returns:
             Tuple of (pending_tasks, done_tasks) filtered by current navigation.
         """
-        nav = self.state.selected_nav
+        if nav is None:
+            nav = self.state.selected_nav
+        effective_project_ids = project_ids if project_ids is not None else list(self.state.selected_projects)
         today = date.today()
 
         # Build filter parameters based on navigation
@@ -433,10 +448,9 @@ class TaskService:
             done_kwargs["due_date_is_null"] = True
 
         # Apply project filter if any projects selected (combines with nav filter)
-        if self.state.selected_projects:
-            project_ids = list(self.state.selected_projects)
-            pending_kwargs["project_ids"] = project_ids
-            done_kwargs["project_ids"] = project_ids
+        if effective_project_ids:
+            pending_kwargs["project_ids"] = effective_project_ids
+            done_kwargs["project_ids"] = effective_project_ids
 
         # Query database with filters
         pending_dicts = await db.load_tasks_filtered(**pending_kwargs)
