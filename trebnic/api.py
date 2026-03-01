@@ -165,6 +165,86 @@ class TrebnicAPI:
 
         event_bus.emit(AppEvent.TASK_DELETED, task)
 
+    async def log_time(
+        self,
+        task: Task,
+        duration_seconds: int,
+        ended_at: Optional[datetime] = None,
+    ) -> TimeEntry:
+        """Log time spent on a task without completing it.
+
+        Creates a TimeEntry and increments spent_seconds atomically.
+
+        Args:
+            task: The task to log time against.
+            duration_seconds: Time spent in seconds.
+            ended_at: When the work ended. Defaults to now.
+
+        Returns:
+            The created TimeEntry.
+        """
+        if ended_at is None:
+            ended_at = datetime.now()
+
+        entry = TimeEntry(
+            task_id=task.id,
+            start_time=ended_at - timedelta(seconds=duration_seconds),
+            end_time=ended_at,
+        )
+        entry_id = await self._svc.time_entry.save_time_entry(entry)
+        entry.id = entry_id
+
+        await db.increment_spent_seconds(task.id, duration_seconds)
+        task.spent_seconds += duration_seconds
+
+        return entry
+
+    # -----------------------------------------------------------------------
+    # Drafts
+    # -----------------------------------------------------------------------
+
+    async def add_draft(
+        self,
+        title: str,
+        project_id: Optional[str] = None,
+        estimated_seconds: int = 900,
+    ) -> Task:
+        """Create a draft task that doesn't appear in the active task list.
+
+        Drafts live in the database only and are not loaded into AppState.
+        Use publish_draft() to promote a draft to an active task.
+
+        Returns the persisted draft Task with its database ID set.
+        """
+        task = Task(
+            title=title,
+            project_id=project_id,
+            estimated_seconds=estimated_seconds,
+            spent_seconds=0,
+            due_date=None,
+            is_draft=True,
+        )
+        task.id = await db.save_task(task.to_dict())
+        return task
+
+    async def get_drafts(self) -> List[Task]:
+        """Return all draft tasks."""
+        rows = await db.load_tasks_filtered(is_done=False, is_draft=True)
+        return [Task.from_dict(r) for r in rows]
+
+    async def publish_draft(self, task: Task) -> Task:
+        """Promote a draft to an active task.
+
+        Sets is_draft=False, assigns a due date of today, persists,
+        and adds the task to AppState.
+        """
+        task.is_draft = False
+        task.due_date = date.today()
+        await self._svc.task.persist_task(task)
+        self._svc.state.tasks.append(task)
+        event_bus.emit(AppEvent.TASK_CREATED, task)
+        return task
+
     # -----------------------------------------------------------------------
     # Queries
     # -----------------------------------------------------------------------
@@ -426,6 +506,8 @@ class TrebnicAPI:
         self._svc.state.tasks.clear()
         self._svc.state.done_tasks.clear()
         for t_dict in await db.load_tasks():
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self._svc.state.done_tasks.append(task)

@@ -82,6 +82,8 @@ class TaskService:
 
         all_tasks = await db.load_tasks()
         for t_dict in all_tasks:
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 state.done_tasks.append(task)
@@ -405,6 +407,8 @@ class TaskService:
         self.state.tasks.clear()
         self.state.done_tasks.clear()
         for t_dict in all_tasks:
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self.state.done_tasks.append(task)
@@ -482,6 +486,8 @@ class TaskService:
         for p_dict in await db.load_projects():
             self.state.projects.append(Project.from_dict(p_dict))
         for t_dict in await db.load_tasks():
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self.state.done_tasks.append(task)

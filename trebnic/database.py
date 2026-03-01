@@ -216,7 +216,8 @@ class Database:
                     recurrence_weekdays TEXT DEFAULT '[]', notes TEXT DEFAULT '',
                     sort_order INTEGER DEFAULT 0,
                     recurrence_end_type TEXT DEFAULT 'never',
-                    recurrence_end_date TEXT
+                    recurrence_end_date TEXT,
+                    is_draft INTEGER DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS time_entries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +273,10 @@ class Database:
             if "recurrence_from_completion" not in cols:
                 await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN recurrence_from_completion INTEGER DEFAULT 0"
+                )
+            if "is_draft" not in cols:
+                await conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN is_draft INTEGER DEFAULT 0"
                 )
 
             async with conn.execute(
@@ -448,6 +453,7 @@ class Database:
             t.get("recurrence_end_type", "never"),
             recurrence_end_date,
             t.get("recurrence_from_completion", 0),
+            t.get("is_draft", 0),
         )
         try:
             async with self._get_connection() as conn:
@@ -457,7 +463,8 @@ class Database:
                         "(title,spent_seconds,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date,recurrence_from_completion) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "recurrence_end_date,recurrence_from_completion,is_draft)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         params
                     )
                     await conn.commit()
@@ -466,7 +473,8 @@ class Database:
                     "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,"
                     "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
                     "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
-                    "recurrence_end_type=?,recurrence_end_date=?,recurrence_from_completion=? WHERE id=?",
+                    "recurrence_end_type=?,recurrence_end_date=?,recurrence_from_completion=?,"
+                    "is_draft=? WHERE id=?",
                     params + (t["id"],)
                 )
                 await conn.commit()
@@ -932,8 +940,8 @@ class Database:
                         "(id,title,spent_seconds,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date,recurrence_from_completion) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "recurrence_end_date,recurrence_from_completion,is_draft) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             t["id"], title, t.get("spent_seconds", 0),
                             t.get("estimated_seconds", 0), t.get("project_id"),
@@ -943,6 +951,7 @@ class Database:
                             weekdays, notes, t.get("sort_order", 0),
                             t.get("recurrence_end_type", "never"), rec_end,
                             t.get("recurrence_from_completion", 0),
+                            t.get("is_draft", 0),
                         ),
                     )
 
@@ -1020,6 +1029,7 @@ class Database:
         due_date_is_null: Optional[bool] = None,
         project_ids: Optional[List[str]] = None,
         limit: Optional[int] = None,
+        is_draft: Optional[bool] = False,
     ) -> List[Dict[str, Any]]:
         """Load tasks with SQL-level filtering for efficient queries.
 
@@ -1042,6 +1052,10 @@ class Database:
             if is_done is not None:
                 conditions.append("is_done = ?")
                 params.append(1 if is_done else 0)
+
+            if is_draft is not None:
+                conditions.append("is_draft = ?")
+                params.append(1 if is_draft else 0)
 
             if due_date_lte is not None:
                 conditions.append("due_date IS NOT NULL AND due_date <= ?")

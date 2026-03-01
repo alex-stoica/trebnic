@@ -16,6 +16,7 @@ from config import PROJECT_COLORS, RecurrenceFrequency
 from database import db, _encrypt_field, _decrypt_field
 from i18n import t
 from models.entities import AppState
+from services.stats import stats_service
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +331,89 @@ TOOLS: List[Dict[str, Any]] = [
             "required": ["task_id"],
         },
     },
+    {
+        "name": "log_time",
+        "description": (
+            "Log time spent on a task without completing it. "
+            "Creates a time entry and updates the task's tracked time."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "ID of the task to log time against",
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Minutes spent working on the task",
+                },
+            },
+            "required": ["task_id", "duration_minutes"],
+        },
+    },
+    {
+        "name": "add_draft",
+        "description": (
+            "Create a draft task - an idea or plan that isn't active yet. "
+            "Drafts don't appear in the main task list until published."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Draft task title"},
+                "project_id": {
+                    "type": "string",
+                    "description": "Project ID to assign to (optional)",
+                },
+                "estimated_minutes": {
+                    "type": "integer",
+                    "description": "Estimated time in minutes (default 15)",
+                },
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "get_drafts",
+        "description": "List all draft tasks that haven't been published yet.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "publish_draft",
+        "description": (
+            "Promote a draft to an active task. "
+            "Sets due date to today and adds it to the task list."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "description": "ID of the draft task to publish",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_stats",
+        "description": (
+            "Get user productivity statistics: tasks completed, time tracked, "
+            "estimation accuracy, completion streak, daily breakdown, "
+            "and per-project stats. Use this when the user asks about their "
+            "productivity, progress, or habits."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days for daily breakdown (default 7)",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -379,6 +463,8 @@ def _task_summary(task: Any) -> Dict[str, Any]:
         result["spent_minutes"] = task.spent_seconds // 60
     if task.recurrent:
         result["recurrent"] = True
+    if task.is_draft:
+        result["is_draft"] = True
     return result
 
 
@@ -729,6 +815,96 @@ class ClaudeService:
                 "count": len(summaries),
                 "total_minutes": total_minutes,
             }), None
+
+        if name == "log_time":
+            task = state.get_task_by_id(args["task_id"])
+            if not task:
+                return _not_found(args["task_id"]), None
+            dur = args["duration_minutes"] * 60
+            entry = await self._api.log_time(task, duration_seconds=dur)
+            return (
+                json.dumps({
+                    "task": task.title,
+                    "logged_minutes": args["duration_minutes"],
+                    "total_spent_minutes": task.spent_seconds // 60,
+                }),
+                {
+                    "action": t("time_logged_chat"),
+                    "detail": f"{task.title} +{args['duration_minutes']}m",
+                },
+            )
+
+        if name == "add_draft":
+            est = args.get("estimated_minutes", 15)
+            task = await self._api.add_draft(
+                title=args["title"],
+                project_id=args.get("project_id"),
+                estimated_seconds=est * 60,
+            )
+            return (
+                json.dumps(_task_summary(task)),
+                {"action": t("draft_created_chat"), "detail": task.title},
+            )
+
+        if name == "get_drafts":
+            drafts = await self._api.get_drafts()
+            sums = [_task_summary(tk) for tk in drafts]
+            return json.dumps({"drafts": sums, "count": len(sums)}), None
+
+        if name == "publish_draft":
+            task_id = args["task_id"]
+            drafts = await self._api.get_drafts()
+            task = next((d for d in drafts if d.id == task_id), None)
+            if not task:
+                return json.dumps({"error": f"Draft {task_id} not found"}), None
+            await self._api.publish_draft(task)
+            return (
+                json.dumps({"published": task.title, "due_date": task.due_date.isoformat()}),
+                {"action": t("draft_published_chat"), "detail": task.title},
+            )
+
+        if name == "get_stats":
+            days = args.get("days", 7)
+            time_entries = await db.load_time_entries()
+
+            overall = stats_service.calculate_overall_stats(
+                state.tasks, state.done_tasks, time_entries,
+            )
+            streak = stats_service.calculate_completion_streak(state.done_tasks)
+            daily = stats_service.calculate_daily_stats(
+                time_entries, state.done_tasks, state.tasks, days=days,
+            )
+            project_stats = stats_service.calculate_project_stats(
+                state.tasks, state.done_tasks, state.projects,
+            )
+
+            result = {
+                "overall": {
+                    "tasks_completed": overall.total_tasks_completed,
+                    "tasks_pending": overall.total_tasks_pending,
+                    "total_time_tracked_minutes": overall.total_time_tracked_seconds // 60,
+                    "avg_estimation_accuracy_percent": round(overall.avg_estimation_accuracy, 1),
+                    "longest_streak_days": streak,
+                },
+                "daily": [
+                    {
+                        "date": ds.date.isoformat(),
+                        "tracked_minutes": ds.tracked_seconds // 60,
+                        "tasks_completed": ds.tasks_completed,
+                    }
+                    for ds in daily
+                ],
+                "by_project": [
+                    {
+                        "project": ps.project_name,
+                        "tracked_minutes": ps.tracked_seconds // 60,
+                        "completed": ps.tasks_completed,
+                        "pending": ps.tasks_pending,
+                    }
+                    for ps in project_stats
+                ],
+            }
+            return json.dumps(result), None
 
         return json.dumps({"error": f"Unknown tool: {name}"}), None
 

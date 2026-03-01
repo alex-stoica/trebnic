@@ -808,6 +808,9 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "task_renamed_chat": {"en": "Renamed", "ro": "Redenumit"},
     "task_postponed_chat": {"en": "Postponed", "ro": "Amânat"},
     "recurrence_set_chat": {"en": "Recurrence set", "ro": "Recurență setată"},
+    "time_logged_chat": {"en": "Time logged", "ro": "Timp înregistrat"},
+    "draft_created_chat": {"en": "Draft created", "ro": "Ciornă creată"},
+    "draft_published_chat": {"en": "Draft published", "ro": "Ciornă publicată"},
     "project_created_chat": {"en": "Project created", "ro": "Proiect creat"},
     "send": {"en": "Send", "ro": "Trimite"},
 }
