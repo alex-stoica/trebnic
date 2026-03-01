@@ -77,8 +77,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # Navigation
     "inbox": {"en": "Draft", "ro": "La dospit"},
     "today": {"en": "Today", "ro": "Astăzi"},
+    "tasks_nav": {"en": "Tasks", "ro": "Treburi"},
+    "next": {"en": "Next", "ro": "Viitoare"},
     "calendar": {"en": "Calendar", "ro": "Calendar"},
     "upcoming": {"en": "Upcoming", "ro": "Viitoare"},
+    "notes": {"en": "Notes", "ro": "Notițe"},
     "projects": {"en": "Projects", "ro": "Proiecte"},
 
     # Stats page
@@ -86,7 +89,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "tasks_completed_stat": {"en": "Tasks completed", "ro": "Treburi finalizate"},
     "pending": {"en": "pending", "ro": "în așteptare"},
     "time_tracked": {"en": "Time tracked", "ro": "Timp înregistrat"},
-    "tasks_with_time": {"en": "tasks with time", "ro": "treburi cu timp"},
+    "tasks_with_estimates": {"en": "tasks with estimates", "ro": "treburi cu estimare"},
     "estimation_accuracy": {"en": "Estimation accuracy", "ro": "Acuratețea estimării"},
     "taking_longer": {"en": "Taking longer than estimated", "ro": "Durează mai mult decât ai estimat"},
     "faster_than_estimated": {"en": "Faster than estimated", "ro": "Mai rapid decât estimat"},
@@ -233,10 +236,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "security_section": {"en": "Security and encryption", "ro": "Securitate și criptare"},
     "security_help_1": {
         "en": "For extra privacy, enable encryption in Settings to protect sensitive data with a "
-              "master password. Task titles, notes, and project names are encrypted using AES-256-GCM.",
+              "master password. Task titles, daily notes, and project names are encrypted using AES-256-GCM.",
         "ro": (
             "Pentru confidențialitate suplimentară, activează criptarea în Setări pentru a proteja "
-            "datele sensibile cu o parolă principală. Titlurile treburilor, notițele și numele "
+            "datele sensibile cu o parolă principală. Titlurile treburilor, notițele zilnice și numele "
             "proiectelor sunt criptate folosind AES-256-GCM."
         ),
     },
@@ -287,6 +290,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "found_bug": {"en": "Found a bug? Have an idea? Let us know!", "ro": "Ai găsit un bug? Ai o idee? Spune-ne!"},
     "feedback_sent": {"en": "Feedback sent, thank you!", "ro": "Feedback trimis, mulțumim!"},
     "feedback_failed": {"en": "Failed", "ro": "Eșuat"},
+    "error_generic": {"en": "Error: {error}", "ro": "Eroare: {error}"},
     "network_error": {"en": "Network error", "ro": "Eroare de rețea"},
     "please_enter_message": {"en": "Please enter a message", "ro": "Te rugăm să introduci un mesaj"},
     "sending_feedback": {"en": "Sending feedback...", "ro": "Se trimite feedback..."},
@@ -324,8 +328,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "section_today": {"en": "TODAY", "ro": "ASTĂZI"},
     "section_inbox": {"en": "DRAFT", "ro": "LA DOSPIT"},
     "section_upcoming": {"en": "UPCOMING", "ro": "VIITOARE"},
+    "section_next": {"en": "NEXT", "ro": "VIITOARE"},
     "section_tasks": {"en": "TASKS", "ro": "TREBURI"},
     "section_done": {"en": "DONE", "ro": "GATA"},
+    "section_overdue": {"en": "OVERDUE", "ro": "RESTANTE"},
+    "section_overdue_count": {"en": "OVERDUE ({count})", "ro": "RESTANTE ({count})"},
 
     # Calendar view
     "day_mon": {"en": "Mon", "ro": "Lun"},
@@ -381,9 +388,9 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "encryption_enabled": {"en": "Encryption is enabled", "ro": "Criptarea este activată"},
     "encryption_not_enabled": {"en": "Encryption is not enabled", "ro": "Criptarea nu este activată"},
     "encryption_not_enabled_desc": {
-        "en": "Enable encryption to protect your tasks, notes, and project names with a master password.",
+        "en": "Enable encryption to protect your tasks, daily notes, and project names with a master password.",
         "ro": (
-            "Activează criptarea pentru a-ți proteja treburile, notițele și numele proiectelor "
+            "Activează criptarea pentru a-ți proteja treburile, notițele zilnice și numele proiectelor "
             "cu o parolă principală."
         ),
     },
@@ -496,6 +503,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "Notifications are not available on this device",
         "ro": "Notificările nu sunt disponibile pe acest dispozitiv",
     },
+    "notify_overdue": {"en": "Overdue task alerts", "ro": "Alerte treburi restante"},
+    "overdue_notification_title": {"en": "Overdue tasks", "ro": "Treburi restante"},
+    "overdue_notification_body_one": {"en": "You have 1 overdue task", "ro": "Ai 1 treabă restantă"},
+    "overdue_notification_body_many": {"en": "You have {count} overdue tasks", "ro": "Ai {count} treburi restante"},
     "test_notification_sent": {"en": "Notification sent", "ro": "Notificare trimisă"},
     "test_notification_failed": {"en": "Notification delivery failed", "ro": "Trimiterea notificării a eșuat"},
     "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},
@@ -505,6 +516,16 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "timer_complete": {"en": "Timer complete", "ro": "Cronometru finalizat"},
     "tracked_time_on_task": {"en": "Tracked {time} on {task}", "ro": "{time} înregistrat pe {task}"},
     "task_due_in": {"en": "\"{task}\" is due in {time}", "ro": "\"{task}\" scade în {time}"},
+    "notif_action_complete": {"en": "Complete", "ro": "Finalizează"},
+    "notif_action_postpone": {"en": "Postpone", "ro": "Amână"},
+    "task_completed_via_notification": {
+        "en": "'{title}' completed",
+        "ro": "'{title}' finalizat(ă)",
+    },
+    "task_postponed_via_notification": {
+        "en": "'{title}' postponed to {date}",
+        "ro": "'{title}' amânat(ă) la {date}",
+    },
 
     # Timer controller
     "stop_current_timer_first": {
@@ -528,6 +549,52 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ro": "{time} adăugat la '{title}'",
     },
 
+    # Task action handler
+    "next_occurrence_scheduled": {
+        "en": "Next occurrence scheduled for {date}",
+        "ro": "Următoarea apariție programată pentru {date}",
+    },
+    "failed_to_delete_task": {
+        "en": "Failed to delete task: {error}",
+        "ro": "Nu s-a putut șterge treaba: {error}",
+    },
+    "task_deleted_single": {
+        "en": "'{title}' deleted",
+        "ro": "'{title}' șters(ă)",
+    },
+    "failed_to_delete_tasks": {
+        "en": "Failed to delete tasks: {error}",
+        "ro": "Nu s-au putut șterge treburile: {error}",
+    },
+    "deleted_one_occurrence": {
+        "en": "Deleted 1 '{title}' occurrence",
+        "ro": "1 apariție a '{title}' ștearsă",
+    },
+    "deleted_n_occurrences": {
+        "en": "Deleted {count} '{title}' occurrences",
+        "ro": "{count} apariții ale '{title}' șterse",
+    },
+    "failed_to_duplicate_task": {
+        "en": "Failed to duplicate task: {error}",
+        "ro": "Nu s-a putut duplica treaba: {error}",
+    },
+    "task_duplicated_as": {
+        "en": "Task duplicated as '{title}'",
+        "ro": "Treabă duplicată ca '{title}'",
+    },
+    "failed_to_postpone_task": {
+        "en": "Failed to postpone task: {error}",
+        "ro": "Nu s-a putut amâna treaba: {error}",
+    },
+    "task_postponed_to": {
+        "en": "'{title}' postponed to {date}",
+        "ro": "'{title}' amânat(ă) la {date}",
+    },
+    "task_postponed_to_upcoming": {
+        "en": "'{title}' postponed to {date} (see Upcoming)",
+        "ro": "'{title}' amânat(ă) la {date} (vezi Viitoare)",
+    },
+
     # Task tile - menu items and labels
     "encrypted": {"en": "Encrypted", "ro": "Criptat"},
     "unassigned": {"en": "Unassigned", "ro": "Neatribuit"},
@@ -538,7 +605,6 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "set_recurrence": {"en": "Set recurrence", "ro": "Setează recurența"},
     "duplicate_task": {"en": "Duplicate task", "ro": "Duplică treaba"},
     "stats": {"en": "Stats", "ro": "Statistici"},
-    "notes": {"en": "Notes", "ro": "Notițe"},
     "task_options": {"en": "Task options", "ro": "Opțiuni treabă"},
 
     # Timer widget
@@ -587,7 +653,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ro": "Dată setată la {date} (vezi Astăzi)",
     },
     "date_set_to_see_upcoming": {
-        "en": "Date set to {date} (see Upcoming)",
+        "en": "Date set to {date} (see Next)",
         "ro": "Dată setată la {date} (vezi Viitoare)",
     },
 
@@ -620,13 +686,13 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "Recurrence disabled",
         "ro": "Recurență dezactivată",
     },
-    "recurrence_day_mon": {"en": "M", "ro": "L"},
-    "recurrence_day_tue": {"en": "T", "ro": "Ma"},
-    "recurrence_day_wed": {"en": "W", "ro": "Mi"},
-    "recurrence_day_thu": {"en": "T", "ro": "J"},
-    "recurrence_day_fri": {"en": "F", "ro": "V"},
-    "recurrence_day_sat": {"en": "S", "ro": "S"},
-    "recurrence_day_sun": {"en": "S", "ro": "D"},
+    "recurrence_day_mon": {"en": "Mo", "ro": "Lu"},
+    "recurrence_day_tue": {"en": "Tu", "ro": "Ma"},
+    "recurrence_day_wed": {"en": "We", "ro": "Mi"},
+    "recurrence_day_thu": {"en": "Th", "ro": "Jo"},
+    "recurrence_day_fri": {"en": "Fr", "ro": "Vi"},
+    "recurrence_day_sat": {"en": "Sa", "ro": "Sâ"},
+    "recurrence_day_sun": {"en": "Su", "ro": "Du"},
 
     # Task dialogs - Stats
     "time_spent": {"en": "Time spent", "ro": "Timp petrecut"},
@@ -646,14 +712,28 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ro": "{count} înregistrări de timp",
     },
 
-    # Task dialogs - Notes
-    "notes_hint": {
-        "en": "Write notes here... Markdown supported",
-        "ro": "Scrie notițe aici... Markdown suportat",
+    # Daily notes
+    "daily_note_hint": {
+        "en": "Write about your day... Markdown supported",
+        "ro": "Scrie despre ziua ta... Markdown suportat",
     },
-    "preview": {"en": "Preview", "ro": "Previzualizare"},
-    "notes_saved": {"en": "Notes saved", "ro": "Notițe salvate"},
-    "notes_title": {"en": "Notes: {title}", "ro": "Notițe: {title}"},
+    "daily_note_saved": {"en": "Daily note saved", "ro": "Notița zilnică salvată"},
+    "failed_to_save_note": {
+        "en": "Failed to save note: {error}",
+        "ro": "Nu s-a putut salva notița: {error}",
+    },
+    "how_was_your_day": {"en": "How was your day?", "ro": "Cum a fost ziua ta?"},
+    "daily_note": {"en": "Daily note", "ro": "Notiță zilnică"},
+    "no_note_yet": {"en": "No note yet", "ro": "Nicio notiță încă"},
+    "recent_notes": {"en": "Recent notes", "ro": "Notițe recente"},
+    "no_notes_yet": {"en": "No notes yet", "ro": "Nicio notiță încă"},
+    "no_notes_yet_desc": {
+        "en": "Your daily notes will appear here",
+        "ro": "Notițele tale zilnice vor apărea aici",
+    },
+    "todays_note": {"en": "Today's note", "ro": "Notița de azi"},
+    "tap_to_write": {"en": "Tap to write about your day", "ro": "Atinge pentru a scrie despre ziua ta"},
+    "edit_in_notes": {"en": "Edit in notes", "ro": "Editează în notițe"},
 
     # Task dialogs - Delete recurrence
     "task_is_recurring": {
@@ -685,6 +765,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ro": "Șterge treaba recurentă",
     },
 
+    # Task details dialog (add details before submit)
+    "due_date": {"en": "Due date", "ro": "Dată scadentă"},
+    "custom_date": {"en": "Custom...", "ro": "Personalizat..."},
+    "none_date": {"en": "None", "ro": "Fără"},
+
     # Task dialogs - Duration completion
     "how_long_spent": {
         "en": "How long did you spend on this task?",
@@ -696,6 +781,35 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "skip": {"en": "Skip", "ro": "Sari"},
     "complete_action": {"en": "Complete", "ro": "Finalizează"},
+    "drag_to_adjust": {"en": "drag to adjust", "ro": "trage pentru a ajusta"},
+
+    # Claude chat
+    "claude_chat": {"en": "Claude chat", "ro": "Chat Claude"},
+    "ask_claude": {"en": "Ask Claude...", "ro": "Întreabă-l pe Claude..."},
+    "claude_api_key": {"en": "Claude API key", "ro": "Cheie API Claude"},
+    "api_key_setup_desc": {
+        "en": "Enter your Anthropic API key to chat with Claude. Your key is stored securely on-device and never shared.",
+        "ro": (
+            "Introdu cheia ta API Anthropic pentru a discuta cu Claude. "
+            "Cheia ta este stocată în siguranță pe dispozitiv și nu este partajată niciodată."
+        ),
+    },
+    "api_key_saved": {"en": "API key saved", "ro": "Cheie API salvată"},
+    "api_key_required": {"en": "API key required", "ro": "Cheie API necesară"},
+    "chat_error": {"en": "Chat error", "ro": "Eroare chat"},
+    "invalid_api_key": {
+        "en": "Invalid API key. Check your key in settings.",
+        "ro": "Cheie API invalidă. Verifică cheia în setări.",
+    },
+    "change_api_key": {"en": "Change API key", "ro": "Schimbă cheia API"},
+    "task_created_chat": {"en": "Created", "ro": "Creat"},
+    "task_completed_chat": {"en": "Completed", "ro": "Finalizat"},
+    "task_deleted_chat": {"en": "Deleted", "ro": "Șters"},
+    "task_renamed_chat": {"en": "Renamed", "ro": "Redenumit"},
+    "task_postponed_chat": {"en": "Postponed", "ro": "Amânat"},
+    "recurrence_set_chat": {"en": "Recurrence set", "ro": "Recurență setată"},
+    "project_created_chat": {"en": "Project created", "ro": "Proiect creat"},
+    "send": {"en": "Send", "ro": "Trimite"},
 }
 
 

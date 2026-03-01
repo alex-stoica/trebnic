@@ -125,7 +125,7 @@ class Database:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
-                    cls._instance._init_lock = threading.Lock()
+                    cls._instance._init_lock: Optional[asyncio.Lock] = None
                     cls._instance._conn: Optional[aiosqlite.Connection] = None
                     cls._instance._conn_lock: Optional[asyncio.Lock] = None
         return cls._instance
@@ -180,9 +180,16 @@ class Database:
             finally:
                 self._conn = None
 
+    async def _get_init_lock(self) -> asyncio.Lock:
+        """Get or create the async lock for init serialization."""
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+        return self._init_lock
+
     async def init_db(self) -> None:
         """Initialize the database schema if needed."""
-        with self._init_lock:
+        lock = await self._get_init_lock()
+        async with lock:
             if self._initialized:
                 return
             async with self._get_connection() as conn:
@@ -217,6 +224,11 @@ class Database:
                     start_time TEXT NOT NULL,
                     end_time TEXT,
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS daily_notes (
+                    date TEXT PRIMARY KEY,
+                    content TEXT DEFAULT '',
+                    updated_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS scheduled_notifications (
@@ -284,6 +296,15 @@ class Database:
                     "CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time)"
                 )
 
+            if "daily_notes" not in tables:
+                await conn.execute("""
+                    CREATE TABLE daily_notes (
+                        date TEXT PRIMARY KEY,
+                        content TEXT DEFAULT '',
+                        updated_at TEXT
+                    )
+                """)
+
             if "scheduled_notifications" not in tables:
                 await conn.execute("""
                     CREATE TABLE scheduled_notifications (
@@ -330,7 +351,7 @@ class Database:
                 "recurrence_interval": 1,
                 "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
                 "recurrence_weekdays": [],
-                "notes": "This is your first task. Check out the Stats to see your time entries!",
+                "notes": "",
                 "sort_order": 0,
                 "recurrence_end_type": "never",
                 "recurrence_end_date": None,
@@ -453,6 +474,19 @@ class Database:
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving task: {e}")
             raise DatabaseError(f"Failed to save task: {e}") from e
+
+    async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:
+        """Atomically add seconds to a task's spent_seconds."""
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute(
+                    "UPDATE tasks SET spent_seconds = spent_seconds + ? WHERE id = ?",
+                    (seconds, task_id),
+                )
+                await conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Error incrementing spent_seconds for task {task_id}: {e}")
+            raise DatabaseError(f"Failed to increment spent_seconds: {e}") from e
 
     async def delete_task(self, task_id: int) -> None:
         try:
@@ -768,17 +802,180 @@ class Database:
             logger.error(f"Error setting {key}: {e}")
             raise DatabaseError(f"Failed to save setting: {e}") from e
 
+    # ========================================================================
+    # Daily Notes
+    # ========================================================================
+
+    async def get_daily_note(self, note_date: date) -> Optional[Dict[str, Any]]:
+        """Get a daily note for a specific date."""
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute(
+                    "SELECT * FROM daily_notes WHERE date = ?",
+                    (note_date.isoformat(),)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row is None:
+                        return None
+                    result = dict(row)
+                    result["content"] = _decrypt_field(result.get("content", ""))
+                    return result
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error loading daily note for {note_date}: {e}")
+            raise DatabaseError(f"Failed to load daily note: {e}") from e
+
+    async def save_daily_note(self, note_date: date, content: str) -> None:
+        """Save or update a daily note."""
+        if content == LOCKED_PLACEHOLDER:
+            raise LockedDataWriteError(
+                "Cannot save daily note with locked placeholder data."
+            )
+        encrypted_content = _encrypt_field(content)
+        now = datetime.now().isoformat()
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute(
+                    "INSERT OR REPLACE INTO daily_notes (date, content, updated_at) VALUES (?, ?, ?)",
+                    (note_date.isoformat(), encrypted_content, now)
+                )
+                await conn.commit()
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error saving daily note for {note_date}: {e}")
+            raise DatabaseError(f"Failed to save daily note: {e}") from e
+
+    async def get_daily_notes_range(self, start: date, end: date) -> List[Dict[str, Any]]:
+        """Get daily notes for a date range (inclusive)."""
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute(
+                    "SELECT * FROM daily_notes WHERE date >= ? AND date <= ? ORDER BY date",
+                    (start.isoformat(), end.isoformat())
+                ) as cursor:
+                    result = []
+                    async for row in cursor:
+                        note = dict(row)
+                        note["content"] = _decrypt_field(note.get("content", ""))
+                        result.append(note)
+                    return result
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error loading daily notes for range {start}-{end}: {e}")
+            raise DatabaseError(f"Failed to load daily notes: {e}") from e
+
+    async def get_all_daily_notes(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get all daily notes ordered by date descending."""
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute(
+                    "SELECT * FROM daily_notes WHERE content != '' ORDER BY date DESC LIMIT ?",
+                    (limit,)
+                ) as cursor:
+                    result = []
+                    async for row in cursor:
+                        note = dict(row)
+                        note["content"] = _decrypt_field(note.get("content", ""))
+                        result.append(note)
+                    return result
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error loading all daily notes: {e}")
+            raise DatabaseError(f"Failed to load daily notes: {e}") from e
+
     async def clear_all(self) -> None:
         try:
             async with self._get_connection() as conn:
                 await conn.executescript(
                     "DELETE FROM scheduled_notifications; DELETE FROM time_entries; "
-                    "DELETE FROM tasks; DELETE FROM projects; DELETE FROM settings;"
+                    "DELETE FROM tasks; DELETE FROM projects; DELETE FROM daily_notes; "
+                    "DELETE FROM settings;"
                 )
                 await conn.commit()
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error clearing database: {e}")
             raise DatabaseError(f"Failed to clear database: {e}") from e
+
+    async def import_all(
+        self,
+        projects: List[Dict],
+        tasks: List[Dict],
+        time_entries: List[Dict],
+        daily_notes: List[Dict],
+        settings: Dict[str, Any],
+    ) -> None:
+        """Atomically import a full dataset, replacing all existing data.
+
+        Uses explicit IDs for tasks and time entries to preserve foreign-key
+        relationships across export/import cycles.
+        """
+        try:
+            await self.clear_all()
+            async with self._get_connection() as conn:
+                # Projects (string IDs, use save_project logic inline)
+                for p in projects:
+                    name = _encrypt_field(p["name"])
+                    await conn.execute(
+                        "INSERT OR REPLACE INTO projects (id, name, icon, color) VALUES (?, ?, ?, ?)",
+                        (p["id"], name, p.get("icon", ""), p.get("color", "")),
+                    )
+
+                # Tasks with explicit IDs
+                for t in tasks:
+                    weekdays = json.dumps(t.get("recurrence_weekdays", []))
+                    due = t.get("due_date")
+                    if isinstance(due, date):
+                        due = due.isoformat()
+                    rec_end = t.get("recurrence_end_date")
+                    if isinstance(rec_end, date):
+                        rec_end = rec_end.isoformat()
+                    title = _encrypt_field(t["title"])
+                    notes = _encrypt_field(t.get("notes", ""))
+                    await conn.execute(
+                        "INSERT INTO tasks "
+                        "(id,title,spent_seconds,estimated_seconds,project_id,"
+                        "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
+                        "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
+                        "recurrence_end_date,recurrence_from_completion) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            t["id"], title, t.get("spent_seconds", 0),
+                            t.get("estimated_seconds", 0), t.get("project_id"),
+                            due, t.get("is_done", 0), t.get("recurrent", 0),
+                            t.get("recurrence_interval", 1),
+                            t.get("recurrence_frequency", "weeks"),
+                            weekdays, notes, t.get("sort_order", 0),
+                            t.get("recurrence_end_type", "never"), rec_end,
+                            t.get("recurrence_from_completion", 0),
+                        ),
+                    )
+
+                # Time entries with explicit IDs
+                for e in time_entries:
+                    await conn.execute(
+                        "INSERT INTO time_entries (id, task_id, start_time, end_time) VALUES (?, ?, ?, ?)",
+                        (e["id"], e["task_id"], e["start_time"], e["end_time"]),
+                    )
+
+                # Daily notes
+                for n in daily_notes:
+                    note_date = n["date"]
+                    if isinstance(note_date, date) and not isinstance(note_date, str):
+                        note_date = note_date.isoformat()
+                    content = _encrypt_field(n.get("content", ""))
+                    updated_at = n.get("updated_at") or datetime.now().isoformat()
+                    await conn.execute(
+                        "INSERT OR REPLACE INTO daily_notes (date, content, updated_at) VALUES (?, ?, ?)",
+                        (note_date, content, updated_at),
+                    )
+
+                # Settings (allow-listed keys only)
+                for key, value in settings.items():
+                    await conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        (key, json.dumps(value)),
+                    )
+
+                await conn.commit()
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error importing data: {e}")
+            raise DatabaseError(f"Failed to import data: {e}") from e
 
     async def is_empty(self) -> bool:
         try:
@@ -791,6 +988,28 @@ class Database:
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error checking if database is empty: {e}")
             raise DatabaseError(f"Failed to check database: {e}") from e
+
+    async def load_task_by_id(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """Load a single task by ID. Returns None if not found."""
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row is None:
+                        return None
+                    task_dict = dict(row)
+                    task_dict["title"] = _decrypt_field(task_dict.get("title", ""))
+                    task_dict["recurrence_weekdays"] = json.loads(task_dict.get("recurrence_weekdays", "[]"))
+                    task_dict["recurrence_end_type"] = task_dict.get("recurrence_end_type", "never")
+                    task_dict["recurrence_from_completion"] = task_dict.get("recurrence_from_completion", 0)
+                    if task_dict.get("due_date"):
+                        task_dict["due_date"] = date.fromisoformat(task_dict["due_date"])
+                    if task_dict.get("recurrence_end_date"):
+                        task_dict["recurrence_end_date"] = date.fromisoformat(task_dict["recurrence_end_date"])
+                    return task_dict
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error loading task by id: {e}")
+            raise DatabaseError(f"Failed to load task {task_id}: {e}") from e
 
     async def load_tasks_filtered(
         self,
@@ -929,8 +1148,6 @@ class Database:
                 for task in tasks:
                     old_title = task.get("title", "")
                     old_notes = task.get("notes", "")
-
-                    # Decrypt with old key, encrypt with new key
                     new_title = old_title
                     new_notes = old_notes
 
@@ -970,6 +1187,25 @@ class Database:
                             (new_name, project["id"])
                         )
                         projects_updated += 1
+
+                # Re-encrypt daily notes
+                async with conn.execute("SELECT date, content FROM daily_notes") as cursor:
+                    notes = [dict(r) async for r in cursor]
+
+                for note in notes:
+                    old_content = note.get("content", "")
+                    new_content = old_content
+
+                    if old_content and _is_encrypted(old_content):
+                        decrypted = decrypt_fn(old_content)
+                        if decrypted is not None:
+                            new_content = encrypt_fn(decrypted)
+
+                    if new_content != old_content:
+                        await conn.execute(
+                            "UPDATE daily_notes SET content = ? WHERE date = ?",
+                            (new_content, note["date"])
+                        )
 
                 await conn.commit()
                 return tasks_updated, projects_updated

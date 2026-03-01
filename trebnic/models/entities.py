@@ -4,9 +4,10 @@ from typing import Optional, List, Set, Dict, Any
 
 from config import (
     DEFAULT_ESTIMATED_SECONDS,
-    NavItem,  
-    PageType, 
+    NavItem,
+    PageType,
     RecurrenceFrequency,
+    TaskFilter,
 )
 
 
@@ -55,6 +56,7 @@ class Task:
     recurrence_end_type: str = "never"
     recurrence_end_date: Optional[date] = None
     recurrence_from_completion: bool = False
+    is_draft: bool = False
 
     def to_dict(self, is_done: bool = False) -> Dict[str, Any]:
         freq_value = (
@@ -79,6 +81,7 @@ class Task:
             "recurrence_end_type": self.recurrence_end_type,
             "recurrence_end_date": self.recurrence_end_date,
             "recurrence_from_completion": 1 if self.recurrence_from_completion else 0,
+            "is_draft": 1 if self.is_draft else 0,
         }
 
     @classmethod
@@ -104,6 +107,7 @@ class Task:
             recurrence_end_type=d.get("recurrence_end_type", "never"),
             recurrence_end_date=d.get("recurrence_end_date"),
             recurrence_from_completion=bool(d.get("recurrence_from_completion", 0)),
+            is_draft=bool(d.get("is_draft", 0)),
         )
 
     def create_next_occurrence(self, next_due_date: date) -> "Task":
@@ -130,7 +134,32 @@ class Task:
         )
 
 
-@dataclass  
+@dataclass
+class DailyNote:
+    """Daily note entity - one note per day, written after completing all tasks."""
+    date: date
+    content: str = ""
+    updated_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "date": self.date.isoformat() if isinstance(self.date, date) else self.date,
+            "content": self.content,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DailyNote":
+        note_date = d["date"]
+        if isinstance(note_date, str):
+            note_date = date.fromisoformat(note_date)
+        updated = d.get("updated_at")
+        if isinstance(updated, str):
+            updated = datetime.fromisoformat(updated)
+        return cls(date=note_date, content=d.get("content", ""), updated_at=updated)
+
+
+@dataclass
 class TimeEntry:
     """Time entry entity representing a tracked time period for a task."""
     task_id: int
@@ -178,6 +207,7 @@ class AppState:
     done_tasks: List[Task] = field(default_factory=list)
     projects: List[Project] = field(default_factory=list)
     selected_nav: NavItem = NavItem.TODAY
+    task_filter: TaskFilter = TaskFilter.TODAY
     selected_projects: Set[str] = field(default_factory=set)
     projects_expanded: bool = False
     is_mobile: bool = False
@@ -187,7 +217,7 @@ class AppState:
     language: str = "en"
     current_page: PageType = PageType.TASKS
     viewing_task_id: Optional[int] = None
-    calendar_week_offset: int = 0
+    calendar_offset: int = 0
     recovered_timer_entry: Optional["TimeEntry"] = None
     # Notification settings
     notifications_enabled: bool = False
@@ -197,8 +227,10 @@ class AppState:
     remind_12h_before: bool = True
     remind_24h_before: bool = True
     reminder_minutes_before: int = 60
+    notify_overdue: bool = True
+    account_created: Optional[date] = None
     quiet_hours_start: Optional[time] = None
-    quiet_hours_end: Optional[time] = None 
+    quiet_hours_end: Optional[time] = None
 
     def get_project_by_id(self, project_id: Optional[str]) -> Optional[Project]: 
         if project_id is None:

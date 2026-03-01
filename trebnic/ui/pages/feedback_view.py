@@ -145,7 +145,7 @@ class FeedbackPage:
                 )
         except Exception as exc:
             logger.exception("Send feedback failed")
-            self.snack.show(f"Error: {exc}", COLORS["danger"])
+            self.snack.show(t("error_generic").format(error=exc), COLORS["danger"])
 
     def _update_status_indicator(self) -> None:
         """Update the config status text based on current field values."""

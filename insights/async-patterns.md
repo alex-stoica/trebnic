@@ -48,14 +48,14 @@ async def _on_click(self, e):
 
 `snack.show()`, `control.update()`, `page.update()` must run on Flet's event loop. From threads, schedule back via `page.run_task()`.
 
-### 5. Always wrap handlers in try/except
+### 5. Always wrap handlers in try/except with specific exceptions
 
-Because Flet swallows exceptions silently:
+Because Flet swallows exceptions silently, add error handling — but use **specific exception types**, not bare `except Exception` (which is forbidden per CLAUDE.md):
 ```python
 async def _on_click(self, e):
     try:
         ...
-    except Exception as exc:
+    except (ValueError, DatabaseError) as exc:
         print(f"[ERROR] {exc}")
         self.snack.show(f"Error: {exc}", COLORS["danger"])
 ```

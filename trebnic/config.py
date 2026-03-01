@@ -33,6 +33,12 @@ class NotificationType(Enum):
     DAILY_DIGEST = "daily_digest"
 
 
+class NotificationAction:
+    """Constants for notification action button IDs."""
+    COMPLETE = "complete"
+    POSTPONE = "postpone"
+
+
 class PermissionResult(Enum):
     """Result of notification permission request."""
     GRANTED = "granted"
@@ -45,18 +51,26 @@ class NavItem(Enum):
     INBOX = "inbox"
     TODAY = "today"
     CALENDAR = "calendar"
-    UPCOMING = "upcoming"
+    NOTES = "notes"
     PROJECTS = "projects"
+
+
+class TaskFilter(Enum):
+    """Sub-filter for the Tasks nav item."""
+    TODAY = "today"
+    NEXT = "next"
 
 
 class PageType(Enum):
     """Enum for page types."""
     TASKS = "tasks"
+    NOTES = "notes"
     PROFILE = "profile"
     TIME_ENTRIES = "time_entries"
     HELP = "help"
     FEEDBACK = "feedback"
     STATS = "stats"
+    CHAT = "chat"
 
 DEFAULT_ESTIMATED_SECONDS = 900
 MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes
@@ -105,8 +119,8 @@ PROJECT_COLORS = [
 # Format: (table_name, column_name)
 ENCRYPTED_FIELDS = [
     ("tasks", "title"),
-    ("tasks", "notes"),
     ("projects", "name"),
+    ("daily_notes", "content"),
 ]
 
 # Minimum password requirements
@@ -167,7 +181,6 @@ DIALOG_WIDTH_XL = 350
 
 CALENDAR_HEADER_HEIGHT = 48
 ICON_PICKER_HEIGHT = 280
-NOTES_FIELD_HEIGHT = 280
 COLOR_PICKER_HEIGHT = 250
 
 ICON_GRID_RUNS_COUNT = 6

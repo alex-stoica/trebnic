@@ -1,10 +1,13 @@
 import flet as ft
 import logging
+
 from typing import Optional, Any, List
 
 logger = logging.getLogger(__name__)
 
-from config import COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG, SPACING_XS, PADDING_2XL
+from config import (
+    COLORS, MOBILE_BREAKPOINT, NavItem, NotificationAction, PageType, FONT_SIZE_LG, SPACING_XS, PADDING_2XL,
+)
 from database import db
 from events import event_bus, AppEvent, Subscription
 from i18n import t
@@ -70,6 +73,7 @@ class TrebnicApp:
         self.project_btns = c.project_btns
         self.tasks_view = c.tasks_view
         self.calendar_view = c.calendar_view
+        self.notes_view = c.notes_view
         self.time_entries_view = c.time_entries_view
         self.profile_page = c.profile_page
         self.help_page = c.help_page
@@ -79,6 +83,7 @@ class TrebnicApp:
         self.project_dialogs = c.project_dialogs
         self.time_entry_service = c.time_entry_service
         self.task_handler = c.task_handler
+        self.chat_view = c.chat_view
         self._pending_error = c.pending_error
 
     def _subscribe_to_events(self) -> None:
@@ -134,6 +139,10 @@ class TrebnicApp:
         # Stop timer if running
         if self.timer_ctrl:
             self.timer_ctrl.cleanup()
+
+        # Clean up stats page subscriptions
+        if self.stats_page:
+            self.stats_page.cleanup()
 
         # Clean up notification service and database sequentially
         # Must be in single async function to ensure notifications finish before db closes
@@ -213,9 +222,9 @@ class TrebnicApp:
         """Handle language changes - update all translatable UI text."""
         # Update navigation items
         self.nav_inbox.title.value = t("inbox")
-        self.nav_today.title.value = t("today")
+        self.nav_tasks.title.value = t("tasks_nav")
         self.nav_calendar.title.value = t("calendar")
-        self.nav_upcoming.title.value = t("upcoming")
+        self.nav_notes.title.value = t("notes")
         self.nav_projects.title.value = t("projects")
 
         # Update task view translatable text
@@ -229,7 +238,7 @@ class TrebnicApp:
         self.page.update()
 
     def _on_notification_tapped(self, data: Any) -> None:
-        """Handle notification tap - navigate to task and show stats."""
+        """Handle notification tap - route to action handler or navigate to task stats."""
         if data is None:
             return
 
@@ -237,13 +246,60 @@ class TrebnicApp:
         if task_id is None:
             return
 
-        # Navigate to tasks view
-        self.nav_manager.navigate_to(PageType.TASKS)
+        action_id = data.get("action_id") if isinstance(data, dict) else None
 
-        # Find task and emit stats requested event for deep-linking
-        task = self.state.get_task_by_id(task_id)
-        if task is not None:
-            event_bus.emit(AppEvent.TASK_STATS_REQUESTED, task)
+        if action_id == NotificationAction.COMPLETE:
+            self._handle_notification_complete(task_id)
+        elif action_id == NotificationAction.POSTPONE:
+            self._handle_notification_postpone(task_id)
+        else:
+            # Body tap — navigate to tasks view and show stats
+            self.nav_manager.navigate_to(PageType.TASKS)
+            task = self.state.get_task_by_id(task_id)
+            if task is not None:
+                event_bus.emit(AppEvent.TASK_STATS_REQUESTED, task)
+
+    def _handle_notification_complete(self, task_id: int) -> None:
+        """Complete a task from a notification action button."""
+        async def _do_complete() -> None:
+            await self.service.refresh_state_tasks()
+            task = self.state.get_task_by_id(task_id)
+            if task is None or task.is_done:
+                return
+
+            new_task = await self.service.complete_task(task)
+            event_bus.emit(AppEvent.TASK_COMPLETED, task)
+            if new_task:
+                event_bus.emit(AppEvent.TASK_CREATED, new_task)
+
+            title = task.title
+            self.snack.show(t("task_completed_via_notification").replace("{title}", title))
+            await self.service.refresh_state_tasks()
+            self.tasks_view.refresh()
+            self.page.update()
+
+        self.page.run_task(_do_complete)
+
+    def _handle_notification_postpone(self, task_id: int) -> None:
+        """Postpone a task from a notification action button (+1 day)."""
+        async def _do_postpone() -> None:
+            await self.service.refresh_state_tasks()
+            task = self.state.get_task_by_id(task_id)
+            if task is None or task.is_done:
+                return
+
+            new_date = await self.service.postpone_task(task)
+            event_bus.emit(AppEvent.TASK_UPDATED, task)
+            event_bus.emit(AppEvent.TASK_POSTPONED, task)
+
+            title = task.title
+            date_str = new_date.strftime("%Y-%m-%d")
+            self.snack.show(t("task_postponed_via_notification").replace("{title}", title).replace("{date}", date_str))
+            await self.service.refresh_state_tasks()
+            self.tasks_view.refresh()
+            self.page.update()
+
+        self.page.run_task(_do_postpone)
 
     def _create_controller(self) -> None:
         """Create UIController for navigation utilities.
@@ -281,7 +337,13 @@ class TrebnicApp:
 
     def update_content(self) -> None:
         """Update the main content area based on current state."""
-        if self.state.current_page == PageType.PROFILE:
+        # Auto-save notes if navigating away from notes page
+        if hasattr(self, 'notes_view') and self.notes_view:
+            self.notes_view.save_if_editing()
+
+        if self.state.current_page == PageType.CHAT:
+            self.page_content.content = self.chat_view.build()
+        elif self.state.current_page == PageType.PROFILE:
             self.page_content.content = self.profile_page.build()
         elif self.state.current_page == PageType.HELP:
             self.page_content.content = self.help_page.build()
@@ -295,12 +357,17 @@ class TrebnicApp:
             # Refresh state.tasks before building calendar to ensure fresh data
             self.page.run_task(self._refresh_state_and_build_calendar)
             return
+        elif self.state.current_page == PageType.NOTES:
+            self.page_content.content = self.notes_view.build()
+            self.notes_view.refresh()
         else:
             self.page_content.content = self.tasks_view.build()
 
     async def _refresh_state_and_build_calendar(self) -> None:
         """Refresh state.tasks from DB and build calendar view."""
         await self.service.refresh_state_tasks()
+        start, end = self.calendar_view.get_visible_range()
+        await self.calendar_view._load_note_dates(start, end)
         self.page_content.content = self.calendar_view.build()
         self.page.update()
 
@@ -316,6 +383,10 @@ class TrebnicApp:
     def _on_help_click(self, e: ft.ControlEvent) -> None:
         """Handle help menu item click."""
         self.nav_manager.navigate_to(PageType.HELP)
+
+    def _on_chat_click(self, e: ft.ControlEvent) -> None:
+        """Handle Claude chat menu item click."""
+        self.nav_manager.navigate_to(PageType.CHAT)
 
     def _on_stats_click(self, e: ft.ControlEvent) -> None:
         """Handle stats menu item click."""
@@ -333,6 +404,11 @@ class TrebnicApp:
                 content=t("menu_stats"),
                 icon=ft.Icons.BAR_CHART,
                 on_click=self._on_stats_click,
+            ),
+            ft.PopupMenuItem(
+                content=t("claude_chat"),
+                icon=ft.Icons.CHAT,
+                on_click=self._on_chat_click,
             ),
             ft.PopupMenuItem(
                 content=t("menu_encryption"),
@@ -393,9 +469,9 @@ class TrebnicApp:
             on_click=self.nav_handler.on_inbox_click,
         )
 
-        self.nav_today = ft.ListTile(
-            leading=ft.Icon(ft.Icons.TODAY),
-            title=ft.Text(t("today"), size=FONT_SIZE_LG),
+        self.nav_tasks = ft.ListTile(
+            leading=ft.Icon(ft.Icons.TASK_ALT),
+            title=ft.Text(t("tasks_nav"), size=FONT_SIZE_LG),
             dense=True,
             selected=True,
             selected_color=COLORS["accent"],
@@ -410,12 +486,12 @@ class TrebnicApp:
             on_click=self.nav_handler.on_calendar_click,
         )
 
-        self.nav_upcoming = ft.ListTile(
-            leading=ft.Icon(ft.Icons.UPCOMING),
-            title=ft.Text(t("upcoming"), size=FONT_SIZE_LG),
+        self.nav_notes = ft.ListTile(
+            leading=ft.Icon(ft.Icons.STICKY_NOTE_2_OUTLINED),
+            title=ft.Text(t("notes"), size=FONT_SIZE_LG),
             dense=True,
             selected_color=COLORS["accent"],
-            on_click=self.nav_handler.on_upcoming_click,
+            on_click=self.nav_handler.on_notes_click,
         )
 
     def _build_projects_section(self) -> None:
@@ -454,9 +530,9 @@ class TrebnicApp:
                 ft.Text("Trebnic", size=20, weight="bold"),
                 ft.Divider(color="grey"),
                 self.nav_inbox,
-                self.nav_today,
-                self.nav_upcoming,
+                self.nav_tasks,
                 self.nav_calendar,
+                self.nav_notes,
                 ft.Divider(color="grey"),
                 self.nav_projects,
                 self.projects_items,
@@ -513,7 +589,7 @@ class TrebnicApp:
                 alignment=ft.MainAxisAlignment.START,
                 controls=[
                     self.header,
-                    ft.Divider(height=30, color="transparent"),
+                    ft.Divider(height=10, color="transparent"),
                     self.page_content,
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -522,12 +598,12 @@ class TrebnicApp:
         )
 
     def _finalize_navigation_wiring(self) -> None:
-        """Wire navigation manager with all built components.""" 
+        """Wire navigation manager with all built components."""
         nav_items = {
             NavItem.INBOX: self.nav_inbox,
-            NavItem.TODAY: self.nav_today,
+            NavItem.TODAY: self.nav_tasks,
             NavItem.CALENDAR: self.nav_calendar,
-            NavItem.UPCOMING: self.nav_upcoming,
+            NavItem.NOTES: self.nav_notes,
             NavItem.PROJECTS: self.nav_projects,
         }
 

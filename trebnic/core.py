@@ -23,6 +23,7 @@ from services.logic import TaskService
 from services.project_service import ProjectService
 from services.settings_service import SettingsService
 from services.time_entry_service import TimeEntryService
+from services.daily_notes_service import DailyNoteService
 from services.timer import TimerService
 
 
@@ -35,6 +36,7 @@ class ServiceContainer:
     time_entry: TimeEntryService
     settings: SettingsService
     timer: TimerService
+    daily_notes: Optional[DailyNoteService] = None
 
 
 async def bootstrap(

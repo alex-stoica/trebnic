@@ -1,6 +1,6 @@
 import flet as ft
 from datetime import date
-from typing import Callable
+from typing import Callable, Optional
 
 from config import (
     COLORS,
@@ -41,9 +41,9 @@ class ProfilePage:
         self.snack = snack
         self.navigate = navigate
         self.tasks_view = tasks_view
-        self._avatar_path: str | None = None
-        self._avatar_icon: ft.Icon | None = None
-        self._avatar_image: ft.Image | None = None
+        self._avatar_path: Optional[str] = None
+        self._avatar_icon: Optional[ft.Icon] = None
+        self._avatar_image: Optional[ft.Image] = None
         self._file_picker = ft.FilePicker()
         self.page.services.append(self._file_picker)
 
@@ -223,7 +223,7 @@ class ProfilePage:
 
         def on_slider(e: ft.ControlEvent) -> None:
             duration_label.value = format_duration(int(e.control.value) * DURATION_SLIDER_STEP)
-            self.page.update()
+            duration_label.update()
 
         slider = ft.Slider(
             min=DURATION_SLIDER_MIN,
@@ -270,7 +270,7 @@ class ProfilePage:
             self.state.reminder_minutes_before = mins
             hours = mins // 60
             reminder_label.value = t("hours_before").replace("{hours}", str(hours))
-            self.page.update()
+            reminder_label.update()
 
         def on_test_notification(e: ft.ControlEvent) -> None:
             try:
@@ -366,6 +366,11 @@ class ProfilePage:
             size=13,
         )
 
+        cb_overdue = ft.Checkbox(
+            value=self.state.notify_overdue,
+            label=t("notify_overdue"),
+        )
+
         notification_sub_controls = ft.Column(
             [
                 ft.Text(t("reminder_minutes_before"), size=13),
@@ -373,6 +378,8 @@ class ProfilePage:
                 ft.Divider(height=5, color="transparent"),
                 custom_label,
                 ft.Row([reminder_slider, reminder_label], spacing=8),
+                ft.Divider(height=5, color="transparent"),
+                cb_overdue,
                 ft.Divider(height=5, color="transparent"),
                 ft.TextButton(
                     t("test_notification"),
@@ -395,6 +402,7 @@ class ProfilePage:
                 self.state.remind_12h_before = cb_12h.value
                 self.state.remind_24h_before = cb_24h.value
                 self.state.reminder_minutes_before = int(reminder_slider.value)
+                self.state.notify_overdue = cb_overdue.value
                 try:
                     await self.settings_service.save_settings()
                 except DatabaseError as ex:
@@ -546,7 +554,7 @@ class ProfilePage:
                         [
                             ft.Text(t("account_age"), weight="bold", size=13),
                             ft.Text(
-                                f"{t('since')} {date.today().strftime('%b %d, %Y')}",
+                                f"{t('since')} {(self.state.account_created or date.today()).strftime('%b %d, %Y')}",
                                 color=COLORS["done_text"],
                                 size=12,
                             ),

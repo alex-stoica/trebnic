@@ -8,8 +8,6 @@ from config import (
     DIALOG_WIDTH_SM,
     DIALOG_WIDTH_MD,
     DIALOG_WIDTH_LG,
-    DIALOG_WIDTH_XL,
-    NOTES_FIELD_HEIGHT,
     DATE_PICKER_YEARS,
     BORDER_RADIUS,
     PageType,
@@ -92,6 +90,18 @@ class DatePickerManager:
 
 # Module-level singleton
 _picker_manager = DatePickerManager()
+
+
+def get_date_picker(page: ft.Page) -> ft.DatePicker:
+    """Get a reusable DatePicker for the given page.
+
+    Public wrapper around _picker_manager to avoid importing the private singleton.
+    """
+    return _picker_manager.get_picker(
+        page,
+        first_date=date.today(),
+        last_date=date.today() + timedelta(days=365 * DATE_PICKER_YEARS),
+    )
 
 
 class RecurrenceDialogController:
@@ -351,7 +361,7 @@ class TaskDialogs:
             return t("date_set_to_see_today").replace("{date}", date_str)
         else:
             date_str = new_date.strftime('%b %d')
-            if current_nav == NavItem.UPCOMING:
+            if current_nav == NavItem.TODAY and self.state.task_filter.value == "next":
                 return t("date_set_to").replace("{date}", date_str)
             return t("date_set_to_see_upcoming").replace("{date}", date_str)
 
@@ -593,21 +603,6 @@ class TaskDialogs:
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_save)
 
-        controller: Optional[RecurrenceDialogController] = None
-
-        def make_actions(close_fn: Callable[[], None]) -> List[ft.Control]:
-            nonlocal controller
-            controller = RecurrenceDialogController(
-                page=self.page,
-                state=recurrence_state,
-                on_save=on_save,
-                on_close=close_fn,
-            )
-            return [
-                ft.TextButton(t("cancel"), on_click=close_fn),
-                accent_btn(t("save"), controller.save),
-            ]
- 
         temp_controller = RecurrenceDialogController(
             page=self.page,
             state=recurrence_state,
@@ -807,75 +802,6 @@ class TaskDialogs:
             lambda c: [ft.TextButton(t("close"), on_click=c)],
         )
 
-    def notes(self, task: Task) -> None:
-        field = ft.TextField(
-            value=task.notes,
-            multiline=True,
-            border_color=COLORS["border"],
-            bgcolor=COLORS["input_bg"],
-            border_radius=8,
-            hint_text=t("notes_hint"),
-            height=NOTES_FIELD_HEIGHT,
-        )
-
-        md = ft.Markdown(
-            value=task.notes or "*No notes yet*",
-            selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-        )
-
-        preview = ft.Container(
-            content=ft.Column([md], scroll=ft.ScrollMode.AUTO, expand=True),
-            bgcolor=COLORS["input_bg"],
-            border=ft.Border.all(1, COLORS["border"]),
-            border_radius=8,
-            padding=10,
-            height=NOTES_FIELD_HEIGHT,
-            visible=False,
-        )
-
-        toggle_btn = ft.TextButton(t("preview"), icon=ft.Icons.VISIBILITY)
-
-        def toggle(e: ft.ControlEvent) -> None:
-            is_preview = not preview.visible
-            if is_preview:
-                md.value = field.value or "*No notes yet*"
-            field.visible = not is_preview
-            preview.visible = is_preview
-            toggle_btn.text = t("edit") if is_preview else t("preview")
-            toggle_btn.icon = ft.Icons.EDIT if is_preview else ft.Icons.VISIBILITY
-            self.page.update()
-
-        toggle_btn.on_click = toggle
-
-        def save(e: ft.ControlEvent) -> None:
-            async def _save() -> None:
-                await self.task_service.set_task_notes(task, field.value)
-                close(e)
-                self.snack.show(t("notes_saved"))
-            self.page.run_task(_save)
-
-        content = ft.Container(
-            width=DIALOG_WIDTH_XL,
-            content=ft.Column(
-                [
-                    ft.Row([toggle_btn], alignment=ft.MainAxisAlignment.END),
-                    field,
-                    preview,
-                ],
-                tight=True,
-                spacing=8,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            ),
-        )
-
-        _, close = open_dialog(
-            self.page,
-            t("notes_title").replace("{title}", task.title),
-            content,
-            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
-        )
-
     def delete_recurrence(
         self,
         task: Task,
@@ -945,13 +871,13 @@ class TaskDialogs:
     def duration_completion(
         self,
         task: Task,
-        on_complete: Callable[[Task], None],
+        on_complete: Callable,
     ) -> None:
         """Show duration knob dialog for completing a task without time entries.
 
         Args:
             task: The task being completed
-            on_complete: Callback to call after setting duration to complete the task
+            on_complete: Async callback to finalize completion (awaited inside run_task)
         """
         # Default to estimated time or 15 minutes
         initial_minutes = task.estimated_seconds // 60 if task.estimated_seconds else 15
@@ -961,23 +887,21 @@ class TaskDialogs:
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
                 duration_seconds = knob.value * 60
-                # Create time entry: end_time = now, start_time = now - duration
                 end_time = datetime.now()
                 start_time = end_time - timedelta(seconds=duration_seconds)
                 entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
                 await self.time_entry_service.save_time_entry(entry)
-                # Update task spent time
                 task.spent_seconds += duration_seconds
                 await self.task_service.persist_task(task)
                 close(None)
-                # Now complete the task
-                on_complete(task)
+                await on_complete(task)
             self.page.run_task(_save)
 
         def skip(e: ft.ControlEvent) -> None:
-            # Complete without setting time
-            close(e)
-            on_complete(task)
+            async def _skip() -> None:
+                close(None)
+                await on_complete(task)
+            self.page.run_task(_skip)
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,

@@ -20,6 +20,7 @@ Security Model:
 import asyncio
 import base64
 import logging
+import os
 import platform
 import sys
 import threading
@@ -47,6 +48,8 @@ except ImportError:
     KEYRING_AVAILABLE = False
     KeyringError = Exception
     PasswordDeleteError = Exception
+
+logger = logging.getLogger(__name__)
 
 # macOS Touch ID support via pyobjc
 TOUCHID_AVAILABLE = False
@@ -82,7 +85,6 @@ _is_android = False
 def _detect_android() -> bool:
     """Detect if running on Android."""
     # Method 1: Check for Android-specific paths
-    import os
     if os.path.exists("/system/build.prop"):
         return True
     # Method 2: Check ANDROID_ROOT env variable
@@ -104,8 +106,6 @@ if _is_android:
         ANDROID_BIOMETRIC_AVAILABLE = True
     except ImportError:
         pass
-
-logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -323,7 +323,7 @@ async def _prompt_touchid(reason: str) -> BiometricResult:
             # We need to use a different approach for proper async handling
 
         # Use asyncio to run the blocking call in a thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Create a future to get the result
         future = loop.create_future()
@@ -423,7 +423,7 @@ async def _prompt_android_biometric(reason: str) -> BiometricResult:
         activity = PythonActivity.mActivity
 
         # Use asyncio to bridge Java callback with Python
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future = loop.create_future()
 
         def run_biometric():
@@ -613,7 +613,7 @@ class PasskeyService:
 
             # Store biometric secret in keyring (NOT the raw key)
             secret_b64 = base64.b64encode(biometric_secret).decode('utf-8')
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: keyring.set_password(KEYRING_SERVICE, user_id, secret_b64)
@@ -681,7 +681,7 @@ class PasskeyService:
 
         try:
             # Retrieve biometric secret from keyring
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             secret_b64 = await loop.run_in_executor(
                 None,
                 lambda: keyring.get_password(KEYRING_SERVICE, user_id)
@@ -735,7 +735,7 @@ class PasskeyService:
             return True  # Nothing to delete
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: keyring.delete_password(KEYRING_SERVICE, user_id)
@@ -767,7 +767,7 @@ class PasskeyService:
             return False
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             key_b64 = await loop.run_in_executor(
                 None,
                 lambda: keyring.get_password(KEYRING_SERVICE, user_id)

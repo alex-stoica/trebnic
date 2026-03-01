@@ -1,6 +1,7 @@
 import flet as ft
 from typing import Dict, Optional
 
+from config import NavItem
 from database import DatabaseError
 from events import event_bus
 from registry import registry, Services
@@ -11,15 +12,22 @@ from services.project_service import ProjectService
 from services.time_entry_service import TimeEntryService
 from services.settings_service import SettingsService
 from services.notification_service import notification_service
+from services.daily_notes_service import DailyNoteService
 from models.entities import AppState
 from ui.navigation import NavigationManager, NavigationHandler
 from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
-from ui.pages import TasksView, CalendarView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage, StatsPage
+from ui.pages import (
+    TasksView, CalendarView, NotesView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage,
+    StatsPage, ChatView,
+)
 from ui.timer_controller import TimerController
 from ui.auth_controller import AuthController
 from ui.handlers import TaskActionHandler
+from api import TrebnicAPI
+from core import ServiceContainer
+from services.claude_service import ClaudeService
 
 
 class AppComponents:
@@ -31,6 +39,7 @@ class AppComponents:
         self.project_service: Optional[ProjectService] = None
         self.time_entry_service: Optional[TimeEntryService] = None
         self.settings_service: Optional[SettingsService] = None
+        self.daily_notes_service: Optional[DailyNoteService] = None
         self.snack: Optional[SnackService] = None
         self.timer_svc: Optional[TimerService] = None
         self.nav_manager: Optional[NavigationManager] = None
@@ -42,6 +51,7 @@ class AppComponents:
         self.project_btns: Dict[str, ProjectSidebarItem] = {}
         self.tasks_view: Optional[TasksView] = None
         self.calendar_view: Optional[CalendarView] = None
+        self.notes_view: Optional[NotesView] = None
         self.time_entries_view: Optional[TimeEntriesView] = None
         self.profile_page: Optional[ProfilePage] = None
         self.help_page: Optional[HelpPage] = None
@@ -51,6 +61,8 @@ class AppComponents:
         self.project_dialogs: Optional[ProjectDialogs] = None
         self.timer_widget: Optional[TimerWidget] = None
         self.task_handler: Optional[TaskActionHandler] = None
+        self.chat_view: Optional[ChatView] = None
+        self.claude_service: Optional[ClaudeService] = None
 
         # Layout elements
         self.nav_items: Dict[str, ft.ListTile] = {}
@@ -124,6 +136,7 @@ class AppInitializer:
         self.components.project_service = ProjectService(self.components.state)
         self.components.time_entry_service = TimeEntryService()
         self.components.settings_service = SettingsService(self.components.state)
+        self.components.daily_notes_service = DailyNoteService()
 
         self.components.snack = SnackService(self.page)
         if self.components.auth_ctrl:
@@ -134,6 +147,7 @@ class AppInitializer:
         registry.register(Services.PROJECT, self.components.project_service)
         registry.register(Services.TIME_ENTRY, self.components.time_entry_service)
         registry.register(Services.SETTINGS, self.components.settings_service)
+        registry.register(Services.DAILY_NOTES, self.components.daily_notes_service)
         registry.register(Services.TIMER, self.components.timer_svc)
         # Note: UIController is created in app.py after all components are ready
     
@@ -166,10 +180,22 @@ class AppInitializer:
             for p in state.projects
         }
 
+        def open_notes() -> None:
+            nav_manager.select_nav(NavItem.NOTES)
+
         self.components.tasks_view = TasksView(
             self.page, state, task_service, snack,
+            on_open_notes=open_notes,
         )
-        self.components.calendar_view = CalendarView(state, on_update=None)
+        self.components.calendar_view = CalendarView(
+            self.page, state, self.components.daily_notes_service, snack,
+            on_update=None,
+            on_open_notes=open_notes,
+        )
+
+        self.components.notes_view = NotesView(
+            self.page, state, self.components.daily_notes_service, snack,
+        )
 
         self.components.time_entries_view = TimeEntriesView(
             self.page, state, task_service, time_entry_service, snack, nav_manager.navigate_to,
@@ -200,7 +226,23 @@ class AppInitializer:
             self.page, state, project_service, snack,
         )
 
-        self.components.timer_widget = TimerWidget(lambda e: None) 
+        self.components.timer_widget = TimerWidget(lambda e: None)
+
+        # Claude chat service and view
+        svc_container = ServiceContainer(
+            state=state,
+            task=task_service,
+            project=project_service,
+            time_entry=time_entry_service,
+            settings=settings_service,
+            timer=self.components.timer_svc,
+            daily_notes=self.components.daily_notes_service,
+        )
+        trebnic_api = TrebnicAPI(svc_container)
+        self.components.claude_service = ClaudeService(trebnic_api)
+        self.components.chat_view = ChatView(
+            self.page, state, self.components.claude_service, snack, nav_manager.navigate_to,
+        )
     
     def _init_timer_controller(self) -> None:
         """Initialize the timer controller.
@@ -250,6 +292,7 @@ class AppInitializer:
             timer_ctrl=self.components.timer_ctrl,
             snack=self.components.snack,
             refresh_ui=self.components.tasks_view.refresh,
+            refresh_ui_async=self.components.tasks_view._refresh_async,
         )
 
     def _subscribe_to_events(self) -> None:

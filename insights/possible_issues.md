@@ -6,30 +6,25 @@ Audit of the Trebnic codebase. Covers code quality, UI friction, race conditions
 
 ## 1. Bad practices
 
-### 1.1 Imports inside functions (CLAUDE.md forbids this)
+### ~~1.1 Imports inside functions~~ — RESOLVED
 
-`services/logic.py` has three conditional imports inside methods:
-- `from events import AppEvent` inside `reload_state_async()` (line 114)
-- `from events import AppEvent` inside `reload_state()` (line 145)
-- `import concurrent.futures` inside `load_state()` (line 83)
+Previously `services/logic.py` had conditional imports inside methods. These have been moved to module-level imports.
 
-The comment says _"AppEvent enum is safe to import"_ - the circular dependency concern is real, but this should be solved architecturally (e.g., by moving the enum to a separate module) rather than violating the project rule.
+### ~~1.2 No tests~~ — RESOLVED
 
-### 1.2 No tests
-
-The `tests/` directory contains only an empty `__init__.py`. There are zero test files. For a codebase with encryption, async database operations, recurrence date math, and timer state machines, this is a significant risk.
+`tests/test_api.py` now contains 74 tests covering task creation, completion, deletion, projects, queries, recurrence, renaming, postponing, time entries, date filtering, export, and import.
 
 ---
 
 ## 2. Race conditions and async issues
 
-### 2.1 Timer stop uses stale task reference
+### ~~2.1 Timer stop uses stale task reference~~ — RESOLVED
 
-`services/timer.py`: In the `stop()` method, task state is captured (reference to `self.active_task`) before the stop logic runs. If the same task is modified elsewhere between capture and execution of `_finalize_stop`, the spent-time update operates on stale data. The task is not reloaded from the database before `task.spent_seconds += elapsed`.
+`_finalize_stop()` now calls `increment_spent_seconds(task.id, elapsed)` which does an atomic `UPDATE tasks SET spent_seconds = spent_seconds + ? WHERE id = ?` instead of persisting the entire stale task object. No other fields can be overwritten.
 
 ### 2.2 Timezone-naive datetimes throughout the codebase
 
-`services/notification_service.py` uses `datetime.now()` (timezone-naive) in 4 places (lines 266, 482, 529, 629). All comparisons like `trigger_time <= now` are naive. If the system timezone changes (e.g., mobile travel, DST) or data is migrated, notifications will misfire. Should use `datetime.now(timezone.utc)` or handle timezone consistently.
+`services/notification_service.py` uses `datetime.now()` (timezone-naive) in 4 places (lines 322, 637, 701, 806). All comparisons like `trigger_time <= now` are naive. If the system timezone changes (e.g., mobile travel, DST) or data is migrated, notifications will misfire. Should use `datetime.now(timezone.utc)` or handle timezone consistently.
 
 ### 2.3 Navigation drawer close races with state update on mobile
 
@@ -45,7 +40,7 @@ The `tests/` directory contains only an empty `__init__.py`. There are zero test
 
 ### 3.2 Recovered timer entry may reference deleted task
 
-`services/logic.py:66-69`: On app startup, if there's an incomplete time entry it's loaded into `state.recovered_timer_entry`, but the corresponding task might have been deleted since the entry was created. No validation is done, which could cause errors when trying to resume the timer.
+`services/logic.py:109-111`: On app startup, if there's an incomplete time entry it's loaded into `state.recovered_timer_entry`, but the corresponding task might have been deleted since the entry was created. No validation is done, which could cause errors when trying to resume the timer.
 
 ---
 
@@ -81,7 +76,7 @@ The `tests/` directory contains only an empty `__init__.py`. There are zero test
 
 ### 4.6 Color contrast fails accessibility (WCAG)
 
-`config.py:203-204`: `done_text` color `#666666` on `done_bg` `#1a1a1a` gives a contrast ratio of ~2.5:1. WCAG AA requires 4.5:1 for normal text. Completed tasks may be unreadable for users with low vision.
+`config.py`: `done_text` color `#666666` on `done_bg` `#1a1a1a` gives a contrast ratio of ~2.5:1. WCAG AA requires 4.5:1 for normal text. Completed tasks may be unreadable for users with low vision.
 
 ### 4.7 "Skip" button ambiguity in task completion dialog
 
@@ -108,9 +103,9 @@ These may overflow or get clipped on narrow phone screens.
 
 ## 5. Version / dependency
 
-### 5.1 Pinned to `>=0.80.0`, latest is `0.80.5`
+### 5.1 Pinned to `>=0.80.0`
 
-`requirements.txt` and `pyproject.toml` both specify `flet>=0.80.0`. The latest release is **0.80.5** (January 30, 2026). While the `>=` constraint allows upgrades, the build artifacts in `trebnic/build/` may bundle an older version. Worth running `pip install --upgrade flet` and rebuilding.
+`requirements.txt` and `pyproject.toml` both specify `flet>=0.80.0`. The `>=` constraint allows upgrades, but the build artifacts in `trebnic/build/` may bundle an older version. Worth running `pip install --upgrade flet` and rebuilding periodically.
 
 ---
 
@@ -118,11 +113,9 @@ These may overflow or get clipped on narrow phone screens.
 
 Review of `insights/*.md` files for accuracy, relevance, and staleness.
 
-### 6.1 Out of scope with code
+### ~~6.1 Out of scope with code~~ — RESOLVED
 
-**`biometric-auth-implementation.md`** - describes `keyring`-based biometric auth architecture (Windows Hello, Touch ID, Android BiometricPrompt) as if implemented. Reality: `keyring` is not in `requirements.txt` or `pyproject.toml`. The `PasskeyService` in `services/auth.py` has placeholder methods only. The doc's status line says "not wired up" but then spends 130 lines detailing implementation that doesn't exist. Should be rewritten as a proposal/design doc or deleted until actually implemented.
-
-**`dual-api-refactoring.md`** - documents a completed one-time refactoring (sync+async API consolidation). Purely historical. The line counts are accurate (logic.py is still 498 lines) but the doc has zero future utility. No one needs to know what the code looked like before the refactor.
+`biometric-auth-implementation.md` and `dual-api-refactoring.md` have been deleted.
 
 ### 6.2 Security concern in credential storage
 
@@ -135,8 +128,9 @@ These files are current, concise, and match the codebase:
 - `auth-flow-patterns.md` - state machine and dialog patterns match `auth_controller.py`
 - `reordering_learnings.md` - `_on_reorder` pattern still used in `task_view.py`
 - `grayscreenflash.md` - `TASK_DELETE_REQUESTED` event pattern still active
-- `async-dialog-callbacks.md` - `page.run_task()` patterns still used throughout
+- `async-patterns.md` - `page.run_task()` patterns still used throughout
 - `encryption-implementation.md` - registry pattern and crypto format verified
+- `notification-guide.md` - Android extension architecture and build pitfalls
 
 ---
 
@@ -144,6 +138,6 @@ These files are current, concise, and match the codebase:
 
 | Severity | Count | Items |
 |----------|-------|-------|
-| High | 3 | No tests (1.2), no delete confirmation (4.1), contrast fail (4.6) |
-| Medium | 5 | Imports in functions (1.1), timer stale ref (2.1), timezone-naive (2.2), recovered timer (3.2), API key in APK (6.2) |
-| Low | 12 | Flet version (5.1), stats placeholders (3.1), UI polish (4.2-4.10), stale docs (6.1) |
+| High | 2 | No delete confirmation (4.1), contrast fail (4.6) |
+| Medium | 3 | Timezone-naive (2.2), recovered timer (3.2), API key in APK (6.2) |
+| Low | 10 | Flet version (5.1), stats placeholders (3.1), UI polish (4.2-4.10) |

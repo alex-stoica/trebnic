@@ -49,7 +49,7 @@ This creates an `ImportError` at startup.
 # database.py
 from registry import registry, Services
 
-def _encrypt_value(value: str) -> str:
+def _encrypt_field(value: str) -> str:
     crypto = registry.get(Services.CRYPTO)
     if crypto is None:
         return value
@@ -88,18 +88,9 @@ When the app is locked, `decrypt_if_encrypted()` returns `LOCKED_PLACEHOLDER` ("
 
 ## Remaining Work
 
-### Passkey/Biometrics (High Priority)
+### ~~Passkey/Biometrics~~ ✅ IMPLEMENTED
 
-Platform-specific implementation needed:
-
-| Platform | API |
-|----------|-----|
-| Windows | Windows Hello / Credential Manager |
-| macOS | Keychain + Touch ID |
-| iOS | LocalAuthentication framework |
-| Android | BiometricPrompt API |
-
-The `PasskeyService` class has placeholder methods ready for implementation.
+`PasskeyService` in `services/auth.py` is fully implemented using the `keyring` library with platform-specific biometric detection (Windows Hello, Touch ID, Android fingerprint, Linux keyring fallback).
 
 ### Password Change with Re-encryption ✅ IMPLEMENTED
 

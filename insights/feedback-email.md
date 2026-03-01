@@ -13,7 +13,7 @@
 **Resend** - Modern email API that works from server-side on free tier.
 
 - Free: 100 emails/day, 3000/month
-- Simple Python SDK: `poetry add resend`
+- Simple API (app uses `urllib.request` directly — the `resend` SDK was removed from dependencies since it doesn't work on Android)
 - Use `onboarding@resend.dev` as sender (no domain verification needed)
 - Recipient must match your Resend account email on free tier
 

@@ -126,3 +126,5 @@ class Services:
     TASK = "task"
     TIMER = "timer"
     NOTIFICATION = "notification"
+    DAILY_NOTES = "daily_notes"
+    CLAUDE = "claude"

@@ -31,7 +31,6 @@ class AppEvent(Enum):
     TASK_POSTPONE_REQUESTED = auto()
     TASK_RECURRENCE_REQUESTED = auto()
     TASK_STATS_REQUESTED = auto()
-    TASK_NOTES_REQUESTED = auto()
 
     # Project events
     PROJECT_CREATED = auto()

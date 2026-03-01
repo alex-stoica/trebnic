@@ -183,7 +183,7 @@ class StatsPage:
                             COLORS["blue"],
                             t("time_tracked"),
                             time_tracked,
-                            f"{stats.tasks_with_time_entries} {t('tasks_with_time')}",
+                            f"{stats.tasks_with_estimates} {t('tasks_with_estimates')}",
                         ),
                     ],
                     spacing=SPACING_XL,

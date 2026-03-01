@@ -25,6 +25,7 @@ class SettingsService:
         await db.set_setting("remind_12h_before", self.state.remind_12h_before)
         await db.set_setting("remind_24h_before", self.state.remind_24h_before)
         await db.set_setting("reminder_minutes_before", self.state.reminder_minutes_before)
+        await db.set_setting("notify_overdue", self.state.notify_overdue)
 
     async def get_setting(self, key: str, default=None):
         """Get a setting value from database."""

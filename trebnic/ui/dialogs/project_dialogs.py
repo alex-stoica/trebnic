@@ -145,15 +145,8 @@ class ColorPickerController:
         self._color_list: Optional[ft.ListView] = None
 
     def _on_color_tap(self, color_value: str) -> None:
-        """Handle color selection."""
+        """Handle color selection - immediately confirms."""
         self.state.select(color_value)
-        if self._color_list:
-            for ctrl in self._color_list.controls:
-                ctrl.content.controls[2].visible = ctrl.data == color_value
-        self.page.update()
-
-    def _on_confirm(self, e: ft.ControlEvent) -> None:
-        """Handle confirm button click."""
         self.on_confirm(self.state.confirm())
 
     def build_content(self) -> ft.Container:
@@ -166,17 +159,10 @@ class ColorPickerController:
                 border_radius=SPACING_XL,
                 bgcolor=c["value"],
             )
-            check_icon = ft.Icon(
-                ft.Icons.CHECK,
-                color=COLORS["accent"],
-                size=ICON_SIZE_MD,
-                visible=c["value"] == self.state.current_color,
-            )
             row = ft.Row(
                 [
                     color_circle,
                     ft.Text(c["name"], size=FONT_SIZE_LG, expand=True),
-                    check_icon,
                 ],
                 spacing=SPACING_XL,
             )
@@ -202,7 +188,6 @@ class ColorPickerController:
         """Build the dialog actions."""
         return [
             ft.TextButton(t("back"), on_click=lambda e: self.on_back()),
-            accent_btn(t("select"), self._on_confirm),
         ]
 
 
@@ -252,7 +237,7 @@ class ProjectDialogs:
         self._icon_display.value = self._icon
         self._color_display.bgcolor = self._color
         self._error.visible = False
-        self._dialog = None  
+        self._dialog = None
         self._show_main()
         self.page.show_dialog(self._dialog)
 
@@ -326,12 +311,12 @@ class ProjectDialogs:
         title = t("edit_project") if self.state.editing_project_id else t("create_new_project")
         actions = self._build_main_actions()
 
-        if self._dialog is not None: 
+        if self._dialog is not None:
             self._dialog.title = ft.Text(title)
             self._dialog.content = ft.Container(width=DIALOG_WIDTH_MD, content=content)
             self._dialog.actions = actions
             self._dialog.update()
-        else: 
+        else:
             self._dialog = ft.AlertDialog(
                 modal=True,
                 title=ft.Text(title),

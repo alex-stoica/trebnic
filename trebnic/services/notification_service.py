@@ -5,24 +5,28 @@ This module provides cross-platform notification support using:
 - Flet local notifications extension (Android): native notifications via flutter_local_notifications
 - plyer (desktop): cross-platform notifications for Windows/Linux/Mac
 
-The service schedules notifications based on task due dates and timer events,
-storing them in the database for crash recovery and rescheduling.
+On Android (0.2.0+), notifications are scheduled via AlarmManager using
+schedule_notification(). They fire at exact future times even if the app
+is killed or the device restarts. No polling loop is needed.
+
+On desktop, a scheduler loop polls the database every 60 seconds.
 
 Architecture:
-- NotificationService is a singleton managing the scheduler loop
-- Notifications are stored in scheduled_notifications table
-- Scheduler loop runs every 60 seconds checking for pending notifications
-- Task lifecycle events trigger notification rescheduling
+- NotificationService is a singleton managing notification scheduling
+- On Android: schedule_notification() registers alarms with the OS
+- On desktop: notifications are stored in scheduled_notifications table
+  and a scheduler loop checks for pending ones every 60 seconds
+- Task lifecycle events trigger notification rescheduling on both platforms
 """
 import asyncio
 import json
 import logging
 import threading
-from datetime import datetime, timedelta, time
+from datetime import date, datetime, timedelta, time
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from config import NotificationType, PermissionResult
+from config import NotificationAction, NotificationType, PermissionResult
 from database import db, DatabaseError
 from events import event_bus, AppEvent, Subscription
 from i18n import t
@@ -36,6 +40,10 @@ logger = logging.getLogger(__name__)
 ANDROID_13_API_LEVEL = 33
 
 SCHEDULER_INTERVAL_SECONDS = 60
+
+# Each task gets up to MAX_REMINDER_SLOTS notification IDs.
+# Notification ID = task_id * MAX_REMINDER_SLOTS + slot_index.
+MAX_REMINDER_SLOTS = 10
 
 
 class NotificationBackend(Enum):
@@ -82,6 +90,15 @@ def _detect_notification_backend() -> NotificationBackend:
     return NotificationBackend.NONE
 
 
+def _notification_id_for_task(task_id: int, slot: int) -> int:
+    """Compute a stable notification ID for a task + reminder slot.
+
+    Each task gets MAX_REMINDER_SLOTS consecutive IDs so they can be
+    individually canceled without tracking state.
+    """
+    return task_id * MAX_REMINDER_SLOTS + slot
+
+
 class NotificationService:
     """Service for managing scheduled notifications.
 
@@ -105,7 +122,7 @@ class NotificationService:
 
         # Backend detection
         self._backend = _detect_notification_backend()
-        logger.info(f"Notification backend: {self._backend.value}")
+        logger.warning(f"[NOTIF] Backend detected: {self._backend.value}")
 
         # Dependencies (injected via inject_dependencies)
         self._page = None
@@ -146,7 +163,7 @@ class NotificationService:
         # Do NOT add to page.overlay or page.services manually.
         if self._backend == NotificationBackend.FLET_EXTENSION and FLET_EXTENSION_AVAILABLE:
             self._flet_notifications = FletAndroidNotifications(on_notification_tap=self._on_notification_tapped)
-            logger.info("Flet Android notifications extension instantiated")
+            logger.warning(f"[NOTIF] FletAndroidNotifications created: {self._flet_notifications is not None}")
 
     async def request_permission(self) -> PermissionResult:
         """Request notification permission.
@@ -164,19 +181,44 @@ class NotificationService:
         if self._backend == NotificationBackend.FLET_EXTENSION and self._flet_notifications is not None:
             try:
                 result = await self._flet_notifications.request_permissions()
+                logger.warning(f"[NOTIF] request_permissions raw result: {result!r} (type={type(result).__name__})")
                 granted = str(result).lower() == "true"
-                logger.info(f"Flet extension permission result: {granted}")
                 return PermissionResult.GRANTED if granted else PermissionResult.DENIED
             except NotificationError as e:
-                logger.error(f"Error requesting notification permission: {e}")
+                logger.error(f"[NOTIF] Error requesting notification permission: {e}")
                 return PermissionResult.DENIED
 
         return PermissionResult.NOT_REQUIRED
 
-    def start_scheduler(self) -> None:
-        """Start the notification scheduler loop.
+    async def request_exact_alarm_permission(self) -> PermissionResult:
+        """Request SCHEDULE_EXACT_ALARM permission (Android 14+).
 
-        Spawns an async loop that checks for pending notifications every 60 seconds.
+        Required before using exact schedule modes. Inexact modes (the default)
+        do not need this permission. On desktop, always returns GRANTED.
+
+        Returns:
+            PermissionResult indicating whether exact alarm permission was granted.
+        """
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            return PermissionResult.GRANTED
+
+        if self._flet_notifications is None:
+            return PermissionResult.NOT_REQUIRED
+
+        try:
+            result = await self._flet_notifications.request_exact_alarm_permission()
+            granted = str(result).lower() == "true"
+            logger.info(f"Exact alarm permission result: {granted}")
+            return PermissionResult.GRANTED if granted else PermissionResult.DENIED
+        except NotificationError as e:
+            logger.error(f"Error requesting exact alarm permission: {e}")
+            return PermissionResult.DENIED
+
+    def start_scheduler(self) -> None:
+        """Start the notification scheduler.
+
+        On Android: subscribes to events and schedules all tasks via AlarmManager.
+        On desktop: also starts a polling loop that checks the DB every 60 seconds.
         """
         if self._running:
             return
@@ -187,13 +229,17 @@ class NotificationService:
         self._running = True
         self._stop_event.clear()
         self._subscribe_to_events()
-        # Flet 0.80 requires coroutine function, not coroutine object
-        self._schedule_async(self._scheduler_loop)
+
+        # Desktop needs a polling loop; Android uses AlarmManager (no polling)
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            self._schedule_async(self._scheduler_loop)
+
+        # Reschedule all tasks on startup (both platforms)
         self._schedule_async(self._reschedule_all_tasks)
         logger.info("Notification scheduler started")
 
     def stop_scheduler(self) -> None:
-        """Stop the notification scheduler loop."""
+        """Stop the notification scheduler."""
         self._running = False
         self._stop_event.set()
         self._unsubscribe_from_events()
@@ -246,8 +292,10 @@ class NotificationService:
                 await self._reschedule_for_task(task_id)
             self._schedule_async(reschedule_wrapper)
 
+    # ── Desktop-only polling loop ──────────────────────────────────────
+
     async def _scheduler_loop(self) -> None:
-        """Main scheduler loop - checks for pending notifications."""
+        """Main scheduler loop - checks for pending notifications (desktop only)."""
         logger.info("Notification scheduler loop started")
 
         try:
@@ -258,6 +306,7 @@ class NotificationService:
                     break
 
                 await self._process_pending_notifications()
+                await self._check_overdue_tasks()
 
         except asyncio.CancelledError:
             logger.info("Notification scheduler loop cancelled")
@@ -266,7 +315,7 @@ class NotificationService:
             self._running = False
 
     async def _process_pending_notifications(self) -> None:
-        """Process all pending notifications that are due."""
+        """Process all pending notifications that are due (desktop only)."""
         if not self._is_notifications_enabled():
             return
 
@@ -284,6 +333,8 @@ class NotificationService:
 
         except (DatabaseError, OSError) as e:
             logger.error(f"Error processing pending notifications: {e}")
+
+    # ── Notification delivery ──────────────────────────────────────────
 
     def _is_app_locked(self) -> bool:
         """Check if the app is locked (encryption enabled but not unlocked)."""
@@ -345,7 +396,7 @@ class NotificationService:
         try:
             notification_id = task_id if task_id else abs(hash(title)) % 100000
             payload_str = json.dumps({"task_id": task_id})
-            await self._flet_notifications.show_notification(
+            result = await self._flet_notifications.show_notification(
                 notification_id=notification_id,
                 title=title,
                 body=body,
@@ -354,11 +405,75 @@ class NotificationService:
                 channel_name="Task reminders",
                 channel_description="Task reminders from Trebnic",
             )
-            logger.info(f"Notification sent (flet extension): id={notification_id}")
-            return True
+            success = str(result).lower() == "ok"
+            logger.warning(
+                f"[NOTIF] show_notification raw result: {result!r} (type={type(result).__name__}), "
+                f"id={notification_id}, success={success}"
+            )
+            return success
         except NotificationError as e:
-            logger.error(f"Notification delivery failed: {e}")
+            logger.error(f"[NOTIF] show_notification failed: {e}")
             return False
+
+    def _build_due_reminder_actions(self) -> list:
+        """Build action buttons for due reminder notifications (Android only)."""
+        return [
+            {"id": NotificationAction.COMPLETE, "title": t("notif_action_complete")},
+            {"id": NotificationAction.POSTPONE, "title": t("notif_action_postpone")},
+        ]
+
+    async def _schedule_extension_notification(
+        self,
+        notification_id: int,
+        title: str,
+        body: str,
+        scheduled_time: datetime,
+        task_id: Optional[int],
+        actions: Optional[list] = None,
+    ) -> bool:
+        """Schedule a future notification via AlarmManager (Android only).
+
+        Uses inexact_allow_while_idle by default so SCHEDULE_EXACT_ALARM
+        permission is not required. Fires even if app is killed or device restarts.
+
+        Returns:
+            True if scheduled successfully, False otherwise.
+        """
+        if self._flet_notifications is None:
+            return False
+
+        try:
+            payload_str = json.dumps({"task_id": task_id})
+            result = await self._flet_notifications.schedule_notification(
+                notification_id=notification_id,
+                title=title,
+                body=body,
+                scheduled_time=scheduled_time,
+                payload=payload_str,
+                channel_id="trebnic_reminders",
+                channel_name="Task reminders",
+                channel_description="Task reminders from Trebnic",
+                schedule_mode="inexact_allow_while_idle",
+                actions=actions or [],
+            )
+            success = str(result).lower() == "ok"
+            logger.warning(
+                f"[NOTIF] schedule_notification raw result: {result!r} (type={type(result).__name__}), "
+                f"id={notification_id}, at={scheduled_time}, success={success}"
+            )
+            return success
+        except NotificationError as e:
+            logger.error(f"[NOTIF] schedule_notification failed: {e}")
+            return False
+
+    async def _cancel_extension_notification(self, notification_id: int) -> None:
+        """Cancel a scheduled notification by ID (Android only)."""
+        if self._flet_notifications is None:
+            return
+        try:
+            await self._flet_notifications.cancel(notification_id)
+        except NotificationError as e:
+            logger.error(f"Failed to cancel notification {notification_id}: {e}")
 
     async def _deliver_plyer_notification(self, title: str, body: str) -> bool:
         """Deliver notification via plyer (desktop fallback).
@@ -370,7 +485,7 @@ class NotificationService:
             return False
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: plyer_notification.notify(
@@ -410,6 +525,8 @@ class NotificationService:
         except (OSError, RuntimeError, ValueError) as ex:
             logger.error(f"Error handling notification tap: {ex}")
 
+    # ── Scheduling logic ───────────────────────────────────────────────
+
     async def _reschedule_all_tasks(self) -> None:
         """Reschedule notifications for all tasks with due dates on startup."""
         if not self._is_notifications_enabled():
@@ -422,11 +539,67 @@ class NotificationService:
                 await self._reschedule_for_task(task.id)
         logger.info(f"Startup reschedule complete for {len(state.tasks)} tasks")
 
+        await self._check_overdue_tasks()
+
+    async def _check_overdue_tasks(self) -> None:
+        """Check for overdue tasks and send a daily notification if any exist.
+
+        Tracks last_overdue_notification_date in settings to avoid spamming.
+        Called on startup and in the desktop scheduler loop.
+        """
+        if not self._is_notifications_enabled():
+            return
+
+        state = self._get_state() if self._get_state else None
+        if state is None or not state.notify_overdue:
+            return
+
+        today_str = date.today().isoformat()
+        last_notified = await db.get_setting("last_overdue_notification_date", "")
+        if last_notified == today_str:
+            return
+
+        # Query overdue tasks: not done, due before today
+        yesterday = date.today() - timedelta(days=1)
+        try:
+            overdue_dicts = await db.load_tasks_filtered(is_done=False, due_date_lte=yesterday)
+        except DatabaseError as e:
+            logger.error(f"Error checking overdue tasks: {e}")
+            return
+
+        count = len(overdue_dicts)
+        if count == 0:
+            return
+
+        title = t("overdue_notification_title")
+        if count == 1:
+            body = t("overdue_notification_body_one")
+        else:
+            body = t("overdue_notification_body_many").replace("{count}", str(count))
+
+        await self.show_immediate(title, body)
+        await db.set_setting("last_overdue_notification_date", today_str)
+
+    async def _cancel_all_for_task(self, task_id: int) -> None:
+        """Cancel all notification slots for a task.
+
+        On Android: cancels AlarmManager alarms via the extension.
+        On both platforms: deletes unfired DB records.
+        """
+        if self._backend == NotificationBackend.FLET_EXTENSION and self._flet_notifications is not None:
+            for slot in range(MAX_REMINDER_SLOTS):
+                await self._cancel_extension_notification(_notification_id_for_task(task_id, slot))
+
+        await db.delete_notifications_for_task(task_id)
+
     async def _reschedule_for_task(self, task_id: int) -> None:
         """Reschedule notifications for a task.
 
-        Deletes existing unfired notifications and creates new ones based on
+        Cancels existing notifications and creates new ones based on
         the task's current due_date and reminder settings.
+
+        On Android: registers alarms via schedule_notification().
+        On desktop: saves to DB for the polling loop to pick up.
         """
         if not self._is_notifications_enabled():
             return
@@ -435,8 +608,8 @@ class NotificationService:
         if state is None:
             return
 
-        # Delete existing unfired notifications for this task
-        await db.delete_notifications_for_task(task_id)
+        # Cancel existing notifications for this task (both native alarms and DB)
+        await self._cancel_all_for_task(task_id)
 
         # Find the task in state
         task = state.get_task_by_id(task_id)
@@ -463,7 +636,7 @@ class NotificationService:
         due_datetime = datetime.combine(task.due_date, time(9, 0))  # Default 9 AM
         now = datetime.now()
 
-        for reminder_minutes in reminder_times:
+        for slot, reminder_minutes in enumerate(reminder_times):
             trigger_time = due_datetime - timedelta(minutes=reminder_minutes)
 
             # Only schedule if trigger time is in the future
@@ -477,22 +650,32 @@ class NotificationService:
             else:
                 time_desc = f"{reminder_minutes // 1440}d"
 
-            notification = {
-                "ntype": NotificationType.DUE_REMINDER.value,
-                "task_id": task_id,
-                "trigger_time": trigger_time.isoformat(),
-                "payload": json.dumps({
-                    "title": t("task_reminder"),
-                    "body": t("task_due_in").replace("{time}", time_desc).replace("{task}", task.title),
-                    "task_id": task_id,
-                }),
-                "delivered": 0,
-                "canceled": 0,
-            }
+            title = t("task_reminder")
+            body = t("task_due_in").replace("{time}", time_desc).replace("{task}", task.title)
 
-            notification_id = await db.save_notification(notification)
+            if self._backend == NotificationBackend.FLET_EXTENSION:
+                # Android: schedule via AlarmManager — fires even if app is killed
+                nid = _notification_id_for_task(task_id, slot)
+                actions = self._build_due_reminder_actions()
+                await self._schedule_extension_notification(nid, title, body, trigger_time, task_id, actions=actions)
+            else:
+                # Desktop: save to DB for the polling loop
+                notification = {
+                    "ntype": NotificationType.DUE_REMINDER.value,
+                    "task_id": task_id,
+                    "trigger_time": trigger_time.isoformat(),
+                    "payload": json.dumps({
+                        "title": title,
+                        "body": body,
+                        "task_id": task_id,
+                    }),
+                    "delivered": 0,
+                    "canceled": 0,
+                }
+                await db.save_notification(notification)
+
             event_bus.emit(AppEvent.NOTIFICATION_SCHEDULED, {
-                "notification_id": notification_id,
+                "notification_id": _notification_id_for_task(task_id, slot),
                 "task_id": task_id,
                 "ntype": NotificationType.DUE_REMINDER.value,
             })
@@ -581,19 +764,25 @@ class NotificationService:
     async def cleanup(self) -> None:
         """Clean up notification service resources.
 
-        Called when app is closing. Cancels scheduler, marks pending
-        notifications as canceled, and clears system notifications.
+        Called when app is closing. On Android, AlarmManager alarms are intentionally
+        preserved so scheduled due reminders fire even after the app is killed or
+        the device restarts. On desktop, marks pending DB notifications as canceled.
         """
         logger.info("Cleaning up notification service")
 
         # Stop the scheduler
         self.stop_scheduler()
 
-        # Mark all pending notifications as canceled in database
-        try:
-            await db.cancel_all_pending_notifications()
-        except DatabaseError as e:
-            logger.error(f"Error canceling pending notifications: {e}")
+        # NOTE: Do NOT call cancel_all() on Android — AlarmManager alarms must persist
+        # through app close so due reminders can fire while the app is not running.
+        # _reschedule_all_tasks() on next startup will re-sync if needed.
+
+        # Desktop only: mark pending DB notifications as canceled (no AlarmManager)
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            try:
+                await db.cancel_all_pending_notifications()
+            except DatabaseError as e:
+                logger.error(f"Error canceling pending notifications: {e}")
 
         self._flet_notifications = None
 
@@ -641,18 +830,27 @@ class NotificationService:
         """Send a test notification and return whether it was delivered.
 
         This method bypasses enabled checks and is meant for testing notification
-        delivery in the UI.
+        delivery in the UI. On Android 13+, requests POST_NOTIFICATIONS permission
+        first — without it the OS silently drops notifications.
 
         Returns:
             True if notification was delivered successfully, False otherwise.
         """
-        logger.info(f"Sending test notification: title={title}")
+        logger.warning(f"[NOTIF] test_notification: backend={self._backend.value}")
+
+        # On Android 13+, POST_NOTIFICATIONS must be granted or notifications are silently dropped
+        if self._backend == NotificationBackend.FLET_EXTENSION:
+            perm = await self.request_permission()
+            logger.warning(f"[NOTIF] test_notification: permission result={perm}")
+            if perm == PermissionResult.DENIED:
+                return False
+
         result = False
         if self._backend == NotificationBackend.PLYER:
             result = await self._deliver_plyer_notification(title, body)
         elif self._backend == NotificationBackend.FLET_EXTENSION:
             result = await self._deliver_extension_notification(title, body, None)
-        logger.info(f"Test notification result: {result}")
+        logger.warning(f"[NOTIF] test_notification: delivery result={result}")
         return result
 
     @classmethod

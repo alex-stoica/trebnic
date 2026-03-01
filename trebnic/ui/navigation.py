@@ -62,7 +62,10 @@ class NavigationManager:
         """Select a navigation item (keeps project selection for filtering)."""
         self.state.selected_nav = name
         # Don't clear selected_projects - allow combining nav + project filter
-        self.state.current_page = PageType.TASKS
+        if name == NavItem.NOTES:
+            self.state.current_page = PageType.NOTES
+        else:
+            self.state.current_page = PageType.TASKS
         if self.state.is_mobile and self._drawer:
             self.page.run_task(self.page.close_drawer)
         self.update_nav()
@@ -95,8 +98,8 @@ class NavigationManager:
             self._nav_items[NavItem.TODAY].selected = self.state.selected_nav == NavItem.TODAY
         if NavItem.CALENDAR in self._nav_items:
             self._nav_items[NavItem.CALENDAR].selected = self.state.selected_nav == NavItem.CALENDAR
-        if NavItem.UPCOMING in self._nav_items:
-            self._nav_items[NavItem.UPCOMING].selected = self.state.selected_nav == NavItem.UPCOMING
+        if NavItem.NOTES in self._nav_items:
+            self._nav_items[NavItem.NOTES].selected = self.state.selected_nav == NavItem.NOTES
         if NavItem.PROJECTS in self._nav_items:
             self._nav_items[NavItem.PROJECTS].selected = len(self.state.selected_projects) > 0
  
@@ -169,8 +172,8 @@ class NavigationHandler:
     def on_calendar_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.select_nav(NavItem.CALENDAR)  
 
-    def on_upcoming_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NavItem.UPCOMING)  
+    def on_notes_click(self, e: ft.ControlEvent) -> None:
+        self.nav_manager.select_nav(NavItem.NOTES)
 
     def on_menu_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.open_drawer()

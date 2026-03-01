@@ -91,11 +91,11 @@ On lock:
 ## Reload Pattern After Unlock
 
 When app unlocks, encrypted data in memory is still in encrypted form.
-The `reload_state()` method re-fetches everything from database:
+The `reload_state_async()` method re-fetches everything from database:
 
 ```python
 async def on_unlocked():
-    self.service.reload_state()  # Decrypts via database helpers
+    await self.service.reload_state_async()  # Decrypts via database helpers
     self.tasks_view.refresh()
     self.page.update()
 ```

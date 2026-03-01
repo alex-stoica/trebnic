@@ -13,7 +13,7 @@ poetry run flet run main.py
 
 ## Build
 ```bash
-cd trebnic/trebnic
+cd trebnic
 PYTHONUTF8=1 poetry run flet build apk
 ```
 
@@ -26,6 +26,6 @@ Should show device (not `unauthorized`)
 ## Install
 Full uninstall first (cached Python env persists with `-r`, see `insights/flet_mobile_build.md`):
 ```bash
-D:\Android\Sdk\platform-tools\adb.exe uninstall com.flet.trebnic
+D:\Android\Sdk\platform-tools\adb.exe uninstall ai.stoica.trebnic
 D:\Android\Sdk\platform-tools\adb.exe install build\apk\app-release.apk
 ```

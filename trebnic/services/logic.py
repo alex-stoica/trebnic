@@ -11,7 +11,7 @@ except ImportError:
     _CRED_API_KEY = ""
     _CRED_EMAIL = ""
 
-from config import NavItem
+from config import NavItem, TaskFilter
 from database import db, DatabaseError
 from events import AppEvent
 from i18n import set_language
@@ -101,6 +101,14 @@ class TaskService:
         state.remind_12h_before = await db.get_setting("remind_12h_before", True)
         state.remind_24h_before = await db.get_setting("remind_24h_before", True)
         state.reminder_minutes_before = await db.get_setting("reminder_minutes_before", 60)
+        state.notify_overdue = await db.get_setting("notify_overdue", True)
+
+        account_created = await db.get_setting("account_created", None)
+        if account_created:
+            state.account_created = date.fromisoformat(account_created)
+        else:
+            state.account_created = date.today()
+            await db.set_setting("account_created", date.today().isoformat())
 
         await TaskService._seed_email_config()
 
@@ -223,6 +231,10 @@ class TaskService:
         is_done = task in self.state.done_tasks
         await db.save_task(task.to_dict(is_done=is_done))
 
+    async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:
+        """Atomically increment a task's spent_seconds in the database."""
+        await db.increment_spent_seconds(task_id, seconds)
+
     async def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task with rollback on failure."""
         old_title = task.title
@@ -243,16 +255,6 @@ class TaskService:
             task.due_date = old_date
             raise
 
-    async def set_task_notes(self, task: Task, notes: str) -> None:
-        """Update task notes with rollback on failure."""
-        old_notes = task.notes
-        task.notes = notes
-        try:
-            await self.persist_task(task)
-        except DatabaseError:
-            task.notes = old_notes
-            raise
-
     async def update_task_time(self, task: Task, spent_seconds: int) -> None:
         """Update task's spent time with rollback on failure."""
         old_seconds = task.spent_seconds
@@ -269,9 +271,8 @@ class TaskService:
         DB is the single source of truth. UI should call refresh() after this.
         Returns the next recurring task if one was created, None otherwise.
         """
-        # Load fresh task from DB to avoid stale data issues
-        all_tasks = await db.load_tasks_filtered(is_done=False)
-        db_task_dict = next((t for t in all_tasks if t.get("id") == task.id), None)
+        # Load fresh task by ID — single row, not full table scan
+        db_task_dict = await db.load_task_by_id(task.id)
         if db_task_dict is None:
             return None
 
@@ -438,11 +439,14 @@ class TaskService:
 
         # Apply nav-based date filter
         if nav == NavItem.TODAY:
-            pending_kwargs["due_date_lte"] = today
-            done_kwargs["due_date_eq"] = today
-        elif nav == NavItem.UPCOMING:
-            pending_kwargs["due_date_gt"] = today
-            done_kwargs["due_date_gt"] = today
+            if self.state.task_filter == TaskFilter.NEXT:
+                # Next: future tasks only
+                pending_kwargs["due_date_gt"] = today
+                done_kwargs["due_date_gt"] = today
+            else:
+                # Today: due today or overdue
+                pending_kwargs["due_date_lte"] = today
+                done_kwargs["due_date_eq"] = today
         elif nav == NavItem.INBOX:
             pending_kwargs["due_date_is_null"] = True
             done_kwargs["due_date_is_null"] = True
@@ -461,7 +465,7 @@ class TaskService:
 
         # Filter recurring tasks to only show those scheduled for today
         # This ensures recurring tasks only appear on their scheduled days
-        if nav == NavItem.TODAY:
+        if nav == NavItem.TODAY and self.state.task_filter == TaskFilter.TODAY:
             pending = self._filter_recurring_tasks_for_today(pending, today)
 
         return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)

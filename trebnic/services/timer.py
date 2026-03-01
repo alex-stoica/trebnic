@@ -167,9 +167,8 @@ class TimerService:
                     entry.end_time = datetime.now()
                     await self._time_entry_svc.save_time_entry(entry)
 
-                if task:
-                    task.spent_seconds += elapsed
-                    await self._task_svc.persist_task(task)
+                if task and task.id is not None:
+                    await self._task_svc.increment_spent_seconds(task.id, elapsed)
 
                 event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
                 event_bus.emit(AppEvent.REFRESH_UI)

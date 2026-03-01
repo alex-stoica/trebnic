@@ -7,12 +7,13 @@ out of app.py and UIController. The flow becomes:
 import flet as ft
 import asyncio
 import logging
-from typing import List, Callable
+from typing import List, Callable, Optional
 from datetime import date as date_type
 
 from config import COLORS, ANIMATION_DELAY, NavItem
 from database import DatabaseError
 from events import event_bus, AppEvent, Subscription
+from i18n import t
 from models.entities import Task, AppState
 from services.logic import TaskService
 from services.time_entry_service import TimeEntryService
@@ -41,6 +42,7 @@ class TaskActionHandler:
         timer_ctrl: TimerController,
         snack: SnackService,
         refresh_ui: Callable[[], None],
+        refresh_ui_async: Optional[Callable] = None,
     ) -> None:
         self._page = page
         self._state = state
@@ -50,6 +52,7 @@ class TaskActionHandler:
         self._timer_ctrl = timer_ctrl
         self._snack = snack
         self._refresh_ui = refresh_ui
+        self._refresh_ui_async = refresh_ui_async
         self._subscriptions: List[Subscription] = []
         self._subscribe()
 
@@ -88,9 +91,6 @@ class TaskActionHandler:
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TASK_STATS_REQUESTED, self._on_stats)
         )
-        self._subscriptions.append(
-            event_bus.subscribe(AppEvent.TASK_NOTES_REQUESTED, self._on_notes)
-        )
 
     def cleanup(self) -> None:
         """Unsubscribe from all events."""
@@ -112,7 +112,7 @@ class TaskActionHandler:
                 has_time_entries = len(entries) > 0
 
             if not has_time_entries and task.spent_seconds == 0:
-                self._task_dialogs.duration_completion(task, self._do_complete)
+                self._task_dialogs.duration_completion(task, self._do_complete_async)
             else:
                 await self._do_complete_async(task)
 
@@ -123,15 +123,12 @@ class TaskActionHandler:
         new_task = await self._service.complete_task(task)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
         if new_task:
-            self._snack.show(f"Next occurrence scheduled for {new_task.due_date.strftime('%b %d')}")
+            self._snack.show(t("next_occurrence_scheduled").format(date=new_task.due_date.strftime("%b %d")))
             event_bus.emit(AppEvent.TASK_CREATED, new_task)
-        self._refresh_ui()
-
-    def _do_complete(self, task: Task) -> None:
-        """Sync wrapper for _do_complete_async - used by duration dialog callback."""
-        async def _coro() -> None:
-            await self._do_complete_async(task)
-        self._page.run_task(_coro)
+        if self._refresh_ui_async:
+            await self._refresh_ui_async()
+        else:
+            self._refresh_ui()
 
     def _on_uncomplete(self, task: Task) -> None:
         """Handle task uncomplete request."""
@@ -164,11 +161,11 @@ class TaskActionHandler:
             try:
                 await self._service.delete_task(task)
             except DatabaseError as e:
-                self._snack.show(f"Failed to delete task: {e}", COLORS["danger"])
+                self._snack.show(t("failed_to_delete_task").format(error=e), COLORS["danger"])
                 return
 
             await asyncio.sleep(ANIMATION_DELAY)
-            self._snack.show(f"'{title}' deleted", COLORS["danger"], update=False)
+            self._snack.show(t("task_deleted_single").format(title=title), COLORS["danger"], update=False)
             self._refresh_ui()
             event_bus.emit(AppEvent.TASK_DELETED, task)
             self._page.update()
@@ -182,11 +179,14 @@ class TaskActionHandler:
             try:
                 count = await self._service.delete_all_recurring_tasks(task)
             except DatabaseError as e:
-                self._snack.show(f"Failed to delete tasks: {e}", COLORS["danger"])
+                self._snack.show(t("failed_to_delete_tasks").format(error=e), COLORS["danger"])
                 return
 
             await asyncio.sleep(ANIMATION_DELAY)
-            msg = f"Deleted {count} '{title}' occurrence{'s' if count != 1 else ''}"
+            if count == 1:
+                msg = t("deleted_one_occurrence").format(title=title)
+            else:
+                msg = t("deleted_n_occurrences").format(count=count, title=title)
             self._snack.show(msg, COLORS["danger"], update=False)
             self._refresh_ui()
             event_bus.emit(AppEvent.TASK_DELETED, task)
@@ -200,11 +200,11 @@ class TaskActionHandler:
             try:
                 new_task = await self._service.duplicate_task(task)
             except DatabaseError as e:
-                self._snack.show(f"Failed to duplicate task: {e}", COLORS["danger"])
+                self._snack.show(t("failed_to_duplicate_task").format(error=e), COLORS["danger"])
                 return
 
             await asyncio.sleep(ANIMATION_DELAY)
-            self._snack.show(f"Task duplicated as '{new_task.title}'", update=False)
+            self._snack.show(t("task_duplicated_as").format(title=new_task.title), update=False)
             self._refresh_ui()
             event_bus.emit(AppEvent.TASK_DUPLICATED, new_task)
             self._page.update()
@@ -235,16 +235,18 @@ class TaskActionHandler:
             try:
                 new_date = await self._service.postpone_task(task)
             except DatabaseError as e:
-                self._snack.show(f"Failed to postpone task: {e}", COLORS["danger"])
+                self._snack.show(t("failed_to_postpone_task").format(error=e), COLORS["danger"])
                 return
 
             await asyncio.sleep(ANIMATION_DELAY)
             # Add context about where to find the task when postponing from Today/Inbox
             current_nav = self._state.selected_nav
             if new_date > today and current_nav in (NavItem.TODAY, NavItem.INBOX):
-                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')} (see Upcoming)"
+                msg = t("task_postponed_to_upcoming").format(
+                    title=task.title, date=new_date.strftime("%b %d"),
+                )
             else:
-                msg = f"'{task.title}' postponed to {new_date.strftime('%b %d')}"
+                msg = t("task_postponed_to").format(title=task.title, date=new_date.strftime("%b %d"))
             self._snack.show(msg, update=False)
             self._refresh_ui()
             event_bus.emit(AppEvent.TASK_UPDATED, task)
@@ -261,6 +263,3 @@ class TaskActionHandler:
         """Handle task stats request."""
         self._task_dialogs.stats(task)
 
-    def _on_notes(self, task: Task) -> None:
-        """Handle task notes request."""
-        self._task_dialogs.notes(task)

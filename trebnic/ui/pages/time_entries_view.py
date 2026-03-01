@@ -250,7 +250,7 @@ class TimeEntriesView:
         def on_knob_change(minutes: int) -> None:
             new_end = entry.start_time + timedelta(minutes=minutes)
             end_time_text.value = self._format_time(new_end)
-            self.page.update()
+            end_time_text.update()
 
         knob.set_on_change(on_knob_change)
         

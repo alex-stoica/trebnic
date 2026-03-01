@@ -21,7 +21,7 @@ API breaking changes encountered when upgrading from flet 0.28.x to 0.80.x.
 | 13 | `page.open(dialog)` / `page.close(dialog)` removed | Changed to `page.show_dialog()` / `page.pop_dialog()` |
 | 14 | `ft.ElevatedButton` deprecated | Changed to `ft.Button` across all files |
 | 15 | `ft.border_radius.only` deprecated | Changed to `ft.BorderRadius.only` |
-| 16 | Gesture events `local_x`/`local_y` removed | Changed to `local_position.x`/`local_position.y` in `duration_knob.py` |
+| 16 | ~~Gesture events `local_x`/`local_y` removed~~ | ~~Changed to `local_position.x`/`local_position.y` in `duration_knob.py`~~ (code refactored away — knob now uses `FletCircularSlider`) |
 | 17 | `Dropdown(on_change=...)` removed | Changed to `on_select=` in `task_dialogs.py` |
 | 18 | `page.run_task` requires coroutine function, not object | Changed `run_task(func())` to `run_task(func)` in `timer.py` |
 | 19 | Multiple `page.run_task()` calls execute in parallel | Combined sequential async operations into single function in `app.py` |
@@ -122,16 +122,9 @@ async def cleanup_all() -> None:
 page.run_task(cleanup_all)
 ```
 
-### Gesture events (TapEvent, DragUpdateEvent)
-```python
-# Old
-e.local_x, e.local_y
-e.global_x, e.global_y
+### ~~Gesture events (TapEvent, DragUpdateEvent)~~ — no longer used
 
-# New
-e.local_position.x, e.local_position.y
-e.global_position.x, e.global_position.y
-```
+`duration_knob.py` was refactored to use `FletCircularSlider`. The gesture API change (`local_x` → `local_position.x`) is documented for reference but no code uses it.
 
 ### Dropdown
 ```python
@@ -213,3 +206,21 @@ Old syntax → New syntax:
 - Sed batch replacements can corrupt code when patterns overlap (e.g., `center` matching inside `center_right`). Do targeted manual fixes instead.
 - When upgrading major versions, test incrementally rather than all at once.
 - Check deprecation warnings early - they become errors in future versions.
+
+---
+
+## Flet 0.81.0 upgrade (2026-02-25)
+
+Upgraded from 0.80.5 to 0.81.0. **No breaking changes** — all 35 tests pass, no code modifications needed.
+
+Full codebase audit confirmed zero deprecated API usage across all 26 files with Flet imports. The codebase was already on modern 0.80+ patterns.
+
+### New APIs available in 0.81 (for future use)
+
+- `ft.Camera` — camera access control
+- `ft.CodeEditor` — syntax-highlighted code editor widget
+- `ft.PageView` — swipeable page navigation
+- `ft.ColorPicker` / `ft.CupertinoColorPicker` — color picker widgets
+- `ft.Hero` — hero animations between pages
+- `on_size_change` event — responsive layout callbacks
+- `ft.Placeholder` — placeholder widget for prototyping
