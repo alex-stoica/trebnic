@@ -209,7 +209,6 @@ class AppState:
     selected_nav: NavItem = NavItem.TODAY
     task_filter: TaskFilter = TaskFilter.TODAY
     selected_projects: Set[str] = field(default_factory=set)
-    projects_expanded: bool = False
     is_mobile: bool = False
     editing_project_id: Optional[str] = None
     default_estimated_minutes: int = 15

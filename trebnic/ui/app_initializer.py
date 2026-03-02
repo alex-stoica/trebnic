@@ -97,7 +97,6 @@ class AppInitializer:
         self._init_timer_controller()
         self._init_notification_service()
         self._init_task_handler()
-        self._subscribe_to_events()
         return self.components
 
     def _register_core_services(self) -> None:
@@ -149,8 +148,7 @@ class AppInitializer:
         registry.register(Services.SETTINGS, self.components.settings_service)
         registry.register(Services.DAILY_NOTES, self.components.daily_notes_service)
         registry.register(Services.TIMER, self.components.timer_svc)
-        # Note: UIController is created in app.py after all components are ready
-    
+
     def _init_navigation(self) -> None:
         """Initialize navigation manager and handler."""
         self.components.nav_manager = NavigationManager(
@@ -295,7 +293,3 @@ class AppInitializer:
             refresh_ui_async=self.components.tasks_view._refresh_async,
         )
 
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to application events."""
-        # Events are subscribed by the main app class
-        pass

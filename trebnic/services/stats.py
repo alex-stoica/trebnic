@@ -322,42 +322,6 @@ class StatsService:
 
         return json.dumps(export_data, indent=2, ensure_ascii=False)
 
-    # =========================================================================
-    # Placeholder methods for future implementation
-    # =========================================================================
-
-    def calculate_weekly_stats(
-        self,
-        time_entries: List[Dict],
-        done_tasks: List[Task],
-        weeks: int = 4,
-    ) -> List[DailyStats]:
-        """Calculate stats aggregated by week.
-
-        TODO: Implement weekly aggregation view.
-        """
-        # Placeholder - return empty list
-        return []
-
-    def calculate_estimation_breakdown(
-        self,
-        tasks: List[Task],
-        done_tasks: List[Task],
-    ) -> Dict:
-        """Calculate detailed estimation vs actual breakdown.
-
-        TODO: Implement detailed breakdown showing:
-        - Tasks completed faster than estimated
-        - Tasks that took longer
-        - Distribution chart data
-        """
-        # Placeholder
-        return {
-            "faster_count": 0,
-            "slower_count": 0,
-            "on_time_count": 0,
-            "distribution": [],
-        }
 
 
 # Singleton instance

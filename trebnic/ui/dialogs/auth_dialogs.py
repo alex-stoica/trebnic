@@ -559,9 +559,9 @@ def open_encryption_settings_dialog(
         ]
 
         # Passkey option (if available)
-        if is_passkey_available:
+        if is_passkey_available and is_passkey_enabled:
             async def toggle_passkey(e):
-                await on_toggle_passkey(not is_passkey_enabled)
+                await on_toggle_passkey(False)
                 page.pop_dialog()
 
             rows.append(
@@ -570,7 +570,7 @@ def open_encryption_settings_dialog(
                     t("biometric_unlock"),
                     t("biometric_unlock_desc"),
                     ft.Switch(
-                        value=is_passkey_enabled,
+                        value=True,
                         on_change=lambda e: page.run_task(toggle_passkey),
                     ),
                 )

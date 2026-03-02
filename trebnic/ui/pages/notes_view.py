@@ -111,9 +111,9 @@ class NotesView:
             visible=True,
         )
 
-    def _start_editing(self, e: Optional[ft.ControlEvent]) -> None:
+    async def _start_editing(self, e: Optional[ft.ControlEvent]) -> None:
         """Switch to editing state. Saves previous content first if needed."""
-        self.save_if_editing()
+        await self.save_if_editing()
         self._editing = True
         self._note_field.value = (
             self._note_markdown.value if self._note_display.visible else ""
@@ -141,7 +141,7 @@ class NotesView:
         self._note_display.visible = False
         self._note_edit_btn.visible = False
 
-    def save_if_editing(self) -> None:
+    async def save_if_editing(self) -> None:
         """Save current note content if in editing state and content changed.
 
         Called from app.py before navigating away from notes page.
@@ -158,22 +158,19 @@ class NotesView:
                 self._show_placeholder()
             return
 
-        async def _save() -> None:
-            try:
-                await self._svc.save_note(date.today(), content)
-            except DatabaseError as err:
-                self.snack.show(t("failed_to_save_note").format(error=err))
-                return
-            self._last_saved_content = content
-            self.snack.show(t("daily_note_saved"))
-            if content:
-                self._show_display(content)
-            else:
-                self._show_placeholder()
-            await self._load_recent_notes()
-            self.page.update()
-
-        self.page.run_task(_save)
+        try:
+            await self._svc.save_note(date.today(), content)
+        except DatabaseError as err:
+            self.snack.show(t("failed_to_save_note").format(error=err))
+            return
+        self._last_saved_content = content
+        self.snack.show(t("daily_note_saved"))
+        if content:
+            self._show_display(content)
+        else:
+            self._show_placeholder()
+        await self._load_recent_notes()
+        self.page.update()
 
     async def _load_today_note(self) -> None:
         if self._svc is None:

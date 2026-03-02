@@ -26,7 +26,7 @@ class NavigationManager:
         self._sidebar: Optional[ft.Container] = None
         self._menu_btn: Optional[ft.IconButton] = None
         self._nav_content: Optional[ft.Column] = None
-        self._on_content_update: Optional[Callable[[], None]] = None
+        self._on_content_update: Optional[Callable[[], Any]] = None
         self._on_refresh: Optional[Callable[[], None]] = None
         self._settings_menu: Optional[ft.PopupMenuButton] = None
         self._get_settings_items: Optional[Callable[[], list]] = None
@@ -41,7 +41,7 @@ class NavigationManager:
         menu_btn: ft.IconButton,
         nav_content: ft.Column,
         settings_menu: ft.PopupMenuButton,
-        on_content_update: Callable[[], None],
+        on_content_update: Callable[[], Any],
         on_refresh: Callable[[], None],
         get_settings_items: Callable[[], list],
     ) -> None:
@@ -83,12 +83,11 @@ class NavigationManager:
             self.page.run_task(self.page.close_drawer)
         self.update_nav()
 
-    def navigate_to(self, page_name: PageType) -> None:  
+    def navigate_to(self, page_name: PageType) -> None:
         """Navigate to a specific page."""
         self.state.current_page = page_name
         if self._on_content_update:
-            self._on_content_update()
-        self.page.update()
+            self.page.run_task(self._on_content_update)
 
     def update_nav(self) -> None:
         """Update navigation state and UI."""  
@@ -112,7 +111,7 @@ class NavigationManager:
             self._settings_menu.items = self._get_settings_items()
  
         if self._on_content_update:
-            self._on_content_update()
+            self.page.run_task(self._on_content_update)
         if self._on_refresh:
             self._on_refresh()
         self.page.update()

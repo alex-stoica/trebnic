@@ -14,7 +14,6 @@ from i18n import t
 from services.notification_service import notification_service
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.app_initializer import AppInitializer
-from ui.controller import UIController
 
 
 class TrebnicApp:
@@ -171,15 +170,14 @@ class TrebnicApp:
             self.tasks_view.refresh()
             # Also refresh calendar view if it's currently displayed
             if self.state.selected_nav == NavItem.CALENDAR:
-                self.update_content()
+                await self.update_content()
             self.page.update()
 
         self.page.run_task(_refresh)
 
     def _on_calendar_update(self) -> None:
         """Handle calendar week navigation."""
-        self.update_content()
-        self.page.update()
+        self.page.run_task(self.update_content)
 
     def _on_sidebar_rebuild(self, data: Any) -> None:
         """Handle sidebar rebuild events."""
@@ -194,8 +192,7 @@ class TrebnicApp:
     def _on_project_or_task_changed(self, data: Any) -> None:
         """Handle project color changes or task postponements - refresh calendar/stats if visible."""
         if self.state.selected_nav == NavItem.CALENDAR or self.state.current_page == PageType.STATS:
-            self.update_content()
-            self.page.update()
+            self.page.run_task(self.update_content)
 
     def _on_language_changed(self, data: Any) -> None:
         """Handle language changes - update all translatable UI text."""
@@ -212,9 +209,9 @@ class TrebnicApp:
         # Update settings menu items
         self.settings_menu.items = self._get_settings_items()
 
-        # Refresh the current view to update any other translatable text
-        self.update_content()
+        # Render sync text changes immediately, then refresh content async
         self.page.update()
+        self.page.run_task(self.update_content)
 
     def _on_notification_tapped(self, data: Any) -> None:
         """Handle notification tap - route to action handler or navigate to task stats."""
@@ -281,18 +278,7 @@ class TrebnicApp:
         self.page.run_task(_do_postpone)
 
     def _create_controller(self) -> None:
-        """Create UIController for navigation utilities.
-
-        Task actions are now handled by TaskActionHandler via EventBus.
-        UIController is kept for navigation and project utilities.
-        """
-        self.ctrl = UIController(
-            page=self.page,
-            state=self.state,
-            nav_manager=self.nav_manager,
-        )
-
-        # Update nav_manager with project buttons
+        """Set up nav_manager with project buttons."""
         self.nav_manager.set_project_btns(self.project_btns)
 
     def rebuild_sidebar(self) -> None:
@@ -314,11 +300,11 @@ class TrebnicApp:
         """Handle timer stop button click - delegates to timer controller."""
         self.timer_ctrl.on_timer_stop(e)
 
-    def update_content(self) -> None:
+    async def update_content(self) -> None:
         """Update the main content area based on current state."""
         # Auto-save notes if navigating away from notes page
         if hasattr(self, 'notes_view') and self.notes_view:
-            self.notes_view.save_if_editing()
+            await self.notes_view.save_if_editing()
 
         if self.state.current_page == PageType.CHAT:
             self.page_content.content = self.chat_view.build()
@@ -333,14 +319,14 @@ class TrebnicApp:
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
         elif self.state.selected_nav == NavItem.CALENDAR:
-            # Refresh state.tasks before building calendar to ensure fresh data
-            self.page.run_task(self._refresh_state_and_build_calendar)
-            return
+            await self._refresh_state_and_build_calendar()
         elif self.state.current_page == PageType.NOTES:
             self.page_content.content = self.notes_view.build()
             self.notes_view.refresh()
         else:
             self.page_content.content = self.tasks_view.build()
+
+        self.page.update()
 
     async def _refresh_state_and_build_calendar(self) -> None:
         """Refresh state.tasks from DB and build calendar view."""
@@ -348,7 +334,6 @@ class TrebnicApp:
         start, end = self.calendar_view.get_visible_range()
         await self.calendar_view._load_note_dates(start, end)
         self.page_content.content = self.calendar_view.build()
-        self.page.update()
 
     def _on_profile_click(self, e: ft.ControlEvent) -> None:
         """Handle profile menu item click."""
@@ -612,7 +597,7 @@ class TrebnicApp:
         self.page.on_resized = self._handle_resize
         self.page.add(main_row)
         self._handle_resize()
-        self.update_content()
+        self.page.run_task(self.update_content)
         self.tasks_view.refresh()
 
     def _show_pending_errors(self) -> None:
