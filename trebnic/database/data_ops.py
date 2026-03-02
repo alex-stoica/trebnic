@@ -214,8 +214,8 @@ class DataOpsMixin:
         Returns:
             Tuple of (tasks_updated, projects_updated) counts.
         """
-        try:
-            async with self._get_connection() as conn:
+        async with self._get_connection() as conn:
+            try:
                 tasks_updated = 0
                 projects_updated = 0
 
@@ -288,6 +288,7 @@ class DataOpsMixin:
                 await conn.commit()
                 return tasks_updated, projects_updated
 
-        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
-            logger.error(f"Error re-encrypting data: {e}")
-            raise DatabaseError(f"Failed to re-encrypt data: {e}") from e
+            except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+                await conn.rollback()
+                logger.error(f"Error re-encrypting data: {e}")
+                raise DatabaseError(f"Failed to re-encrypt data: {e}") from e

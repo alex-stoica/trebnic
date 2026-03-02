@@ -1,6 +1,6 @@
 import flet as ft
 from datetime import date
-from typing import Optional
+from typing import Callable, Optional
 
 from config import COLORS, SNACK_DURATION_MS
 from ui.formatters import TimeFormatter
@@ -37,7 +37,7 @@ def format_due_date(due_date: Optional[date]) -> Optional[str]:
     return f"📋 {date_str}"
 
 
-def accent_btn(text: str, on_click) -> ft.Button:
+def accent_btn(text: str, on_click: Callable[[ft.ControlEvent], None]) -> ft.Button:
     return ft.Button(
         text,
         on_click=on_click,
@@ -48,7 +48,7 @@ def accent_btn(text: str, on_click) -> ft.Button:
 
 def danger_btn(
     text: str,
-    on_click,
+    on_click: Callable[[ft.ControlEvent], None],
     icon: Optional[str] = None,
 ) -> ft.Button:
     return ft.Button(

@@ -526,14 +526,22 @@ class TasksView:
             project = self.state.get_project_by_id(task.project_id)
             self.done_list.controls.append(TaskTile(task, True, self.state, project).build())
 
-        # Show empty state only when there are no pending tasks at all in Today filter
-        show_empty = (
-            len(pending) == 0
-            and self.state.selected_nav == NavItem.TODAY
+        # Show empty state when there are no pending tasks in any view
+        show_empty = len(pending) == 0
+        self.empty_state.visible = show_empty
+
+        if show_empty:
+            icon, title, subtitle = self._get_empty_state_content()
+            empty_col = self.empty_state.content
+            empty_col.controls[0].name = icon
+            empty_col.controls[1].value = title
+            empty_col.controls[2].value = subtitle
+
+        is_today = (
+            self.state.selected_nav == NavItem.TODAY
             and self.state.task_filter == TaskFilter.TODAY
         )
-        self.empty_state.visible = show_empty
-        self._note_card.visible = show_empty
+        self._note_card.visible = show_empty and is_today
 
         self.page.update()
 
@@ -549,10 +557,13 @@ class TasksView:
         self.details_btn.content.controls[1].value = t("add_details")
         self.details_btn.tooltip = t("add_details_tooltip")
 
-        # Update empty state text
-        empty_col = self.empty_state.content
-        empty_col.controls[1].value = t("all_caught_up")
-        empty_col.controls[2].value = t("enjoy_your_day")
+        # Update empty state text (context-dependent, refresh will set the right values)
+        if self.empty_state.visible:
+            icon, title, subtitle = self._get_empty_state_content()
+            empty_col = self.empty_state.content
+            empty_col.controls[0].name = icon
+            empty_col.controls[1].value = title
+            empty_col.controls[2].value = subtitle
 
         # Update filter chip labels
         self._today_chip.content.value = t("today")
@@ -564,6 +575,15 @@ class TasksView:
 
         # Update notes card text
         self._note_card.content.controls[1].value = t("tap_to_write")
+
+    def _get_empty_state_content(self) -> tuple:
+        """Return (icon_name, title, subtitle) for the empty state based on current nav."""
+        nav = self.state.selected_nav
+        if nav == NavItem.INBOX:
+            return ft.Icons.DRAFTS_OUTLINED, t("inbox_empty"), t("inbox_empty_hint")
+        if nav == NavItem.PROJECTS:
+            return ft.Icons.FOLDER_OUTLINED, t("project_empty"), t("project_empty_hint")
+        return ft.Icons.CHECK_CIRCLE_OUTLINE, t("all_caught_up"), t("enjoy_your_day")
 
     def _get_section_label(self) -> str:
         """Get the appropriate section label based on current navigation."""
@@ -584,7 +604,7 @@ class TasksView:
         return True
 
     def build(self) -> ft.Column:
-        self._section_label = ft.Text(self._get_section_label(), color="grey", weight="bold")
+        self._section_label = ft.Text(self._get_section_label(), color=COLORS["grey"], weight="bold")
 
         # Sync chip styles with current state
         self._update_chip_styles()

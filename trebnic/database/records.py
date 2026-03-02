@@ -239,6 +239,16 @@ class RecordsMixin:
             logger.error(f"Error saving daily note for {note_date}: {e}")
             raise DatabaseError(f"Failed to save daily note: {e}") from e
 
+    async def delete_daily_note(self, note_date: date) -> None:
+        """Delete a daily note for a specific date."""
+        try:
+            async with self._get_connection() as conn:
+                await conn.execute("DELETE FROM daily_notes WHERE date = ?", (note_date.isoformat(),))
+                await conn.commit()
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error deleting daily note for {note_date}: {e}")
+            raise DatabaseError(f"Failed to delete daily note: {e}") from e
+
     async def get_daily_notes_range(self, start: date, end: date) -> List[Dict[str, Any]]:
         """Get daily notes for a date range (inclusive)."""
         try:
@@ -262,14 +272,17 @@ class RecordsMixin:
         try:
             async with self._get_connection() as conn:
                 async with conn.execute(
-                    "SELECT * FROM daily_notes WHERE content != '' ORDER BY date DESC LIMIT ?",
-                    (limit,)
+                    "SELECT * FROM daily_notes ORDER BY date DESC",
                 ) as cursor:
                     result = []
                     async for row in cursor:
                         note = dict(row)
                         note["content"] = _decrypt_field(note.get("content", ""))
+                        if not note["content"].strip():
+                            continue
                         result.append(note)
+                        if len(result) >= limit:
+                            break
                     return result
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading all daily notes: {e}")

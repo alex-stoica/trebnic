@@ -230,7 +230,7 @@ class TaskService:
 
     async def persist_task(self, task: Task) -> None:
         """Persist task to database."""
-        is_done = task in self.state.done_tasks
+        is_done = any(t.id == task.id for t in self.state.done_tasks)
         await db.save_task(task.to_dict(is_done=is_done))
 
     async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:

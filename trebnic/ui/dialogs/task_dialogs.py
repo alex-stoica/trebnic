@@ -500,11 +500,18 @@ class TaskDialogs:
                     tight=True,
                 ),
             )
+            def _edit_recurrence(close: Callable) -> None:
+                close(None)
+                self.recurrence(task)
+
             open_dialog(
                 self.page,
                 t("select_date"),
                 content,
-                lambda c: [ft.TextButton(t("close"), on_click=c)],
+                lambda c: [
+                    ft.TextButton(t("close"), on_click=c),
+                    ft.TextButton(t("edit_recurrence"), on_click=lambda e: _edit_recurrence(c)),
+                ],
             )
             return
 
@@ -930,6 +937,7 @@ class TaskDialogs:
             t("complete_title").replace("{title}", task.title),
             content,
             lambda c: [
+                ft.TextButton(t("cancel"), on_click=c),
                 ft.TextButton(t("skip"), on_click=skip),
                 accent_btn(t("complete_action"), save),
             ],

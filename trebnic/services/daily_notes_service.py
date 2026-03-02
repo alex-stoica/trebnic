@@ -37,6 +37,10 @@ class DailyNoteService:
         results = await db.get_all_daily_notes(limit)
         return [DailyNote.from_dict(r) for r in results]
 
+    async def delete_note(self, note_date: date) -> None:
+        """Delete a daily note for a specific date."""
+        await db.delete_daily_note(note_date)
+
     async def get_dates_with_notes(self, start: date, end: date) -> set:
         """Get the set of dates that have notes in a range. Efficient for calendar indicators."""
         notes = await self.get_notes_range(start, end)

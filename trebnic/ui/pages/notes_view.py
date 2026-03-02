@@ -7,7 +7,8 @@ from database import DatabaseError
 from i18n import t
 from models.entities import AppState, DailyNote
 from services.daily_notes_service import DailyNoteService
-from ui.helpers import SnackService
+from ui.dialogs.base import open_dialog
+from ui.helpers import SnackService, danger_btn
 
 
 class NotesView:
@@ -215,40 +216,58 @@ class NotesView:
 
         date_label = note.date.strftime("%A, %b %d, %Y")
 
+        children: List[ft.Control] = [
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.CALENDAR_TODAY, size=14, color=COLORS["accent"]),
+                    ft.Text(date_label, size=13, weight="bold"),
+                    ft.Container(expand=True),
+                    ft.Icon(
+                        ft.Icons.EXPAND_LESS if is_expanded else ft.Icons.EXPAND_MORE,
+                        size=18,
+                        color=COLORS["done_text"],
+                    ),
+                ],
+            ),
+        ]
+
         if is_expanded:
-            content_widget = ft.Markdown(
+            children.append(ft.Markdown(
                 value=note.content,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-            )
+            ))
+            children.append(ft.Row(
+                [
+                    ft.Container(expand=True),
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        icon_color=COLORS["accent"],
+                        tooltip=t("edit"),
+                        icon_size=18,
+                        on_click=lambda e, n=note: self._edit_note(n),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE,
+                        icon_color=COLORS["danger"],
+                        tooltip=t("delete"),
+                        icon_size=18,
+                        on_click=lambda e, n=note: self._delete_note(n),
+                    ),
+                ],
+                spacing=0,
+            ))
         else:
-            content_widget = ft.Text(
+            children.append(ft.Text(
                 preview_text,
                 size=13,
                 color=COLORS["done_text"],
                 max_lines=2,
                 overflow=ft.TextOverflow.ELLIPSIS,
-            )
+            ))
 
         return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.CALENDAR_TODAY, size=14, color=COLORS["accent"]),
-                            ft.Text(date_label, size=13, weight="bold"),
-                            ft.Container(expand=True),
-                            ft.Icon(
-                                ft.Icons.EXPAND_LESS if is_expanded else ft.Icons.EXPAND_MORE,
-                                size=18,
-                                color=COLORS["done_text"],
-                            ),
-                        ],
-                    ),
-                    content_widget,
-                ],
-                spacing=6,
-            ),
+            content=ft.Column(children, spacing=6),
             padding=ft.Padding.all(12),
             border_radius=8,
             bgcolor=COLORS["card"],
@@ -262,6 +281,78 @@ class NotesView:
         else:
             self._expanded_date = note_date
         self.page.run_task(self._rebuild_recent)
+
+    def _edit_note(self, note: DailyNote) -> None:
+        edit_field = ft.TextField(
+            value=note.content,
+            multiline=True,
+            min_lines=3,
+            border_color=COLORS["border"],
+            bgcolor=COLORS["input_bg"],
+            border_radius=8,
+        )
+
+        def save(e: ft.ControlEvent) -> None:
+            new_content = (edit_field.value or "").strip()
+
+            async def _save_async() -> None:
+                try:
+                    await self._svc.save_note(note.date, new_content)
+                except DatabaseError as err:
+                    self.snack.show(t("failed_to_save_note").format(error=err))
+                    return
+                close()
+                self.snack.show(t("daily_note_saved"))
+                await self._load_recent_notes()
+                self.page.update()
+
+            self.page.run_task(_save_async)
+
+        _, close = open_dialog(
+            self.page,
+            t("edit_note"),
+            ft.Container(content=edit_field, width=300),
+            lambda c: [
+                ft.TextButton(t("cancel"), on_click=c),
+                ft.Button(
+                    t("save"),
+                    on_click=save,
+                    bgcolor=COLORS["accent"],
+                    color=COLORS["white"],
+                ),
+            ],
+        )
+
+    def _delete_note(self, note: DailyNote) -> None:
+        date_label = note.date.strftime("%A, %b %d, %Y")
+
+        def do_delete(e: ft.ControlEvent) -> None:
+            async def _delete_async() -> None:
+                try:
+                    await self._svc.delete_note(note.date)
+                except DatabaseError as err:
+                    self.snack.show(t("failed_to_delete_note").format(error=err))
+                    return
+                close()
+                self.snack.show(t("daily_note_deleted"))
+                self._recent_notes = [n for n in self._recent_notes if n.date != note.date]
+                if self._expanded_date == note.date:
+                    self._expanded_date = None
+                await self._load_recent_notes()
+                self.page.update()
+
+            self.page.run_task(_delete_async)
+
+        content = ft.Text(t("delete_note_confirm").format(date=date_label))
+        _, close = open_dialog(
+            self.page,
+            t("delete"),
+            content,
+            lambda c: [
+                ft.TextButton(t("cancel"), on_click=c),
+                danger_btn(t("delete"), do_delete),
+            ],
+        )
 
     async def _rebuild_recent(self) -> None:
         today = date.today()

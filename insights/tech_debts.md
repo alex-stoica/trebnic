@@ -4,10 +4,8 @@ Audit from 2026-03-01. Categorized by severity.
 
 ## Bugs (crash or wrong behavior)
 
-### 1. `load_task_by_id` doesn't decrypt `notes`
-- **File**: `database.py:988-1002`
-- All other task-loading methods decrypt both `title` and `notes`, but `load_task_by_id` only decrypts `title`.
-  Called during `complete_task` (logic.py:268), so completing a task with encrypted notes could corrupt the notes field.
+### ~~1. `load_task_by_id` doesn't decrypt `notes`~~ — RESOLVED
+Refactored into shared `_deserialize_task_row` helper that decrypts both `title` and `notes` for all load methods.
 
 ### 2. New tasks get wrong sort order
 - **File**: `services/logic.py:207-209`
@@ -37,10 +35,8 @@ Audit from 2026-03-01. Categorized by severity.
 - `task in self.state.done_tasks` uses dataclass equality. If any field was modified since loading, equality
   fails and the task silently gets saved as not-done.
 
-### 7. Note indicators missing on first calendar render
-- **File**: `ui/pages/calendar_view.py:243-296`
-- `build()` uses `self._note_dates` but never calls `_load_note_dates()`. The set starts empty, so the
-  first render never shows note icons on days that have notes.
+### ~~7. Note indicators missing on first calendar render~~ — RESOLVED
+`app.py` now always calls `_load_note_dates()` before `build()` via `_refresh_state_and_build_calendar`.
 
 ### 8. Conversation history drops tool_use blocks
 - **File**: `ui/pages/chat_view.py:142-143`
@@ -99,9 +95,8 @@ Audit from 2026-03-01. Categorized by severity.
 
 ## Missing error handling
 
-### 19. Bare `except Exception` in feedback and chat
-- **Files**: `ui/pages/feedback_view.py:146-148`, `ui/pages/chat_view.py:148-149`
-- Project rules forbid bare `except Exception`. Should use specific exception types.
+### ~~19. Bare `except Exception` in feedback and chat~~ — RESOLVED
+`feedback_view.py` now catches `OSError`, `chat_view.py` now catches `httpx.HTTPError`.
 
 ### 20. Duration silently clamped, can corrupt data on save
 - **File**: `ui/pages/time_entries_view.py:209-210`

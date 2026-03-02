@@ -149,7 +149,7 @@ COLORS = {
     "border": "#333",
     "danger": "#ff6b6b",
     "done_bg": "#1a1a1a",
-    "done_text": "#666666",
+    "done_text": "#888888",
     "unassigned": "#888888",
     "done_tag": "#3d3d3d",
     "white": "white",
@@ -161,6 +161,9 @@ COLORS = {
     # Stats chart colors (orange tones for estimates)
     "estimated_done": "#ef6c00",  # Medium-dark orange for completed estimates
     "estimated_pending": "#ff9800",  # Medium orange for pending estimates
+    "grey": "grey",
+    "calendar_header": "#332d2d",
+    "calendar_border": "#3a3a3a",
 }
 
 BORDER_RADIUS = 10
@@ -223,7 +226,6 @@ PADDING_2XL = 15
 PADDING_3XL = 20
 PADDING_4XL = 40
 
-OPACITY_DONE = 0.6
 
 SIDEBAR_WIDTH = 250
 SIDEBAR_ITEM_PADDING_LEFT = 50

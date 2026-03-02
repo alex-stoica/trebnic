@@ -4,7 +4,7 @@ import flet as ft
 import json
 import urllib.request
 import urllib.error
-from typing import Callable
+from typing import Callable, Optional
 
 from config import (
     COLORS,
@@ -31,16 +31,16 @@ class FeedbackPage:
         self.page = page
         self.navigate = navigate
         self.snack = snack
-        self._api_key_field: ft.TextField | None = None
-        self._email_field: ft.TextField | None = None
-        self._status_text: ft.Text | None = None
-        self._category_dd: ft.Dropdown | None = None
-        self._message_field: ft.TextField | None = None
+        self._api_key_field: Optional[ft.TextField] = None
+        self._email_field: Optional[ft.TextField] = None
+        self._status_text: Optional[ft.Text] = None
+        self._category_dd: Optional[ft.Dropdown] = None
+        self._message_field: Optional[ft.TextField] = None
 
     @staticmethod
     def _send_http(
         api_key: str, email: str, category: str, message: str,
-    ) -> str | None:
+    ) -> Optional[str]:
         """Send feedback via Resend API. Returns None on success, error string on failure.
 
         Pure I/O - no Flet UI calls so it's safe to run in a background thread.
@@ -143,7 +143,7 @@ class FeedbackPage:
                 self.snack.show(
                     f"{t('feedback_failed')}: {error}", COLORS["danger"],
                 )
-        except Exception as exc:
+        except OSError as exc:
             logger.exception("Send feedback failed")
             self.snack.show(t("error_generic").format(error=exc), COLORS["danger"])
 

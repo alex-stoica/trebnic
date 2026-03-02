@@ -155,7 +155,7 @@ class CalendarView:
         elif is_past:
             header_bg = COLORS["done_bg"]
         elif is_weekend:
-            header_bg = "#332d2d"
+            header_bg = COLORS["calendar_header"]
         else:
             header_bg = COLORS["card"]
         header_color = COLORS["white"] if is_today else COLORS["done_text"]
@@ -212,7 +212,7 @@ class CalendarView:
         if is_today:
             border_color = COLORS["accent"]
         elif is_weekend:
-            border_color = "#3a3a3a"
+            border_color = COLORS["calendar_border"]
         else:
             border_color = COLORS["border"]
 

@@ -184,7 +184,7 @@ class TaskTile:
 
         return ft.PopupMenuButton(
             icon=ft.Icons.MORE_HORIZ, 
-            icon_color="grey", 
+            icon_color=COLORS["grey"], 
             tooltip=t("task_options"),
             menu_position=ft.PopupMenuPosition.UNDER, 
             items=items, 
@@ -238,7 +238,6 @@ class TaskTile:
                 padding=15,
                 bgcolor=bg,
                 border_radius=BORDER_RADIUS,
-                opacity=0.6,
                 content=ft.Row([
                     cb,
                     ft.Column(

@@ -115,12 +115,6 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "export_statistics": {"en": "Export statistics", "ro": "Exportă statistici"},
     "exported_to": {"en": "Exported to", "ro": "Exportat în"},
     "export_failed": {"en": "Export failed", "ro": "Exportul a eșuat"},
-    "coming_soon": {"en": "Coming soon", "ro": "În curând"},
-    "estimation_breakdown": {"en": "Estimation breakdown", "ro": "Detalii estimări"},
-    "estimation_breakdown_desc": {
-        "en": "See which tasks took longer vs faster",
-        "ro": "Vezi care treburi au durat mai mult sau mai puțin",
-    },
     "tooltip_tracked": {"en": "Tracked", "ro": "Înregistrat"},
     "tooltip_est_pending": {"en": "Est. pending", "ro": "Est. nefinalizat"},
     "tooltip_est_done": {"en": "Est. done", "ro": "Est. finalizat"},
@@ -316,6 +310,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # Task view
     "all_caught_up": {"en": "All caught up!", "ro": "Totul la zi!"},
     "enjoy_your_day": {"en": "Enjoy your day!", "ro": "Bucură-te de ziua ta!"},
+    "inbox_empty": {"en": "No drafts", "ro": "Nicio ciornă"},
+    "inbox_empty_hint": {"en": "Tasks without a due date land here", "ro": "Treburile fără dată limită ajung aici"},
+    "project_empty": {"en": "No tasks in this project", "ro": "Nicio treabă în acest proiect"},
+    "project_empty_hint": {"en": "Add a task and assign it here", "ro": "Adaugă o treabă și atribuie-o aici"},
     "add_details": {"en": "Add details", "ro": "Detalii"},
     "add_details_tooltip": {
         "en": "Click to add tags, due date, and more",
@@ -639,6 +637,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "Edit recurrence settings to change schedule.",
         "ro": "Editează setările de recurență pentru a schimba programul.",
     },
+    "edit_recurrence": {
+        "en": "Edit recurrence",
+        "ro": "Editează recurența",
+    },
     "no_due_date": {"en": "🚫 No due date", "ro": "🚫 Fără dată limită"},
     "tomorrow": {"en": "Tomorrow", "ro": "Mâine"},
     "pick_a_date": {"en": "Pick a date...", "ro": "Alege o dată..."},
@@ -734,6 +736,16 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "todays_note": {"en": "Today's note", "ro": "Notița de azi"},
     "tap_to_write": {"en": "Tap to write about your day", "ro": "Atinge pentru a scrie despre ziua ta"},
     "edit_in_notes": {"en": "Edit in notes", "ro": "Editează în notițe"},
+    "delete_note_confirm": {
+        "en": "Delete note for {date}?",
+        "ro": "Ștergi notița pentru {date}?",
+    },
+    "daily_note_deleted": {"en": "Note deleted", "ro": "Notiță ștearsă"},
+    "failed_to_delete_note": {
+        "en": "Failed to delete note: {error}",
+        "ro": "Nu s-a putut șterge notița: {error}",
+    },
+    "edit_note": {"en": "Edit note", "ro": "Editează notița"},
 
     # Task dialogs - Delete recurrence
     "task_is_recurring": {
@@ -779,7 +791,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "Complete: {title}",
         "ro": "Finalizează: {title}",
     },
-    "skip": {"en": "Skip", "ro": "Sari"},
+    "skip": {"en": "Skip time", "ro": "Fără timp"},
     "complete_action": {"en": "Complete", "ro": "Finalizează"},
     "drag_to_adjust": {"en": "drag to adjust", "ro": "trage pentru a ajusta"},
 

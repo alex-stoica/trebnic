@@ -1067,8 +1067,7 @@ class AuthService:
         if not await self.unlock_with_password(old_password):
             return False
 
-        # Store old key reference for decryption during re-encryption
-        old_key = crypto._key
+        # Capture old AESGCM instance for the decryption closure
         old_aesgcm = crypto._aesgcm
 
         # Create decrypt function that uses the old key
@@ -1087,9 +1086,9 @@ class AuthService:
                 logger.warning(f"Decryption with old key failed: {e}")
                 return None
 
-        # Generate new salt and derive new key
+        # Swap to new key, keeping a restore callable for rollback
         salt = generate_salt()
-        crypto.derive_key_from_password(new_password, salt)
+        restore_key = crypto.swap_key(new_password, salt)
         key_hash = crypto.get_key_verification_hash()
         kdf_method = "argon2" if crypto.uses_argon2 else "pbkdf2"
 
@@ -1107,9 +1106,7 @@ class AuthService:
                 )
                 logger.info(f"Re-encrypted {tasks_count} tasks and {projects_count} projects")
             except DatabaseError as e:
-                # Rollback: restore old key
-                crypto._key = old_key
-                crypto._aesgcm = old_aesgcm
+                restore_key()
                 logger.error(f"Re-encryption failed, rolled back: {e}")
                 raise
 

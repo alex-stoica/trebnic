@@ -44,6 +44,8 @@ class StatsPage:
         self._time_entries: List[dict] = []
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
         self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
+        self._file_picker = ft.FilePicker()
+        self.page.services.append(self._file_picker)
 
         # Subscribe to all events that affect stats data
         self._subscriptions: List[Subscription] = [
@@ -94,8 +96,6 @@ class StatsPage:
             self._build_project_breakdown(),
             ft.Container(height=SPACING_XL),
             self._build_export_section(),
-            ft.Container(height=SPACING_XL),
-            self._build_coming_soon_section(),
         ]
         self.page.update()
 
@@ -625,12 +625,7 @@ class StatsPage:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"trebnic_stats_{timestamp}.json"
 
-            # Use file picker to save (flet 0.80.x async API)
-            file_picker = ft.FilePicker()
-            self.page.services.append(file_picker)
-            self.page.update()
-
-            result = await file_picker.save_file(
+            result = await self._file_picker.save_file(
                 dialog_title=t("export_statistics"),
                 file_name=filename,
                 file_type=ft.FilePickerFileType.CUSTOM,
@@ -670,64 +665,23 @@ class StatsPage:
             border_radius=BORDER_RADIUS,
         )
 
-    def _build_coming_soon_section(self) -> ft.Container:
-        """Build placeholder for upcoming features."""
-        features = [
-            (t("estimation_breakdown"), t("estimation_breakdown_desc")),
-        ]
-
-        feature_chips = []
-        for name, description in features:
-            chip = ft.Container(
-                content=ft.Text(name, size=FONT_SIZE_SM),
-                bgcolor=COLORS["input_bg"],
-                padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=SPACING_MD),
-                border_radius=BORDER_RADIUS,
-                border=ft.Border.all(1, COLORS["border"]),
-                tooltip=description,
-            )
-            feature_chips.append(chip)
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.UPCOMING, size=20, color=COLORS["done_text"]),
-                            ft.Text(t("coming_soon"), weight="bold", size=FONT_SIZE_LG, color=COLORS["done_text"]),
-                        ],
-                        spacing=SPACING_MD,
-                    ),
-                    ft.Container(height=SPACING_LG),
-                    ft.Row(feature_chips, wrap=True, spacing=SPACING_MD, run_spacing=SPACING_MD),
-                ],
-            ),
-            bgcolor=COLORS["card"],
-            padding=PADDING_2XL,
-            border_radius=BORDER_RADIUS,
-            opacity=0.7,
-        )
-
     def build(self) -> ft.Column:
-        """Build the stats page."""
-        # Load time entries if not already loaded
-        if not self._time_entries:
-            self._load_data()
+        """Build the stats page.
 
+        Shows header + spinner on first load, then _rebuild_content() fills in the real sections
+        once time entries are loaded. This avoids building all sections twice (once eagerly here,
+        then again when the async load completes).
+        """
         self._content_column = ft.Column(
             [
                 self._build_header(),
-                ft.Container(height=SPACING_MD),
-                self._build_overview_cards(),
-                ft.Container(height=SPACING_XL),
-                self._build_daily_chart(),
-                ft.Container(height=SPACING_XL),
-                self._build_project_breakdown(),
-                ft.Container(height=SPACING_XL),
-                self._build_export_section(),
-                ft.Container(height=SPACING_XL),
-                self._build_coming_soon_section(),
+                ft.Container(
+                    content=ft.ProgressRing(color=COLORS["accent"]),
+                    alignment=ft.Alignment(0, 0),
+                    padding=PADDING_2XL,
+                ),
             ],
             spacing=SPACING_MD,
         )
+        self._load_data()
         return self._content_column

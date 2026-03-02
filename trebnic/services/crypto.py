@@ -27,7 +27,7 @@ import os
 import secrets
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +284,21 @@ class CryptoService:
         if self._key is None:
             return False
         return verify_key(self._key, stored_hash)
+
+    def swap_key(self, password: str, salt: bytes) -> Callable[[], None]:
+        """Derive a new key, returning a callable that restores the previous key.
+
+        Used during password change so the caller can roll back if re-encryption fails.
+        """
+        old_key = self._key
+        old_aesgcm = self._aesgcm
+        self.derive_key_from_password(password, salt)
+
+        def restore() -> None:
+            self._key = old_key
+            self._aesgcm = old_aesgcm
+
+        return restore
 
     def lock(self) -> None:
         """Clear the encryption key from memory (lock the app)."""

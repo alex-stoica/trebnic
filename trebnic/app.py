@@ -28,7 +28,7 @@ class TrebnicApp:
         initializer = AppInitializer(page)
         self._components = initializer.initialize()
 
-        self._extract_components()
+        self._pending_error = self._components.pending_error
 
         # Wire page to service for proper async scheduling
         self.service.set_page(page)
@@ -55,36 +55,15 @@ class TrebnicApp:
         # Initialize auth and check if unlock needed
         self.page.run_task(self._init_auth)
 
-    def _extract_components(self) -> None:
-        """Extract components from initializer for class-level access.
-
-        Note: ctrl (UIController) is created separately in _create_controller()
-        after all components are extracted, to ensure all callbacks are available.
-        """
-        c = self._components
-        self.state = c.state
-        self.service = c.service
-        self.snack = c.snack
-        self.timer_svc = c.timer_svc
-        self.nav_manager = c.nav_manager
-        self.nav_handler = c.nav_handler
-        self.timer_ctrl = c.timer_ctrl
-        self.auth_ctrl = c.auth_ctrl
-        self.project_btns = c.project_btns
-        self.tasks_view = c.tasks_view
-        self.calendar_view = c.calendar_view
-        self.notes_view = c.notes_view
-        self.time_entries_view = c.time_entries_view
-        self.profile_page = c.profile_page
-        self.help_page = c.help_page
-        self.feedback_page = c.feedback_page
-        self.stats_page = c.stats_page
-        self.task_dialogs = c.task_dialogs
-        self.project_dialogs = c.project_dialogs
-        self.time_entry_service = c.time_entry_service
-        self.task_handler = c.task_handler
-        self.chat_view = c.chat_view
-        self._pending_error = c.pending_error
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute lookups to _components to avoid duplicating all fields."""
+        components = self.__dict__.get("_components")
+        if components is not None:
+            try:
+                return getattr(components, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to application events and track subscriptions for cleanup."""
@@ -209,7 +188,7 @@ class TrebnicApp:
     def _on_data_reset(self, data: Any) -> None:
         """Handle data reset events."""
         self.rebuild_sidebar()
-        self.nav_manager.navigate_to(PageType.TASKS)  # EDITED - Use enum
+        self.nav_manager.navigate_to(PageType.TASKS)
         self.tasks_view.refresh()
 
     def _on_project_or_task_changed(self, data: Any) -> None:
@@ -528,12 +507,12 @@ class TrebnicApp:
             spacing=SPACING_XS,
             controls=[
                 ft.Text("Trebnic", size=20, weight="bold"),
-                ft.Divider(color="grey"),
+                ft.Divider(color=COLORS["grey"]),
                 self.nav_inbox,
                 self.nav_tasks,
                 self.nav_calendar,
                 self.nav_notes,
-                ft.Divider(color="grey"),
+                ft.Divider(color=COLORS["grey"]),
                 self.nav_projects,
                 self.projects_items,
             ]

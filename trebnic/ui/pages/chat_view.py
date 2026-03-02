@@ -8,6 +8,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional
 
 import flet as ft
+import httpx
 
 from config import (
     BORDER_RADIUS,
@@ -145,7 +146,7 @@ class ChatView:
         except ValueError as exc:
             # API key not configured
             self.snack.show(str(exc), COLORS["danger"])
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             logger.exception("Chat error")
             error_msg = str(exc)
             if "401" in error_msg or "authentication" in error_msg.lower():
