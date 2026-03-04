@@ -1,23 +1,19 @@
 import flet as ft
 from datetime import date
-from typing import Optional, List
+from typing import Callable, List, Optional
 
-from config import COLORS
+from config import COLORS, PageType
 from database import DatabaseError
 from i18n import t
 from models.entities import AppState, DailyNote
 from services.daily_notes_service import DailyNoteService
-from ui.dialogs.base import open_dialog
-from ui.helpers import SnackService, danger_btn
+from ui.helpers import SnackService
 
 
 class NotesView:
-    """Notes page showing today's editable note and a list of recent notes.
+    """Notes list page — read-only view of today's note and recent notes.
 
-    Today's note has 3 states:
-    - Placeholder (no note, not editing): tappable card
-    - Editing: auto-growing text field, no preview/save buttons
-    - Display (note exists, not editing): rendered markdown with edit icon
+    Tapping any note opens the full-screen NoteEditorView via navigate callback.
     """
 
     def __init__(
@@ -26,19 +22,18 @@ class NotesView:
         state: AppState,
         daily_notes_service: DailyNoteService,
         snack: SnackService,
+        navigate: Callable[[PageType], None],
     ) -> None:
         self.page = page
         self.state = state
         self._svc = daily_notes_service
         self.snack = snack
-        self._editing = False
-        self._last_saved_content: Optional[str] = None
+        self.navigate = navigate
         self._recent_notes: List[DailyNote] = []
         self._expanded_date: Optional[date] = None
         self._build_controls()
 
     def _build_controls(self) -> None:
-        # Placeholder card — shown when no note exists and not editing
         self._placeholder = ft.Container(
             content=ft.Row(
                 [
@@ -51,35 +46,15 @@ class NotesView:
             padding=ft.Padding.symmetric(horizontal=16, vertical=14),
             border_radius=8,
             bgcolor=COLORS["card"],
-            on_click=self._start_editing,
+            on_click=lambda e: self._open_editor(date.today()),
             ink=True,
             visible=True,
         )
 
-        # Edit field — auto-growing, no fixed height
-        self._note_field = ft.TextField(
-            multiline=True,
-            min_lines=3,
-            border_color=COLORS["border"],
-            bgcolor=COLORS["input_bg"],
-            border_radius=8,
-            hint_text=t("daily_note_hint"),
-            visible=False,
-        )
-
-        # Markdown display — shown when note exists and not editing
         self._note_markdown = ft.Markdown(
             value="",
             selectable=True,
             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-        )
-
-        self._note_edit_btn = ft.IconButton(
-            icon=ft.Icons.EDIT_OUTLINED,
-            icon_color=COLORS["accent"],
-            tooltip=t("edit"),
-            visible=False,
-            on_click=self._start_editing,
         )
 
         self._note_display = ft.Container(
@@ -92,6 +67,8 @@ class NotesView:
             border_radius=8,
             padding=10,
             visible=False,
+            on_click=lambda e: self._open_editor(date.today()),
+            ink=True,
         )
 
         self._recent_list = ft.Column(controls=[], spacing=8)
@@ -111,66 +88,9 @@ class NotesView:
             visible=True,
         )
 
-    async def _start_editing(self, e: Optional[ft.ControlEvent]) -> None:
-        """Switch to editing state. Saves previous content first if needed."""
-        await self.save_if_editing()
-        self._editing = True
-        self._note_field.value = (
-            self._note_markdown.value if self._note_display.visible else ""
-        )
-        self._placeholder.visible = False
-        self._note_field.visible = True
-        self._note_display.visible = False
-        self._note_edit_btn.visible = False
-        self.page.update()
-
-    def _show_display(self, content: str) -> None:
-        """Switch to display state — rendered markdown with edit button."""
-        self._editing = False
-        self._note_markdown.value = content
-        self._note_display.visible = True
-        self._note_edit_btn.visible = True
-        self._note_field.visible = False
-        self._placeholder.visible = False
-
-    def _show_placeholder(self) -> None:
-        """Switch to placeholder state — compact tappable card."""
-        self._editing = False
-        self._placeholder.visible = True
-        self._note_field.visible = False
-        self._note_display.visible = False
-        self._note_edit_btn.visible = False
-
-    async def save_if_editing(self) -> None:
-        """Save current note content if in editing state and content changed.
-
-        Called from app.py before navigating away from notes page.
-        """
-        if not self._editing or self._svc is None:
-            return
-
-        content = (self._note_field.value or "").strip()
-        if content == (self._last_saved_content or ""):
-            # Content unchanged — just switch state without saving
-            if content:
-                self._show_display(content)
-            else:
-                self._show_placeholder()
-            return
-
-        try:
-            await self._svc.save_note(date.today(), content)
-        except DatabaseError as err:
-            self.snack.show(t("failed_to_save_note").format(error=err))
-            return
-        self._last_saved_content = content
-        self.snack.show(t("daily_note_saved"))
-        if content:
-            self._show_display(content)
-        else:
-            self._show_placeholder()
-        await self._load_recent_notes()
-        self.page.update()
+    def _open_editor(self, note_date: date) -> None:
+        self.state.editing_note_date = note_date
+        self.navigate(PageType.NOTE_EDITOR)
 
     async def _load_today_note(self) -> None:
         if self._svc is None:
@@ -181,11 +101,12 @@ class NotesView:
             return
 
         if note and note.content.strip():
-            self._last_saved_content = note.content.strip()
-            self._show_display(note.content)
+            self._note_markdown.value = note.content
+            self._note_display.visible = True
+            self._placeholder.visible = False
         else:
-            self._last_saved_content = ""
-            self._show_placeholder()
+            self._note_display.visible = False
+            self._placeholder.visible = True
 
     async def _load_recent_notes(self) -> None:
         if self._svc is None:
@@ -199,7 +120,7 @@ class NotesView:
         self._recent_list.controls.clear()
         for note in self._recent_notes:
             if note.date == today:
-                continue  # Skip today's note — shown above
+                continue
             if not note.content.strip():
                 continue
             self._recent_list.controls.append(self._build_note_card(note))
@@ -242,14 +163,7 @@ class NotesView:
                         icon_color=COLORS["accent"],
                         tooltip=t("edit"),
                         icon_size=18,
-                        on_click=lambda e, n=note: self._edit_note(n),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE,
-                        icon_color=COLORS["danger"],
-                        tooltip=t("delete"),
-                        icon_size=18,
-                        on_click=lambda e, n=note: self._delete_note(n),
+                        on_click=lambda e, n=note: self._open_editor(n.date),
                     ),
                 ],
                 spacing=0,
@@ -279,78 +193,6 @@ class NotesView:
             self._expanded_date = note_date
         self.page.run_task(self._rebuild_recent)
 
-    def _edit_note(self, note: DailyNote) -> None:
-        edit_field = ft.TextField(
-            value=note.content,
-            multiline=True,
-            min_lines=3,
-            border_color=COLORS["border"],
-            bgcolor=COLORS["input_bg"],
-            border_radius=8,
-        )
-
-        def save(e: ft.ControlEvent) -> None:
-            new_content = (edit_field.value or "").strip()
-
-            async def _save_async() -> None:
-                try:
-                    await self._svc.save_note(note.date, new_content)
-                except DatabaseError as err:
-                    self.snack.show(t("failed_to_save_note").format(error=err))
-                    return
-                close()
-                self.snack.show(t("daily_note_saved"))
-                await self._load_recent_notes()
-                self.page.update()
-
-            self.page.run_task(_save_async)
-
-        _, close = open_dialog(
-            self.page,
-            t("edit_note"),
-            ft.Container(content=edit_field, width=300),
-            lambda c: [
-                ft.TextButton(t("cancel"), on_click=c),
-                ft.Button(
-                    t("save"),
-                    on_click=save,
-                    bgcolor=COLORS["accent"],
-                    color=COLORS["white"],
-                ),
-            ],
-        )
-
-    def _delete_note(self, note: DailyNote) -> None:
-        date_label = note.date.strftime("%A, %b %d, %Y")
-
-        def do_delete(e: ft.ControlEvent) -> None:
-            async def _delete_async() -> None:
-                try:
-                    await self._svc.delete_note(note.date)
-                except DatabaseError as err:
-                    self.snack.show(t("failed_to_delete_note").format(error=err))
-                    return
-                close()
-                self.snack.show(t("daily_note_deleted"))
-                self._recent_notes = [n for n in self._recent_notes if n.date != note.date]
-                if self._expanded_date == note.date:
-                    self._expanded_date = None
-                await self._load_recent_notes()
-                self.page.update()
-
-            self.page.run_task(_delete_async)
-
-        content = ft.Text(t("delete_note_confirm").format(date=date_label))
-        _, close = open_dialog(
-            self.page,
-            t("delete"),
-            content,
-            lambda c: [
-                ft.TextButton(t("cancel"), on_click=c),
-                danger_btn(t("delete"), do_delete),
-            ],
-        )
-
     async def _rebuild_recent(self) -> None:
         today = date.today()
         self._recent_list.controls.clear()
@@ -367,8 +209,7 @@ class NotesView:
         self.page.run_task(self._refresh_async)
 
     async def _refresh_async(self) -> None:
-        if not self._editing:
-            await self._load_today_note()
+        await self._load_today_note()
         await self._load_recent_notes()
         self.page.update()
 
@@ -380,12 +221,9 @@ class NotesView:
                         [
                             ft.Icon(ft.Icons.EDIT_NOTE, color=COLORS["accent"], size=20),
                             ft.Text(t("todays_note"), size=16, weight="bold"),
-                            ft.Container(expand=True),
-                            self._note_edit_btn,
                         ],
                     ),
                     self._placeholder,
-                    self._note_field,
                     self._note_display,
                 ],
                 spacing=8,

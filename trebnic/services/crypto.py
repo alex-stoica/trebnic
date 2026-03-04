@@ -246,6 +246,42 @@ class CryptoService:
         """Check if Argon2 is being used for key derivation."""
         return ARGON2_AVAILABLE
 
+    def set_key(self, key: bytes) -> None:
+        """Set the encryption key directly (e.g. from biometric unlock).
+
+        Mirrors the second half of derive_key_from_password but skips derivation.
+        """
+        self._key = key
+        if CRYPTO_AVAILABLE:
+            self._aesgcm = AESGCM(key)
+
+    @property
+    def raw_key(self) -> Optional[bytes]:
+        """Return the raw encryption key, or None if not derived yet."""
+        return self._key
+
+    def make_field_decryptor(self) -> Callable[[str], Optional[str]]:
+        """Capture the current AESGCM instance and return a standalone decrypt function.
+
+        Useful for preserving old-key decryption before a key swap.
+        """
+        captured_aesgcm = self._aesgcm
+
+        def _decrypt(encrypted: str) -> Optional[str]:
+            if not CRYPTO_AVAILABLE or captured_aesgcm is None:
+                return None
+            data = EncryptedData.from_string(encrypted)
+            if data is None:
+                return None
+            try:
+                plaintext_bytes = captured_aesgcm.decrypt(data.nonce, data.ciphertext, None)
+                return plaintext_bytes.decode('utf-8')
+            except (InvalidTag, ValueError) as e:
+                logger.warning(f"Decryption with captured key failed: {e}")
+                return None
+
+        return _decrypt
+
     def derive_key_from_password(self, password: str, salt: bytes) -> None:
         """Derive and store the encryption key from the master password.
 

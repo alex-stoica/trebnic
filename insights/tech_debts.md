@@ -4,39 +4,17 @@ Audit from 2026-03-01. Categorized by severity.
 
 ## Bugs (crash or wrong behavior)
 
-### ~~1. `load_task_by_id` doesn't decrypt `notes`~~ — RESOLVED
-Refactored into shared `_deserialize_task_row` helper that decrypts both `title` and `notes` for all load methods.
-
 ### 2. New tasks get wrong sort order
 - **File**: `services/logic.py:207-209`
 - Uses `load_tasks_filtered(limit=1)` which returns the *lowest* sort_order (ASC ordering), then sets new task's
   order to `lowest + 1`. Should get the *highest*. New tasks collide on sort_order and appear in wrong positions.
-
-### 3. Weekly recurrence ignores interval when weekdays are set
-- **File**: `services/recurrence.py:42-47`
-- "Every 2 weeks on Tuesday" fires every Tuesday because `_find_next_weekday` doesn't respect the interval.
-  Only the fallback path (no weekdays) uses the interval.
 
 ### 4. `SnackService.show()` called as class method in stats export
 - **File**: `ui/pages/stats_view.py:644-646`
 - `SnackService.show(self.page, ...)` treats an instance method as a class method. Crashes with `AttributeError`
   whenever the user exports stats to JSON. `StatsPage` never receives a `SnackService` instance.
 
-### 5. `_overdue_section` accessed before initialization
-- **File**: `ui/pages/task_view.py:507-510`
-- Created in `build()` (line 623) but `_refresh_async` can run before `build()`. Unlike `_section_label` and
-  `_done_section` (initialized to `None` on lines 51-52), `_overdue_section` has no such initialization.
-  Crashes with `AttributeError`.
-
 ## Logic errors
-
-### 6. `persist_task` uses identity check for done status
-- **File**: `services/logic.py:223-225`
-- `task in self.state.done_tasks` uses dataclass equality. If any field was modified since loading, equality
-  fails and the task silently gets saved as not-done.
-
-### ~~7. Note indicators missing on first calendar render~~ — RESOLVED
-`app.py` now always calls `_load_note_dates()` before `build()` via `_refresh_state_and_build_calendar`.
 
 ### 8. Conversation history drops tool_use blocks
 - **File**: `ui/pages/chat_view.py:142-143`
@@ -95,9 +73,6 @@ Refactored into shared `_deserialize_task_row` helper that decrypts both `title`
 
 ## Missing error handling
 
-### ~~19. Bare `except Exception` in feedback and chat~~ — RESOLVED
-`feedback_view.py` now catches `OSError`, `chat_view.py` now catches `httpx.HTTPError`.
-
 ### 20. Duration silently clamped, can corrupt data on save
 - **File**: `ui/pages/time_entries_view.py:209-210`
 - If a time entry is shorter than 5 min or longer than 500 min, the edit dialog clamps the value
@@ -111,17 +86,6 @@ Refactored into shared `_deserialize_task_row` helper that decrypts both `title`
 
 ## Dead code
 
-### 22. Unused state field `projects_expanded`
-- **File**: `models/entities.py:209`
-
-### 23. `calculate_weekly_stats` and `calculate_estimation_breakdown` are stubs
-- **File**: `services/stats.py:329-360`
-
 ### 24. Passkey enable is a no-op
 - **File**: `ui/auth_controller.py:196-199`
 
-### 25. `UIController` class adds indirection without value
-- **File**: `ui/controller.py`
-
-### 26. `_subscribe_to_events` is an empty `pass`
-- **File**: `ui/app_initializer.py:298-301`

@@ -25,6 +25,12 @@ When code inside `page.run_task(async_fn)` throws, Flet catches it silently. No 
 Updating `inner_text` from Python on every `on_change` during dragging creates a Python<->Flutter round-trip per frame.
 The slider handle moves smoothly (pure Flutter) but the text lags visibly. Text formatting must happen on the Dart side.
 
+**Mitigation (v0.5.0+):** `change_throttle_ms=80` throttles `on_change` events on the Dart side so Python
+receives ~12 events/sec instead of one per frame (~60/sec). The Flutter slider still animates at full
+frame rate — only the Python callback frequency is reduced. This cuts round-trips by ~5x and noticeably
+reduces inner_text lag on Android. The `label_formatter` (Dart-side) remains unthrottled for zero-latency
+text updates during drag.
+
 ## The overlay/touch-blocking problem
 
 An `ft.Container` over a `FletCircularSlider` in an `ft.Stack` blocks touch events.

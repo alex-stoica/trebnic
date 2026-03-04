@@ -53,17 +53,10 @@ interactive.
 `task_tile.py:178` — single tap on "delete" in the popup menu emits `TASK_DELETE_REQUESTED` with no "are you sure?"
 dialog. Recurring tasks get a special dialog (`delete_recurrence`), but non-recurring tasks are deleted instantly.
 
-### 9. Completed tasks nearly unreadable ✅
+### 9. Completed tasks nearly unreadable ❌
 
-`task_tile.py:241` + `config.py:151-152` — the 0.6 opacity stacks on already-low-contrast text (`done_text: #666666`
-on `done_bg: #1a1a1a`, ~2.5:1 ratio), making completed tasks nearly unreadable. Effective contrast drops to roughly
-1.5:1.
-
-### 10. Stats "coming soon" chip is clickable but does nothing ✅
-
-`stats_view.py:681-689` — the container has no `on_click` handler and no disabled state. The `opacity=0.7` on the
-parent section and a tooltip are the only hints it's inactive. Very minor since there's no ink effect either, but
-could confuse tap-happy users.
+Partially fixed. Opacity removed, color improved from `#666666` to `#888888`. Still below WCAG AA (~2.9:1 vs 4.5:1
+required) but much better than before.
 
 ### 11. Mobile task tiles have smaller padding ✅
 

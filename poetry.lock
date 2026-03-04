@@ -455,14 +455,14 @@ flet = ">=0.80.5"
 
 [[package]]
 name = "flet-circular-slider"
-version = "0.4.0"
+version = "0.5.0"
 description = "Circular/radial slider control for Flet, wrapping sleek_circular_slider Flutter package"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_circular_slider-0.4.0-py3-none-any.whl", hash = "sha256:57268b916ec4a2733c6b866c20cd04aff12faf18096af3630c3dfd2723a2e61c"},
-    {file = "flet_circular_slider-0.4.0.tar.gz", hash = "sha256:07f1120f5445f9a92dfc2e73e75bf5a79f10e7118fb308afb4061fd484124842"},
+    {file = "flet_circular_slider-0.5.0-py3-none-any.whl", hash = "sha256:e4a611d4dd9ee9276f93dcb7df5d88a881d1f6cdc2dbc9d3b58531c2139e383a"},
+    {file = "flet_circular_slider-0.5.0.tar.gz", hash = "sha256:56203678b36284e36bf13aa71947ded7e02dc1c6f6b213c939be96c55ab0cfae"},
 ]
 
 [package.dependencies]
@@ -867,4 +867,4 @@ dev = ["pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "83b6bc1ebaa38bdc60bda6144f486c986ec7316476b299a1b8317d2f66555a96"
+content-hash = "168fef1f2d303981f3aaf77e2a64ed8782ad22c0e7a445f61852b217c6b8ef63"

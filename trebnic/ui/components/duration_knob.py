@@ -92,6 +92,7 @@ class DurationKnob(ft.Container):
             progress_bar_end_color=COLORS["accent"],
             track_color=COLORS["input_bg"],
             dot_color=COLORS["accent"],
+            change_throttle_ms=80,
             on_change=self._on_circular_change,
         )
 

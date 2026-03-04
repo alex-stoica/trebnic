@@ -117,7 +117,7 @@ await api.clear_recurrence(task)
 
 ## Deploy to mobile
 
-Bundle the DB into the APK (see `android-db-sync.md` for why `/sdcard/` doesn't work):
+Bundle the DB into the APK:
 
 ```bash
 cp trebnic.db trebnic/trebnic.db

@@ -28,72 +28,38 @@ class DataOpsMixin:
             for project in default_projects:
                 await self.save_project(project)
 
-            now = datetime.now()
+            tomorrow = (date.today() + timedelta(days=1)).isoformat()
+            today = date.today().isoformat()
 
-            welcome_task = {
-                "id": None,
-                "title": "Welcome to Trebnic!",
-                "spent_seconds": 1800,
-                "estimated_seconds": 3600,
-                "project_id": "personal",
-                "due_date": date.today().isoformat(),
-                "is_done": 0,
-                "recurrent": 0,
-                "recurrence_interval": 1,
+            _base = {
+                "id": None, "spent_seconds": 0, "notes": "", "is_done": 0,
+                "recurrent": 0, "recurrence_interval": 1,
                 "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
-                "recurrence_weekdays": [],
-                "notes": "",
-                "sort_order": 0,
-                "recurrence_end_type": "never",
+                "recurrence_weekdays": [], "recurrence_end_type": "never",
                 "recurrence_end_date": None,
             }
-            task_id = await self.save_task(welcome_task)
 
-            entry1_start = now - timedelta(hours=2, minutes=30)
-            entry1_end = entry1_start + timedelta(minutes=20)
-            await self.save_time_entry({
-                "id": None,
-                "task_id": task_id,
-                "start_time": entry1_start.isoformat(),
-                "end_time": entry1_end.isoformat(),
-            })
-
-            entry2_start = now - timedelta(minutes=45)
-            entry2_end = entry2_start + timedelta(minutes=10)
-            await self.save_time_entry({
-                "id": None,
-                "task_id": task_id,
-                "start_time": entry2_start.isoformat(),
-                "end_time": entry2_end.isoformat(),
-            })
-
-            # Recurring gym task - Tue/Thu/Sat
-            gym_weekdays = [1, 3, 5]
-            gym_due_date = date.today()
-            if gym_due_date.weekday() not in gym_weekdays:
-                for offset in range(1, 8):
-                    candidate = gym_due_date + timedelta(days=offset)
-                    if candidate.weekday() in gym_weekdays:
-                        gym_due_date = candidate
-                        break
-            gym_task = {
-                "id": None,
-                "title": "Gym",
-                "spent_seconds": 0,
-                "estimated_seconds": 3600,
-                "project_id": "sport",
-                "due_date": gym_due_date.isoformat(),
-                "is_done": 0,
-                "recurrent": 1,
-                "recurrence_interval": 1,
-                "recurrence_frequency": RecurrenceFrequency.WEEKS.value,
-                "recurrence_weekdays": [1, 3, 5],
-                "notes": "",
-                "sort_order": 1,
-                "recurrence_end_type": "never",
-                "recurrence_end_date": None,
-            }
-            await self.save_task(gym_task)
+            seed_tasks = [
+                # Personal – daily recurring, 15 min, starting tomorrow
+                {**_base, "title": "Lagosa", "estimated_seconds": 900, "project_id": "personal",
+                 "due_date": tomorrow, "sort_order": 0, "recurrent": 1, "recurrence_interval": 1,
+                 "recurrence_frequency": RecurrenceFrequency.DAYS.value, "recurrence_weekdays": []},
+                {**_base, "title": "Vit D", "estimated_seconds": 900, "project_id": "personal",
+                 "due_date": tomorrow, "sort_order": 1, "recurrent": 1, "recurrence_interval": 1,
+                 "recurrence_frequency": RecurrenceFrequency.DAYS.value, "recurrence_weekdays": []},
+                # Sport – tomorrow
+                {**_base, "title": "Săliță - piept", "estimated_seconds": 10800, "project_id": "sport",
+                 "due_date": tomorrow, "sort_order": 0},
+                {**_base, "title": "Gât", "estimated_seconds": 900, "project_id": "sport",
+                 "due_date": tomorrow, "sort_order": 1},
+                # Work – today, 30 min
+                {**_base, "title": "Calib 50% vs 10%", "estimated_seconds": 1800, "project_id": "work",
+                 "due_date": today, "sort_order": 0},
+                {**_base, "title": "Ședințele rămase Claude", "estimated_seconds": 1800, "project_id": "work",
+                 "due_date": today, "sort_order": 1},
+            ]
+            for task in seed_tasks:
+                await self.save_task(task)
 
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error seeding default data: {e}")

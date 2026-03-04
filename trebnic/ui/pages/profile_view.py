@@ -47,6 +47,11 @@ class ProfilePage:
         self._file_picker = ft.FilePicker()
         self.page.services.append(self._file_picker)
 
+    def cleanup(self) -> None:
+        """Remove file picker from page services. Call when the page is destroyed."""
+        if self._file_picker in self.page.services:
+            self.page.services.remove(self._file_picker)
+
     def set_tasks_view(self, tasks_view) -> None:
         """Set the tasks view reference (for updating pending details on save)."""
         self.tasks_view = tasks_view
@@ -412,7 +417,7 @@ class ProfilePage:
                     self.tasks_view.pending_details["estimated_minutes"] = (
                         self.state.default_estimated_minutes
                     )
-                    self.tasks_view.details_btn.content.controls[1].value = t("add_details")
+                    self.tasks_view._details_text.value = t("add_details")
                 self.snack.show(t("preferences_saved"))
             self.page.run_task(_save)
 

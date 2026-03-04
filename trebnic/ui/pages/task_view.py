@@ -54,11 +54,12 @@ class TasksView:
 
     def _build_controls(self) -> None:
         # Tappable card linking to Notes page — shown in empty state
+        self._note_card_text = ft.Text(t("tap_to_write"), size=14, color=COLORS["done_text"])
         self._note_card = ft.Container(
             content=ft.Row(
                 [
                     ft.Icon(ft.Icons.EDIT_NOTE, color=COLORS["accent"], size=20),
-                    ft.Text(t("tap_to_write"), size=14, color=COLORS["done_text"]),
+                    self._note_card_text,
                     ft.Container(expand=True),
                     ft.Icon(ft.Icons.CHEVRON_RIGHT, size=18, color=COLORS["done_text"]),
                 ],
@@ -71,25 +72,28 @@ class TasksView:
             visible=False,
         )
 
+        self._empty_icon = ft.Icon(
+            ft.Icons.CHECK_CIRCLE_OUTLINE,
+            size=64,
+            color=COLORS["done_text"],
+        )
+        self._empty_title = ft.Text(
+            t("all_caught_up"),
+            size=20,
+            weight="bold",
+            color=COLORS["done_text"],
+        )
+        self._empty_subtitle = ft.Text(
+            t("enjoy_your_day"),
+            size=14,
+            color=COLORS["done_text"],
+        )
         self.empty_state = ft.Container(
             content=ft.Column(
                 [
-                    ft.Icon(
-                        ft.Icons.CHECK_CIRCLE_OUTLINE,
-                        size=64,
-                        color=COLORS["done_text"],
-                    ),
-                    ft.Text(
-                        t("all_caught_up"),
-                        size=20,
-                        weight="bold",
-                        color=COLORS["done_text"],
-                    ),
-                    ft.Text(
-                        t("enjoy_your_day"),
-                        size=14,
-                        color=COLORS["done_text"],
-                    ),
+                    self._empty_icon,
+                    self._empty_title,
+                    self._empty_subtitle,
                     self._note_card,
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -109,11 +113,12 @@ class TasksView:
         self.done_list = ft.Column(controls=[], spacing=8)
         self.overdue_list = ft.Column(controls=[], spacing=8)
 
+        self._details_text = ft.Text(t("add_details"), size=13, color=COLORS["accent"])
         self.details_btn = ft.Container(
             content=ft.Row(
                 [
                     ft.Icon(ft.Icons.TUNE, size=16, color=COLORS["accent"]),
-                    ft.Text(t("add_details"), size=13, color=COLORS["accent"]),
+                    self._details_text,
                     ft.Icon(
                         ft.Icons.KEYBOARD_ARROW_RIGHT,
                         size=16,
@@ -231,7 +236,7 @@ class TasksView:
             "due_date": None,
             "project_id": None,
         }
-        self.details_btn.content.controls[1].value = t("add_details")
+        self._details_text.value = t("add_details")
         self.task_input.value = ""
         self.details_btn.visible = False
         self.refresh()
@@ -427,7 +432,7 @@ class TasksView:
             self.pending_details["due_date"] = selected_due["value"]
             self.pending_details["project_id"] = selected_proj["value"]
             self.pending_details["estimated_minutes"] = int(slider.value) * DURATION_SLIDER_STEP
-            self.details_btn.content.controls[1].value = t("add_details")
+            self._details_text.value = t("add_details")
             close()
             self.page.update()
 
@@ -532,10 +537,9 @@ class TasksView:
 
         if show_empty:
             icon, title, subtitle = self._get_empty_state_content()
-            empty_col = self.empty_state.content
-            empty_col.controls[0].name = icon
-            empty_col.controls[1].value = title
-            empty_col.controls[2].value = subtitle
+            self._empty_icon.name = icon
+            self._empty_title.value = title
+            self._empty_subtitle.value = subtitle
 
         is_today = (
             self.state.selected_nav == NavItem.TODAY
@@ -554,16 +558,15 @@ class TasksView:
         self.task_input.hint_text = t("add_new_task")
 
         # Update details button text and tooltip
-        self.details_btn.content.controls[1].value = t("add_details")
+        self._details_text.value = t("add_details")
         self.details_btn.tooltip = t("add_details_tooltip")
 
         # Update empty state text (context-dependent, refresh will set the right values)
         if self.empty_state.visible:
             icon, title, subtitle = self._get_empty_state_content()
-            empty_col = self.empty_state.content
-            empty_col.controls[0].name = icon
-            empty_col.controls[1].value = title
-            empty_col.controls[2].value = subtitle
+            self._empty_icon.name = icon
+            self._empty_title.value = title
+            self._empty_subtitle.value = subtitle
 
         # Update filter chip labels
         self._today_chip.content.value = t("today")
@@ -574,7 +577,7 @@ class TasksView:
             self._overdue_label.value = t("section_overdue")
 
         # Update notes card text
-        self._note_card.content.controls[1].value = t("tap_to_write")
+        self._note_card_text.value = t("tap_to_write")
 
     def _get_empty_state_content(self) -> tuple:
         """Return (icon_name, title, subtitle) for the empty state based on current nav."""

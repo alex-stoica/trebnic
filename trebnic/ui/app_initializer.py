@@ -19,8 +19,8 @@ from ui.helpers import SnackService
 from ui.components import ProjectSidebarItem, TimerWidget
 from ui.dialogs import TaskDialogs, ProjectDialogs
 from ui.pages import (
-    TasksView, CalendarView, NotesView, ProfilePage, TimeEntriesView, HelpPage, FeedbackPage,
-    StatsPage, ChatView,
+    TasksView, CalendarView, NotesView, NoteEditorView, ProfilePage, TimeEntriesView, HelpPage,
+    FeedbackPage, StatsPage, ChatView,
 )
 from ui.timer_controller import TimerController
 from ui.auth_controller import AuthController
@@ -52,6 +52,7 @@ class AppComponents:
         self.tasks_view: Optional[TasksView] = None
         self.calendar_view: Optional[CalendarView] = None
         self.notes_view: Optional[NotesView] = None
+        self.note_editor_view: Optional[NoteEditorView] = None
         self.time_entries_view: Optional[TimeEntriesView] = None
         self.profile_page: Optional[ProfilePage] = None
         self.help_page: Optional[HelpPage] = None
@@ -192,7 +193,11 @@ class AppInitializer:
         )
 
         self.components.notes_view = NotesView(
-            self.page, state, self.components.daily_notes_service, snack,
+            self.page, state, self.components.daily_notes_service, snack, nav_manager.navigate_to,
+        )
+
+        self.components.note_editor_view = NoteEditorView(
+            self.page, state, self.components.daily_notes_service, snack, nav_manager.navigate_to,
         )
 
         self.components.time_entries_view = TimeEntriesView(
@@ -213,7 +218,7 @@ class AppInitializer:
         )
 
         self.components.stats_page = StatsPage(
-            self.page, state, nav_manager.navigate_to, time_entry_service.load_time_entries,
+            self.page, state, nav_manager.navigate_to, time_entry_service.load_time_entries, snack,
         )
 
         self.components.task_dialogs = TaskDialogs(

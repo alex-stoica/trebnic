@@ -1,4 +1,4 @@
-# Flet 0.28.x to 0.80.x migration guide
+# Flet migration guide
 
 ## Changes summary
 
@@ -96,3 +96,20 @@ ft.Alignment(-1, 0)   # center_left
 ft.Alignment(0, -1)   # top_center
 ft.Alignment(0, 1)    # bottom_center
 ```
+
+---
+
+## 0.80 → 0.81 bump (Feb 2026)
+
+Bumped minimum to `flet>=0.81.0` in `pyproject.toml`.
+
+### Fixes picked up for free
+
+| Fix | Impact on Trebnic |
+|-----|-------------------|
+| AlertDialog/CupertinoAlertDialog barrier color update | ~15 dialog instances across task, project, and auth flows |
+| Memory leaks in web apps | Relevant if we ever ship a web build |
+| Button style patching | Accent/danger button helpers use `ButtonStyle` |
+| Stale state management improvements | General stability for dialog-heavy flows |
+
+No API changes required — all 0.80 code is compatible with 0.81.

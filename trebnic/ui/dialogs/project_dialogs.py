@@ -223,6 +223,10 @@ class ProjectDialogs:
         )
 
     def open(self, project: Optional[Project] = None) -> None:
+        if self._dialog:
+            self.page.pop_dialog()
+            self._dialog = None
+
         if project:
             self.state.editing_project_id = project.id
             self._name_field.value = project.name
@@ -237,7 +241,6 @@ class ProjectDialogs:
         self._icon_display.value = self._icon
         self._color_display.bgcolor = self._color
         self._error.visible = False
-        self._dialog = None
         self._show_main()
         self.page.show_dialog(self._dialog)
 

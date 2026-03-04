@@ -36,14 +36,17 @@ class StatsPage:
         state: AppState,
         navigate: Callable[[PageType], None],
         load_time_entries: Callable,
+        snack: SnackService,
     ) -> None:
         self.page = page
         self.state = state
         self.navigate = navigate
         self.load_time_entries = load_time_entries
+        self.snack = snack
         self._time_entries: List[dict] = []
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
         self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
+        self._stale: bool = True  # start stale so first build() loads data
         self._file_picker = ft.FilePicker()
         self.page.services.append(self._file_picker)
 
@@ -65,13 +68,18 @@ class StatsPage:
         ]
 
     def cleanup(self) -> None:
-        """Unsubscribe from all events. Call when the page is destroyed."""
+        """Unsubscribe from all events and remove file picker. Call when the page is destroyed."""
         for sub in self._subscriptions:
             sub.unsubscribe()
         self._subscriptions.clear()
+        if self._file_picker in self.page.services:
+            self.page.services.remove(self._file_picker)
 
     def _on_data_changed(self, data: Any) -> None:
-        """Handle data changes - reload time entries and rebuild content."""
+        """Handle data changes - reload only when stats page is visible."""
+        if self.state.current_page != PageType.STATS:
+            self._stale = True
+            return
         self._load_data()
 
     def _load_data(self) -> None:
@@ -636,9 +644,9 @@ class StatsPage:
                 try:
                     with open(result, "w", encoding="utf-8") as f:
                         f.write(json_data)
-                    SnackService.show(self.page, f"{t('exported_to')} {result}")
+                    self.snack.show(f"{t('exported_to')} {result}")
                 except OSError as ex:
-                    SnackService.show(self.page, f"{t('export_failed')}: {ex}")
+                    self.snack.show(f"{t('export_failed')}: {ex}")
 
         self.page.run_task(_do_export)
 
@@ -683,5 +691,7 @@ class StatsPage:
             ],
             spacing=SPACING_MD,
         )
-        self._load_data()
+        if self._stale:
+            self._stale = False
+            self._load_data()
         return self._content_column

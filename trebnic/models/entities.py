@@ -216,6 +216,7 @@ class AppState:
     language: str = "en"
     current_page: PageType = PageType.TASKS
     viewing_task_id: Optional[int] = None
+    editing_note_date: Optional[date] = None
     calendar_offset: int = 0
     recovered_timer_entry: Optional["TimeEntry"] = None
     # Notification settings

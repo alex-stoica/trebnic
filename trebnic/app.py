@@ -302,9 +302,9 @@ class TrebnicApp:
 
     async def update_content(self) -> None:
         """Update the main content area based on current state."""
-        # Auto-save notes if navigating away from notes page
-        if hasattr(self, 'notes_view') and self.notes_view:
-            await self.notes_view.save_if_editing()
+        # Auto-save note editor if navigating away
+        if hasattr(self, 'note_editor_view') and self.note_editor_view:
+            await self.note_editor_view.save_if_changed()
 
         if self.state.current_page == PageType.CHAT:
             self.page_content.content = self.chat_view.build()
@@ -318,6 +318,9 @@ class TrebnicApp:
             self.page_content.content = self.stats_page.build()
         elif self.state.current_page == PageType.TIME_ENTRIES:
             self.page_content.content = self.time_entries_view.build()
+        elif self.state.current_page == PageType.NOTE_EDITOR:
+            self.page_content.content = self.note_editor_view.build()
+            self.note_editor_view.refresh()
         elif self.state.selected_nav == NavItem.CALENDAR:
             await self._refresh_state_and_build_calendar()
         elif self.state.current_page == PageType.NOTES:

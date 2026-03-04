@@ -1,6 +1,7 @@
 from .task_view import TasksView
 from .calendar_view import CalendarView
 from .notes_view import NotesView
+from .note_editor_view import NoteEditorView
 from .profile_view import ProfilePage
 from .time_entries_view import TimeEntriesView
 from .help_view import HelpPage

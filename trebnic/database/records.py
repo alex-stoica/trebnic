@@ -261,6 +261,8 @@ class RecordsMixin:
                     async for row in cursor:
                         note = dict(row)
                         note["content"] = _decrypt_field(note.get("content", ""))
+                        if not note["content"].strip():
+                            continue
                         result.append(note)
                     return result
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:

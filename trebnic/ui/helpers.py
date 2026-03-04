@@ -1,5 +1,4 @@
 import flet as ft
-from datetime import date
 from typing import Callable, Optional
 
 from config import COLORS, SNACK_DURATION_MS
@@ -20,21 +19,6 @@ def format_timer_display(seconds: int) -> str:
     """Format timer display - delegates to TimeFormatter."""
     return TimeFormatter.seconds_to_timer(seconds)
 
-
-def format_due_date(due_date: Optional[date]) -> Optional[str]:
-    if due_date is None:
-        return None
-    delta = (due_date - date.today()).days
-    date_str = due_date.strftime("%b %d")
-    if delta < 0:
-        return f"🔴 {date_str}"
-    elif delta == 0:
-        return "📅 Today"
-    elif delta == 1:
-        return "📆 Tomorrow"
-    elif delta <= 7:
-        return f"🗓️ {date_str}"
-    return f"📋 {date_str}"
 
 
 def accent_btn(text: str, on_click: Callable[[ft.ControlEvent], None]) -> ft.Button:

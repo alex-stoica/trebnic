@@ -44,4 +44,4 @@ class DailyNoteService:
     async def get_dates_with_notes(self, start: date, end: date) -> set:
         """Get the set of dates that have notes in a range. Efficient for calendar indicators."""
         notes = await self.get_notes_range(start, end)
-        return {n.date for n in notes if n.content.strip()}
+        return {n.date for n in notes}

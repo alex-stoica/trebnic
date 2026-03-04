@@ -71,6 +71,7 @@ class PageType(Enum):
     FEEDBACK = "feedback"
     STATS = "stats"
     CHAT = "chat"
+    NOTE_EDITOR = "note_editor"
 
 DEFAULT_ESTIMATED_SECONDS = 900
 MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes

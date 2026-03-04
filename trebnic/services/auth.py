@@ -1023,10 +1023,7 @@ class AuthService:
             return False
 
         # Key is valid - unlock the app
-        crypto._key = key
-        if CRYPTO_AVAILABLE:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            crypto._aesgcm = AESGCM(key)
+        crypto.set_key(key)
 
         self._state = AuthState.UNLOCKED
         logger.info("Unlocked via biometric authentication")
@@ -1067,24 +1064,8 @@ class AuthService:
         if not await self.unlock_with_password(old_password):
             return False
 
-        # Capture old AESGCM instance for the decryption closure
-        old_aesgcm = crypto._aesgcm
-
-        # Create decrypt function that uses the old key
-        def decrypt_with_old_key(encrypted: str) -> Optional[str]:
-            """Decrypt a value using the old key."""
-            from services.crypto import EncryptedData, CRYPTO_AVAILABLE
-            if not CRYPTO_AVAILABLE or old_aesgcm is None:
-                return None
-            data = EncryptedData.from_string(encrypted)
-            if data is None:
-                return None
-            try:
-                plaintext_bytes = old_aesgcm.decrypt(data.nonce, data.ciphertext, None)
-                return plaintext_bytes.decode('utf-8')
-            except (InvalidTag, ValueError) as e:
-                logger.warning(f"Decryption with old key failed: {e}")
-                return None
+        # Capture old-key decryption before swapping to new key
+        decrypt_with_old_key = crypto.make_field_decryptor()
 
         # Swap to new key, keeping a restore callable for rollback
         salt = generate_salt()
@@ -1199,12 +1180,12 @@ class AuthService:
             return False
 
         # Store wrapped key using key wrapping
-        if crypto._key is None:
+        if crypto.raw_key is None:
             logger.error("No encryption key available to store")
             return False
 
         success = await self._passkey.store_key_for_biometric(
-            crypto._key,
+            crypto.raw_key,
             KEYRING_KEY_ID,
             self._set_setting,
         )
