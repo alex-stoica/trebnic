@@ -1,206 +1,114 @@
-# Flet 0.28.x to 0.80.x migration guide
+# Flet migration guide
 
-API breaking changes encountered when upgrading from flet 0.28.x to 0.80.x.
-
-## Changes made
+## Changes summary
 
 | # | Issue | Fix |
 |---|-------|-----|
-| 1 | `ft.FilePickerResultEvent` doesn't exist | Removed type annotation in `profile_view.py` and `stats_view.py` |
-| 2 | `asyncio.run()` cannot be called from a running event loop | Flet 0.80.x runs its own event loop. Fixed `load_state()` in `logic.py` to use ThreadPoolExecutor when loop already running |
-| 3 | `ft.alignment.center` doesn't exist | Replaced all `ft.alignment.*` with `ft.Alignment(x, y)` tuples across all files |
-| 4 | Sed replacement corrupted `ft.alignment.center_right` | Fixed manually - be careful with batch replacements |
-| 5 | `FilePicker(on_result=...)` removed | Changed to async API: `page.services.append()` + `await file_picker.pick_files()` |
-| 6 | `PopupMenuItem(text=...)` removed | Changed to `content=` parameter in `app.py` |
-| 7 | `ReorderableDraggable` removed | Add controls directly to `ReorderableListView.controls`. Use Container with `data=` for identification |
-| 8 | `ft.padding.only/symmetric` deprecated | Changed to `ft.Padding.only/symmetric` across all files |
-| 9 | `ft.app(target=main)` deprecated | Changed to `ft.run(main)` in `main.py` |
-| 10 | `ft.margin.only` deprecated | Changed to `ft.Margin.only` across all files |
-| 11 | `ft.border.all/only` deprecated | Changed to `ft.Border.all/only` across all files |
-| 12 | `ft.ImageFit` removed | Changed to `ft.BoxFit` in `profile_view.py` |
-| 13 | `page.open(dialog)` / `page.close(dialog)` removed | Changed to `page.show_dialog()` / `page.pop_dialog()` |
-| 14 | `ft.ElevatedButton` deprecated | Changed to `ft.Button` across all files |
-| 15 | `ft.border_radius.only` deprecated | Changed to `ft.BorderRadius.only` |
-| 16 | Gesture events `local_x`/`local_y` removed | Changed to `local_position.x`/`local_position.y` in `duration_knob.py` |
-| 17 | `Dropdown(on_change=...)` removed | Changed to `on_select=` in `task_dialogs.py` |
-| 18 | `page.run_task` requires coroutine function, not object | Changed `run_task(func())` to `run_task(func)` in `timer.py` |
-| 19 | Multiple `page.run_task()` calls execute in parallel | Combined sequential async operations into single function in `app.py` |
+| 1 | `ft.FilePickerResultEvent` doesn't exist | Removed type annotation |
+| 2 | `asyncio.run()` cannot be called from a running event loop | Use ThreadPoolExecutor when loop already running |
+| 3 | `ft.alignment.center` doesn't exist | Use `ft.Alignment(x, y)` tuples |
+| 4 | `FilePicker(on_result=...)` removed | Async API: `page.services.append()` + `await file_picker.pick_files()` |
+| 5 | `PopupMenuItem(text=...)` removed | Use `content=` parameter |
+| 6 | `ReorderableDraggable` removed | Add controls directly to `ReorderableListView.controls` |
+| 7 | `ft.padding.only/symmetric` deprecated | Use `ft.Padding.only/symmetric` |
+| 8 | `ft.app(target=main)` deprecated | Use `ft.run(main)` |
+| 9 | `ft.margin.only` deprecated | Use `ft.Margin.only` |
+| 10 | `ft.border.all/only` deprecated | Use `ft.Border.all/only` |
+| 11 | `ft.ImageFit` removed | Use `ft.BoxFit` |
+| 12 | `page.open(dialog)` / `page.close(dialog)` removed | Use `page.show_dialog()` / `page.pop_dialog()` |
+| 13 | `ft.ElevatedButton` deprecated | Use `ft.Button` |
+| 14 | `ft.border_radius.only` deprecated | Use `ft.BorderRadius.only` |
+| 15 | `Dropdown(on_change=...)` removed | Use `on_select=` |
+| 16 | `page.run_task` requires coroutine function, not object | Pass `func` not `func()` |
+| 17 | Multiple `page.run_task()` calls execute in parallel | Combine sequential async ops into single function |
 
 ---
 
 ## API reference
 
-### FilePicker (major change)
-Old (0.28.x):
-```python
-file_picker = ft.FilePicker(on_result=callback)
-page.overlay.append(file_picker)
-file_picker.pick_files(...)  # result comes via callback
-```
-
-New (0.80.x):
-```python
-file_picker = ft.FilePicker()
-page.services.append(file_picker)
-files = await file_picker.pick_files(...)  # result returned directly
-```
-
-### App entry point
+### FilePicker
 ```python
 # Old
-ft.app(target=main)
+file_picker = ft.FilePicker(on_result=callback)
+page.overlay.append(file_picker)
+file_picker.pick_files(...)
 
 # New
-ft.run(main)
+file_picker = ft.FilePicker()
+page.services.append(file_picker)
+files = await file_picker.pick_files(...)
 ```
 
 ### Dialog API
 ```python
 # Old
-page.open(dialog)
-page.close(dialog)
+page.open(dialog) / page.close(dialog)
 
 # New
-page.show_dialog(dialog)
-page.pop_dialog()  # closes topmost dialog, no argument needed
+page.show_dialog(dialog) / page.pop_dialog()
 ```
 
 ### Drawer API
 ```python
-# Old (doesn't work in 0.80)
-drawer.open = True
-page.update()
-
-# New - use async methods
-page.drawer = drawer  # required: attach drawer to page first
-page.run_task(page.show_drawer)  # open drawer
-page.run_task(page.close_drawer)  # close drawer
-# Or if already in async context:
-await page.show_drawer()
-await page.close_drawer()
+page.drawer = drawer  # attach first
+page.run_task(page.show_drawer)
+page.run_task(page.close_drawer)
+# Or in async context: await page.show_drawer() / await page.close_drawer()
 ```
-**Important:** `show_drawer()` / `close_drawer()` operate on `page.drawer`. Make sure the drawer
-is assigned to the page before calling these methods. Setting `drawer.open = True/False` directly
-no longer works.
+`drawer.open = True/False` no longer works.
 
 ### page.run_task
-Now requires a coroutine **function**, not a coroutine object:
 ```python
-# Old - worked with coroutine objects
-page.run_task(my_async_func())
+# Requires coroutine function, not coroutine object
+page.run_task(my_async_func)          # RIGHT
+page.run_task(my_async_func())        # WRONG — coroutine object
+page.run_task(self._tick_loop())      # WRONG — silently swallowed TypeError
+page.run_task(self._tick_loop)        # RIGHT
 
-# New - requires the function itself
-page.run_task(my_async_func)
-
-# For methods that need arguments, use a wrapper:
+# With arguments, wrap in closure:
 async def wrapper() -> None:
     await my_async_func(arg1, arg2)
 page.run_task(wrapper)
 ```
 
 ### Async cleanup ordering
-Multiple `page.run_task()` calls may execute in parallel. Combine sequential operations:
 ```python
-# Old (broken - parallel execution)
-page.run_task(cleanup_notifications)  # may run after db closes!
-page.run_task(close_db)
-
-# New (correct - sequential execution)
+# Multiple run_task calls execute in parallel — combine sequential ops:
 async def cleanup_all() -> None:
     await notification_service.cleanup()
     await db.close()
-
 page.run_task(cleanup_all)
 ```
 
-### Gesture events (TapEvent, DragUpdateEvent)
+### Other renames
 ```python
-# Old
-e.local_x, e.local_y
-e.global_x, e.global_y
-
-# New
-e.local_position.x, e.local_position.y
-e.global_position.x, e.global_position.y
+ft.Dropdown(on_select=callback)           # was on_change
+ft.PopupMenuItem(content="Label")         # was text=
+ft.Container(content=ctrl, data=my_id)    # replaces ReorderableDraggable
+ft.BoxFit.COVER                           # was ft.ImageFit.COVER
 ```
 
-### Dropdown
+### Alignment
 ```python
-# Old
-ft.Dropdown(on_change=callback)
-
-# New
-ft.Dropdown(on_select=callback)
-```
-
-### PopupMenuItem
-```python
-# Old
-ft.PopupMenuItem(text="Label")
-
-# New
-ft.PopupMenuItem(content="Label")
-```
-
-### ReorderableListView
-```python
-# Old
-ft.ReorderableDraggable(index=i, content=my_control, data=my_id)
-
-# New - add controls directly, wrap in Container if you need data property
-ft.Container(content=my_control, data=my_id)
-```
-
-### ImageFit enum renamed
-```python
-# Old
-ft.ImageFit.COVER
-
-# New
-ft.BoxFit.COVER
+ft.Alignment(0, 0)    # center
+ft.Alignment(1, 0)    # center_right
+ft.Alignment(-1, 0)   # center_left
+ft.Alignment(0, -1)   # top_center
+ft.Alignment(0, 1)    # bottom_center
 ```
 
 ---
 
-## Deprecation warnings (will break in future versions)
+## 0.80 → 0.81 bump (Feb 2026)
 
-### Padding helpers (breaks in 0.83.x)
-- `ft.padding.only(...)` → `ft.Padding.only(...)`
-- `ft.padding.symmetric(...)` → `ft.Padding.symmetric(...)`
+Bumped minimum to `flet>=0.81.0` in `pyproject.toml`.
 
-### Margin helpers (breaks in 0.83.x)
-- `ft.margin.only(...)` → `ft.Margin.only(...)`
-- `ft.margin.symmetric(...)` → `ft.Margin.symmetric(...)`
+No API changes required — all 0.80 code is compatible with 0.81.
 
-### Border helpers (breaks in 0.83.x)
-- `ft.border.all(...)` → `ft.Border.all(...)`
-- `ft.border.only(...)` → `ft.Border.only(...)`
+## 0.81 → 0.82 bump (Mar 2026)
 
-### BorderRadius helpers (breaks in 0.83.x)
-- `ft.border_radius.only(...)` → `ft.BorderRadius.only(...)`
+Bumped to `flet>=0.82.0`. Requires Flutter SDK 3.41.4 (auto-downloaded on first build).
 
-### ElevatedButton (removed in 1.0)
-- `ft.ElevatedButton(...)` → `ft.Button(...)`
+Breaking changes in 0.82: ad controls refactored (InterstitialAd → Service, BannerAd → LayoutControl). Not relevant to Trebnic.
 
----
-
-## Alignment API reference
-
-Old syntax → New syntax:
-- `ft.alignment.center` → `ft.Alignment(0, 0)`
-- `ft.alignment.center_right` → `ft.Alignment(1, 0)`
-- `ft.alignment.center_left` → `ft.Alignment(-1, 0)`
-- `ft.alignment.top_center` → `ft.Alignment(0, -1)`
-- `ft.alignment.bottom_center` → `ft.Alignment(0, 1)`
-- `ft.alignment.top_left` → `ft.Alignment(-1, -1)`
-- `ft.alignment.top_right` → `ft.Alignment(1, -1)`
-- `ft.alignment.bottom_left` → `ft.Alignment(-1, 1)`
-- `ft.alignment.bottom_right` → `ft.Alignment(1, 1)`
-
----
-
-## Lessons learned
-
-- Sed batch replacements can corrupt code when patterns overlap (e.g., `center` matching inside `center_right`). Do targeted manual fixes instead.
-- When upgrading major versions, test incrementally rather than all at once.
-- Check deprecation warnings early - they become errors in future versions.
+No API changes required for Trebnic — all 0.81 code is compatible with 0.82.

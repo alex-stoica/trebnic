@@ -26,7 +26,7 @@ class NavigationManager:
         self._sidebar: Optional[ft.Container] = None
         self._menu_btn: Optional[ft.IconButton] = None
         self._nav_content: Optional[ft.Column] = None
-        self._on_content_update: Optional[Callable[[], None]] = None
+        self._on_content_update: Optional[Callable[[], Any]] = None
         self._on_refresh: Optional[Callable[[], None]] = None
         self._settings_menu: Optional[ft.PopupMenuButton] = None
         self._get_settings_items: Optional[Callable[[], list]] = None
@@ -41,7 +41,7 @@ class NavigationManager:
         menu_btn: ft.IconButton,
         nav_content: ft.Column,
         settings_menu: ft.PopupMenuButton,
-        on_content_update: Callable[[], None],
+        on_content_update: Callable[[], Any],
         on_refresh: Callable[[], None],
         get_settings_items: Callable[[], list],
     ) -> None:
@@ -62,7 +62,10 @@ class NavigationManager:
         """Select a navigation item (keeps project selection for filtering)."""
         self.state.selected_nav = name
         # Don't clear selected_projects - allow combining nav + project filter
-        self.state.current_page = PageType.TASKS
+        if name == NavItem.NOTES:
+            self.state.current_page = PageType.NOTES
+        else:
+            self.state.current_page = PageType.TASKS
         if self.state.is_mobile and self._drawer:
             self.page.run_task(self.page.close_drawer)
         self.update_nav()
@@ -80,12 +83,11 @@ class NavigationManager:
             self.page.run_task(self.page.close_drawer)
         self.update_nav()
 
-    def navigate_to(self, page_name: PageType) -> None:  
+    def navigate_to(self, page_name: PageType) -> None:
         """Navigate to a specific page."""
         self.state.current_page = page_name
         if self._on_content_update:
-            self._on_content_update()
-        self.page.update()
+            self.page.run_task(self._on_content_update)
 
     def update_nav(self) -> None:
         """Update navigation state and UI."""  
@@ -95,8 +97,8 @@ class NavigationManager:
             self._nav_items[NavItem.TODAY].selected = self.state.selected_nav == NavItem.TODAY
         if NavItem.CALENDAR in self._nav_items:
             self._nav_items[NavItem.CALENDAR].selected = self.state.selected_nav == NavItem.CALENDAR
-        if NavItem.UPCOMING in self._nav_items:
-            self._nav_items[NavItem.UPCOMING].selected = self.state.selected_nav == NavItem.UPCOMING
+        if NavItem.NOTES in self._nav_items:
+            self._nav_items[NavItem.NOTES].selected = self.state.selected_nav == NavItem.NOTES
         if NavItem.PROJECTS in self._nav_items:
             self._nav_items[NavItem.PROJECTS].selected = len(self.state.selected_projects) > 0
  
@@ -109,7 +111,7 @@ class NavigationManager:
             self._settings_menu.items = self._get_settings_items()
  
         if self._on_content_update:
-            self._on_content_update()
+            self.page.run_task(self._on_content_update)
         if self._on_refresh:
             self._on_refresh()
         self.page.update()
@@ -169,8 +171,8 @@ class NavigationHandler:
     def on_calendar_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.select_nav(NavItem.CALENDAR)  
 
-    def on_upcoming_click(self, e: ft.ControlEvent) -> None:
-        self.nav_manager.select_nav(NavItem.UPCOMING)  
+    def on_notes_click(self, e: ft.ControlEvent) -> None:
+        self.nav_manager.select_nav(NavItem.NOTES)
 
     def on_menu_click(self, e: ft.ControlEvent) -> None:
         self.nav_manager.open_drawer()

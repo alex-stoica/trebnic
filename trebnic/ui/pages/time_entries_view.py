@@ -22,6 +22,8 @@ from config import (
     PADDING_LG,
     PADDING_XL,
     DIALOG_WIDTH_MD,
+    DURATION_KNOB_MIN_MINUTES,
+    DURATION_KNOB_MAX_MINUTES,
 )
 from i18n import t
 from models.entities import AppState, TimeEntry, Task
@@ -206,8 +208,10 @@ class TimeEntriesView:
             self.snack.show(t("cannot_edit_running"), COLORS["danger"])
             return
  
-        current_duration_minutes = entry.duration_seconds // 60
-        current_duration_minutes = max(5, min(500, current_duration_minutes))
+        raw_minutes = entry.duration_seconds // 60
+        current_duration_minutes = max(DURATION_KNOB_MIN_MINUTES, min(DURATION_KNOB_MAX_MINUTES, raw_minutes))
+        if raw_minutes != current_duration_minutes:
+            self.snack.show(t("duration_clamped"), COLORS["orange"])
          
         start_time_display = ft.Container(
             content=ft.Column(
@@ -250,7 +254,7 @@ class TimeEntriesView:
         def on_knob_change(minutes: int) -> None:
             new_end = entry.start_time + timedelta(minutes=minutes)
             end_time_text.value = self._format_time(new_end)
-            self.page.update()
+            end_time_text.update()
 
         knob.set_on_change(on_knob_change)
         

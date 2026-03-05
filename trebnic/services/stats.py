@@ -33,7 +33,7 @@ class OverallStats:
     total_tasks_pending: int
     total_time_tracked_seconds: int
     avg_estimation_accuracy: float  # percentage: actual/estimated * 100
-    tasks_with_time_entries: int
+    tasks_with_estimates: int
     # Placeholder for future: postponement stats
     # total_postponements: int = 0
     # avg_postponements_per_task: float = 0.0
@@ -78,7 +78,7 @@ class StatsService:
         else:
             avg_accuracy = 0.0
 
-        # Count tasks with time entries for display
+        # Count tasks with estimates for display
         all_tasks = tasks + done_tasks
         tasks_with_estimation = [t for t in all_tasks if t.estimated_seconds > 0]
 
@@ -87,7 +87,7 @@ class StatsService:
             total_tasks_pending=total_pending,
             total_time_tracked_seconds=total_tracked,
             avg_estimation_accuracy=avg_accuracy,
-            tasks_with_time_entries=len(tasks_with_estimation),
+            tasks_with_estimates=len(tasks_with_estimation),
         )
 
     def calculate_daily_stats(
@@ -276,7 +276,7 @@ class StatsService:
                 "tasks_pending": overall.total_tasks_pending,
                 "total_time_tracked_seconds": overall.total_time_tracked_seconds,
                 "avg_estimation_accuracy_percent": round(overall.avg_estimation_accuracy, 2),
-                "tasks_with_time_entries": overall.tasks_with_time_entries,
+                "tasks_with_estimates": overall.tasks_with_estimates,
                 "longest_completion_streak_days": streak,
             },
             "projects": [
@@ -322,42 +322,6 @@ class StatsService:
 
         return json.dumps(export_data, indent=2, ensure_ascii=False)
 
-    # =========================================================================
-    # Placeholder methods for future implementation
-    # =========================================================================
-
-    def calculate_weekly_stats(
-        self,
-        time_entries: List[Dict],
-        done_tasks: List[Task],
-        weeks: int = 4,
-    ) -> List[DailyStats]:
-        """Calculate stats aggregated by week.
-
-        TODO: Implement weekly aggregation view.
-        """
-        # Placeholder - return empty list
-        return []
-
-    def calculate_estimation_breakdown(
-        self,
-        tasks: List[Task],
-        done_tasks: List[Task],
-    ) -> Dict:
-        """Calculate detailed estimation vs actual breakdown.
-
-        TODO: Implement detailed breakdown showing:
-        - Tasks completed faster than estimated
-        - Tasks that took longer
-        - Distribution chart data
-        """
-        # Placeholder
-        return {
-            "faster_count": 0,
-            "slower_count": 0,
-            "on_time_count": 0,
-            "distribution": [],
-        }
 
 
 # Singleton instance

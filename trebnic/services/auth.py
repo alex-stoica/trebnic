@@ -20,6 +20,7 @@ Security Model:
 import asyncio
 import base64
 import logging
+import os
 import platform
 import sys
 import threading
@@ -47,6 +48,8 @@ except ImportError:
     KEYRING_AVAILABLE = False
     KeyringError = Exception
     PasswordDeleteError = Exception
+
+logger = logging.getLogger(__name__)
 
 # macOS Touch ID support via pyobjc
 TOUCHID_AVAILABLE = False
@@ -82,7 +85,6 @@ _is_android = False
 def _detect_android() -> bool:
     """Detect if running on Android."""
     # Method 1: Check for Android-specific paths
-    import os
     if os.path.exists("/system/build.prop"):
         return True
     # Method 2: Check ANDROID_ROOT env variable
@@ -104,8 +106,6 @@ if _is_android:
         ANDROID_BIOMETRIC_AVAILABLE = True
     except ImportError:
         pass
-
-logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -323,7 +323,7 @@ async def _prompt_touchid(reason: str) -> BiometricResult:
             # We need to use a different approach for proper async handling
 
         # Use asyncio to run the blocking call in a thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Create a future to get the result
         future = loop.create_future()
@@ -423,7 +423,7 @@ async def _prompt_android_biometric(reason: str) -> BiometricResult:
         activity = PythonActivity.mActivity
 
         # Use asyncio to bridge Java callback with Python
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future = loop.create_future()
 
         def run_biometric():
@@ -613,7 +613,7 @@ class PasskeyService:
 
             # Store biometric secret in keyring (NOT the raw key)
             secret_b64 = base64.b64encode(biometric_secret).decode('utf-8')
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: keyring.set_password(KEYRING_SERVICE, user_id, secret_b64)
@@ -681,7 +681,7 @@ class PasskeyService:
 
         try:
             # Retrieve biometric secret from keyring
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             secret_b64 = await loop.run_in_executor(
                 None,
                 lambda: keyring.get_password(KEYRING_SERVICE, user_id)
@@ -735,7 +735,7 @@ class PasskeyService:
             return True  # Nothing to delete
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: keyring.delete_password(KEYRING_SERVICE, user_id)
@@ -767,7 +767,7 @@ class PasskeyService:
             return False
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             key_b64 = await loop.run_in_executor(
                 None,
                 lambda: keyring.get_password(KEYRING_SERVICE, user_id)
@@ -1023,10 +1023,7 @@ class AuthService:
             return False
 
         # Key is valid - unlock the app
-        crypto._key = key
-        if CRYPTO_AVAILABLE:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            crypto._aesgcm = AESGCM(key)
+        crypto.set_key(key)
 
         self._state = AuthState.UNLOCKED
         logger.info("Unlocked via biometric authentication")
@@ -1067,29 +1064,12 @@ class AuthService:
         if not await self.unlock_with_password(old_password):
             return False
 
-        # Store old key reference for decryption during re-encryption
-        old_key = crypto._key
-        old_aesgcm = crypto._aesgcm
+        # Capture old-key decryption before swapping to new key
+        decrypt_with_old_key = crypto.make_field_decryptor()
 
-        # Create decrypt function that uses the old key
-        def decrypt_with_old_key(encrypted: str) -> Optional[str]:
-            """Decrypt a value using the old key."""
-            from services.crypto import EncryptedData, CRYPTO_AVAILABLE
-            if not CRYPTO_AVAILABLE or old_aesgcm is None:
-                return None
-            data = EncryptedData.from_string(encrypted)
-            if data is None:
-                return None
-            try:
-                plaintext_bytes = old_aesgcm.decrypt(data.nonce, data.ciphertext, None)
-                return plaintext_bytes.decode('utf-8')
-            except (InvalidTag, ValueError) as e:
-                logger.warning(f"Decryption with old key failed: {e}")
-                return None
-
-        # Generate new salt and derive new key
+        # Swap to new key, keeping a restore callable for rollback
         salt = generate_salt()
-        crypto.derive_key_from_password(new_password, salt)
+        restore_key = crypto.swap_key(new_password, salt)
         key_hash = crypto.get_key_verification_hash()
         kdf_method = "argon2" if crypto.uses_argon2 else "pbkdf2"
 
@@ -1107,9 +1087,7 @@ class AuthService:
                 )
                 logger.info(f"Re-encrypted {tasks_count} tasks and {projects_count} projects")
             except DatabaseError as e:
-                # Rollback: restore old key
-                crypto._key = old_key
-                crypto._aesgcm = old_aesgcm
+                restore_key()
                 logger.error(f"Re-encryption failed, rolled back: {e}")
                 raise
 
@@ -1202,12 +1180,12 @@ class AuthService:
             return False
 
         # Store wrapped key using key wrapping
-        if crypto._key is None:
+        if crypto.raw_key is None:
             logger.error("No encryption key available to store")
             return False
 
         success = await self._passkey.store_key_for_biometric(
-            crypto._key,
+            crypto.raw_key,
             KEYRING_KEY_ID,
             self._set_setting,
         )

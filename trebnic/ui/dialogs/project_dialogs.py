@@ -32,7 +32,6 @@ from config import (
 from models.entities import AppState, Project
 from services.project_service import ProjectService
 from ui.helpers import accent_btn, danger_btn, SnackService
-from ui.dialogs.base import open_dialog
 from ui.dialogs.dialog_state import IconPickerState, ColorPickerState
 from events import event_bus, AppEvent
 from i18n import t
@@ -145,15 +144,8 @@ class ColorPickerController:
         self._color_list: Optional[ft.ListView] = None
 
     def _on_color_tap(self, color_value: str) -> None:
-        """Handle color selection."""
+        """Handle color selection - immediately confirms."""
         self.state.select(color_value)
-        if self._color_list:
-            for ctrl in self._color_list.controls:
-                ctrl.content.controls[2].visible = ctrl.data == color_value
-        self.page.update()
-
-    def _on_confirm(self, e: ft.ControlEvent) -> None:
-        """Handle confirm button click."""
         self.on_confirm(self.state.confirm())
 
     def build_content(self) -> ft.Container:
@@ -166,17 +158,10 @@ class ColorPickerController:
                 border_radius=SPACING_XL,
                 bgcolor=c["value"],
             )
-            check_icon = ft.Icon(
-                ft.Icons.CHECK,
-                color=COLORS["accent"],
-                size=ICON_SIZE_MD,
-                visible=c["value"] == self.state.current_color,
-            )
             row = ft.Row(
                 [
                     color_circle,
                     ft.Text(c["name"], size=FONT_SIZE_LG, expand=True),
-                    check_icon,
                 ],
                 spacing=SPACING_XL,
             )
@@ -202,7 +187,6 @@ class ColorPickerController:
         """Build the dialog actions."""
         return [
             ft.TextButton(t("back"), on_click=lambda e: self.on_back()),
-            accent_btn(t("select"), self._on_confirm),
         ]
 
 
@@ -238,6 +222,10 @@ class ProjectDialogs:
         )
 
     def open(self, project: Optional[Project] = None) -> None:
+        if self._dialog:
+            self.page.pop_dialog()
+            self._dialog = None
+
         if project:
             self.state.editing_project_id = project.id
             self._name_field.value = project.name
@@ -252,7 +240,6 @@ class ProjectDialogs:
         self._icon_display.value = self._icon
         self._color_display.bgcolor = self._color
         self._error.visible = False
-        self._dialog = None  
         self._show_main()
         self.page.show_dialog(self._dialog)
 
@@ -326,12 +313,12 @@ class ProjectDialogs:
         title = t("edit_project") if self.state.editing_project_id else t("create_new_project")
         actions = self._build_main_actions()
 
-        if self._dialog is not None: 
+        if self._dialog is not None:
             self._dialog.title = ft.Text(title)
             self._dialog.content = ft.Container(width=DIALOG_WIDTH_MD, content=content)
             self._dialog.actions = actions
             self._dialog.update()
-        else: 
+        else:
             self._dialog = ft.AlertDialog(
                 modal=True,
                 title=ft.Text(title),
@@ -453,7 +440,6 @@ class ProjectDialogs:
             async def _delete_async() -> None:
                 count = await self.project_service.delete_project(project.id)
                 self.state.editing_project_id = None
-                close()
                 self.page.pop_dialog()
                 msg = t("project_deleted").replace("{name}", project.name).replace("{count}", str(count))
                 self.snack.show(msg, COLORS["danger"])
@@ -462,16 +448,18 @@ class ProjectDialogs:
 
             self.page.run_task(_delete_async)
 
-        content = ft.Text(t("delete_project_confirm").replace("{name}", project.name))
-        _, close = open_dialog(
-            self.page,
-            t("delete_project"),
-            content,
-            lambda c: [
-                ft.TextButton(t("cancel"), on_click=c),
+        if self._dialog:
+            self._dialog.title = ft.Text(t("delete_project"))
+            self._dialog.content = ft.Container(
+                width=DIALOG_WIDTH_MD,
+                content=ft.Text(t("delete_project_confirm").replace("{name}", project.name)),
+            )
+            self._dialog.actions = [
+                ft.TextButton(t("cancel"), on_click=lambda e: (self._show_main(), self.page.update())),
                 danger_btn(t("delete"), do_delete),
-            ],
-        )
+            ]
+            self._dialog.update()
+            self.page.update()
 
     def _close(self, e: ft.ControlEvent) -> None:
         self.state.editing_project_id = None

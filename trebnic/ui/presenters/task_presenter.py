@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import date
 
 from config import COLORS
+from i18n import t
 from models.entities import Task, Project
 from services.crypto import LOCKED_PLACEHOLDER
 from ui.formatters import TimeFormatter
@@ -50,9 +51,9 @@ class TaskPresenter:
         if delta < 0:
             return f"🔴 {date_str}"
         elif delta == 0:
-            return "📅 Today"
+            return f"📅 {t('today')}"
         elif delta == 1:
-            return "📆 Tomorrow"
+            return f"📆 {t('tomorrow')}"
         elif delta <= 7:
             return f"🗓️ {date_str}"
         return f"📋 {date_str}"

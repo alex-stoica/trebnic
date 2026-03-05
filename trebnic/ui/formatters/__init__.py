@@ -1,1 +1,1 @@
-from .time_formatter import TimeFormatter
+from formatters import TimeFormatter

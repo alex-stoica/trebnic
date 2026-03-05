@@ -171,12 +171,6 @@ class TaskTile:
                 lambda e: event_bus.emit(AppEvent.TASK_STATS_REQUESTED, self.task),
                 as_popup=True,
             ),
-            create_option_item(
-                ft.Icons.STICKY_NOTE_2_OUTLINED,
-                t("notes"),
-                lambda e: event_bus.emit(AppEvent.TASK_NOTES_REQUESTED, self.task),
-                as_popup=True,
-            ),
             ft.PopupMenuItem(),
             create_option_item(
                 ft.Icons.DELETE_OUTLINE,
@@ -190,7 +184,7 @@ class TaskTile:
 
         return ft.PopupMenuButton(
             icon=ft.Icons.MORE_HORIZ, 
-            icon_color="grey", 
+            icon_color=COLORS["grey"], 
             tooltip=t("task_options"),
             menu_position=ft.PopupMenuPosition.UNDER, 
             items=items, 
@@ -203,7 +197,7 @@ class TaskTile:
                 [
                     ft.Icon(ft.Icons.LOCK, color=COLORS["done_text"], size=16),
                     ft.Text(
-                        "Encrypted",
+                        t("encrypted"),
                         weight="bold",
                         color=title_color or COLORS["done_text"],
                         style=title_style,
@@ -244,7 +238,6 @@ class TaskTile:
                 padding=15,
                 bgcolor=bg,
                 border_radius=BORDER_RADIUS,
-                opacity=0.6,
                 content=ft.Row([
                     cb,
                     ft.Column(

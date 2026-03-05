@@ -1,6 +1,7 @@
+import json
 import flet as ft
-from datetime import date
-from typing import Callable
+from datetime import date, datetime, time
+from typing import Callable, Optional
 
 from config import (
     COLORS,
@@ -13,6 +14,7 @@ from config import (
     DIALOG_WIDTH_MD,
 )
 from models.entities import AppState
+from database import db, DatabaseError
 from services.logic import TaskService
 from services.notification_service import notification_service, NotificationBackend
 from services.settings_service import SettingsService
@@ -40,11 +42,16 @@ class ProfilePage:
         self.snack = snack
         self.navigate = navigate
         self.tasks_view = tasks_view
-        self._avatar_path: str | None = None
-        self._avatar_icon: ft.Icon | None = None
-        self._avatar_image: ft.Image | None = None
+        self._avatar_path: Optional[str] = None
+        self._avatar_icon: Optional[ft.Icon] = None
+        self._avatar_image: Optional[ft.Image] = None
         self._file_picker = ft.FilePicker()
         self.page.services.append(self._file_picker)
+
+    def cleanup(self) -> None:
+        """Remove file picker from page services. Call when the page is destroyed."""
+        if self._file_picker in self.page.services:
+            self.page.services.remove(self._file_picker)
 
     def set_tasks_view(self, tasks_view) -> None:
         """Set the tasks view reference (for updating pending details on save)."""
@@ -167,6 +174,116 @@ class ProfilePage:
             padding=3,
         )
 
+    def _export_data(self, e: ft.ControlEvent) -> None:
+        """Export all app data to a JSON file."""
+        async def _do_export() -> None:
+            data = await db.export_all()
+            json_data = json.dumps(data, indent=2, ensure_ascii=False)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"trebnic_backup_{timestamp}.json"
+
+            result = await self._file_picker.save_file(
+                dialog_title=t("export_data"),
+                file_name=filename,
+                file_type=ft.FilePickerFileType.CUSTOM,
+                allowed_extensions=["json"],
+            )
+            if result:
+                try:
+                    with open(result, "w", encoding="utf-8") as f:
+                        f.write(json_data)
+                    self.snack.show(f"{t('exported_to')} {result}")
+                except OSError as ex:
+                    self.snack.show(f"{t('export_failed')}: {ex}", COLORS["danger"])
+
+        self.page.run_task(_do_export)
+
+    def _import_data(self, e: ft.ControlEvent) -> None:
+        """Import app data from a JSON backup file."""
+        async def _do_import() -> None:
+            files = await self._file_picker.pick_files(
+                allowed_extensions=["json"],
+                dialog_title=t("import_data"),
+            )
+            if not files:
+                return
+
+            file_path = files[0].path
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.loads(f.read())
+            except (OSError, json.JSONDecodeError) as ex:
+                self.snack.show(f"{t('import_failed')}: {ex}", COLORS["danger"])
+                return
+
+            def confirm_import(ce: ft.ControlEvent) -> None:
+                async def _run_import() -> None:
+                    try:
+                        await db.import_all(
+                            projects=data.get("projects", []),
+                            tasks=data.get("tasks", []),
+                            time_entries=data.get("time_entries", []),
+                            daily_notes=data.get("daily_notes", []),
+                            settings=data.get("settings", {}),
+                        )
+                        close()
+                        event_bus.emit(AppEvent.DATA_RESET)
+                        self.snack.show(t("import_success"))
+                    except DatabaseError as ex:
+                        close()
+                        self.snack.show(f"{t('import_failed')}: {ex}", COLORS["danger"])
+                self.page.run_task(_run_import)
+
+            _, close = open_dialog(
+                self.page,
+                t("import_confirm_title"),
+                ft.Container(
+                    width=DIALOG_WIDTH_MD,
+                    content=ft.Text(t("import_confirm_body"), text_align=ft.TextAlign.CENTER),
+                ),
+                lambda c: [
+                    ft.TextButton(t("cancel"), on_click=c),
+                    danger_btn(t("import_data"), confirm_import),
+                ],
+            )
+
+        self.page.run_task(_do_import)
+
+    def _build_data_management_section(self) -> ft.Container:
+        """Build the data management section with export and import buttons."""
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(t("data_management"), weight="bold", size=16),
+                    ft.Divider(height=10, color=COLORS["border"]),
+                    ft.Row(
+                        [
+                            ft.Button(
+                                t("export_data"),
+                                icon=ft.Icons.FILE_DOWNLOAD,
+                                on_click=self._export_data,
+                                bgcolor=COLORS["accent"],
+                                color=COLORS["bg"],
+                            ),
+                            ft.Button(
+                                t("import_data"),
+                                icon=ft.Icons.FILE_UPLOAD,
+                                on_click=self._import_data,
+                                bgcolor=COLORS["card"],
+                                color=COLORS["white"],
+                            ),
+                        ],
+                        spacing=10,
+                        wrap=True,
+                    ),
+                ],
+                spacing=8,
+            ),
+            bgcolor=COLORS["card"],
+            padding=15,
+            border_radius=BORDER_RADIUS,
+        )
+
     def _open_reset_dialog(self, e: ft.ControlEvent) -> None:
         def confirm(e: ft.ControlEvent) -> None:
             async def _reset() -> None:
@@ -222,14 +339,13 @@ class ProfilePage:
 
         def on_slider(e: ft.ControlEvent) -> None:
             duration_label.value = format_duration(int(e.control.value) * DURATION_SLIDER_STEP)
-            self.page.update()
+            duration_label.update()
 
         slider = ft.Slider(
             min=DURATION_SLIDER_MIN,
             max=DURATION_SLIDER_MAX,
             divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,
             value=self.state.default_estimated_minutes // DURATION_SLIDER_STEP,
-            label="{value}",
             on_change=on_slider,
         )
 
@@ -239,49 +355,6 @@ class ProfilePage:
         )
 
         # Notification settings
-        reminder_mins = self.state.reminder_minutes_before
-        if reminder_mins < 120:
-            reminder_mins = 120
-        elif reminder_mins > 4320:
-            reminder_mins = 4320
-        hours = reminder_mins // 60
-        reminder_label = ft.Text(
-            t("hours_before").replace("{hours}", str(hours)),
-            size=12,
-            color=COLORS["done_text"] if not self.state.notifications_enabled else COLORS["white"],
-        )
-
-        # Store checkbox references for toggling
-        cb_1h: ft.Checkbox = None
-        cb_6h: ft.Checkbox = None
-        cb_12h: ft.Checkbox = None
-        cb_24h: ft.Checkbox = None
-        reminder_slider: ft.Slider = None
-        custom_label: ft.Text = None
-
-        def update_notification_controls_state(enabled: bool) -> None:
-            """Update all notification controls based on enabled state."""
-            # Update checkboxes - when enabled, check all; when disabled, uncheck all
-            cb_1h.value = enabled
-            cb_6h.value = enabled
-            cb_12h.value = enabled
-            cb_24h.value = enabled
-            cb_1h.disabled = not enabled
-            cb_6h.disabled = not enabled
-            cb_12h.disabled = not enabled
-            cb_24h.disabled = not enabled
-            # Also update state to match
-            self.state.remind_1h_before = enabled
-            self.state.remind_6h_before = enabled
-            self.state.remind_12h_before = enabled
-            self.state.remind_24h_before = enabled
-            # Update slider
-            reminder_slider.disabled = not enabled
-            # Update labels color
-            reminder_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
-            custom_label.color = COLORS["done_text"] if not enabled else COLORS["white"]
-            self.page.update()
-
         def on_notifications_toggle(e: ft.ControlEvent) -> None:
             async def _toggle() -> None:
                 if e.control.value:
@@ -289,20 +362,13 @@ class ProfilePage:
                     if result == PermissionResult.DENIED:
                         e.control.value = False
                         self.snack.show(t("notification_permission_denied"), COLORS["danger"])
-                        update_notification_controls_state(False)
+                        self.page.update()
                         return
                     else:
                         self.snack.show(t("notification_permission_granted"))
                 self.state.notifications_enabled = e.control.value
-                update_notification_controls_state(e.control.value)
+                self.page.update()
             self.page.run_task(_toggle)
-
-        def on_reminder_slider(e: ft.ControlEvent) -> None:
-            mins = int(e.control.value)
-            self.state.reminder_minutes_before = mins
-            hours = mins // 60
-            reminder_label.value = t("hours_before").replace("{hours}", str(hours))
-            self.page.update()
 
         def on_test_notification(e: ft.ControlEvent) -> None:
             try:
@@ -313,9 +379,9 @@ class ProfilePage:
 
                 async def _test() -> None:
                     try:
-                        title = t("test_notification_title")
+                        ntitle = t("test_notification_title")
                         body = t("test_notification_body")
-                        success = await notification_service.test_notification(title, body)
+                        success = await notification_service.test_notification(ntitle, body)
                         if success:
                             self.snack.show(f"{t('test_notification_sent')} ({backend.value})")
                         else:
@@ -331,88 +397,53 @@ class ProfilePage:
             on_change=on_notifications_toggle,
         )
 
-        def on_reminder_1h(e: ft.ControlEvent) -> None:
-            self.state.remind_1h_before = e.control.value
+        # Hour options for digest time pickers (06:00 - 22:00)
+        hour_options = [ft.Option(key=str(h), text=f"{h:02d}:00") for h in range(6, 23)]
 
-        def on_reminder_6h(e: ft.ControlEvent) -> None:
-            self.state.remind_6h_before = e.control.value
+        def _make_digest_row(label_key: str, desc_key: str, enabled: bool, current_time: time) -> tuple:
+            switch = ft.Switch(value=enabled)
+            dropdown = ft.Dropdown(
+                options=hour_options,
+                value=str(current_time.hour),
+                width=100,
+                dense=True,
+                content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            )
+            row = ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(t(label_key), size=13),
+                            ft.Text(t(desc_key), size=11, color=COLORS["done_text"]),
+                        ],
+                        spacing=2,
+                        expand=True,
+                    ),
+                    switch,
+                    dropdown,
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+            return row, switch, dropdown
 
-        def on_reminder_12h(e: ft.ControlEvent) -> None:
-            self.state.remind_12h_before = e.control.value
-
-        def on_reminder_24h(e: ft.ControlEvent) -> None:
-            self.state.remind_24h_before = e.control.value
-
-        notifications_disabled = not self.state.notifications_enabled
-
-        # Reminder checkboxes in 2x2 grid with equal-width columns
-        cb_1h = ft.Checkbox(
-            value=self.state.remind_1h_before and not notifications_disabled,
-            label=t("reminder_1h_before"),
-            on_change=on_reminder_1h,
-            disabled=notifications_disabled,
+        digest_row, digest_switch, digest_dropdown = _make_digest_row(
+            "daily_digest", "daily_digest_desc",
+            self.state.daily_digest_enabled, self.state.daily_digest_time,
         )
-        cb_6h = ft.Checkbox(
-            value=self.state.remind_6h_before and not notifications_disabled,
-            label=t("reminder_6h_before"),
-            on_change=on_reminder_6h,
-            disabled=notifications_disabled,
+        preview_row, preview_switch, preview_dropdown = _make_digest_row(
+            "evening_preview", "evening_preview_desc",
+            self.state.evening_preview_enabled, self.state.evening_preview_time,
         )
-        cb_12h = ft.Checkbox(
-            value=self.state.remind_12h_before and not notifications_disabled,
-            label=t("reminder_12h_before"),
-            on_change=on_reminder_12h,
-            disabled=notifications_disabled,
-        )
-        cb_24h = ft.Checkbox(
-            value=self.state.remind_24h_before and not notifications_disabled,
-            label=t("reminder_24h_before"),
-            on_change=on_reminder_24h,
-            disabled=notifications_disabled,
-        )
-
-        reminder_checkboxes = ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Container(content=cb_1h, expand=True),
-                        ft.Container(content=cb_6h, expand=True),
-                    ],
-                    spacing=0,
-                ),
-                ft.Row(
-                    [
-                        ft.Container(content=cb_12h, expand=True),
-                        ft.Container(content=cb_24h, expand=True),
-                    ],
-                    spacing=0,
-                ),
-            ],
-            spacing=0,
-        )
-
-        reminder_slider = ft.Slider(
-            min=120,
-            max=4320,
-            divisions=70,
-            value=reminder_mins,
-            on_change=on_reminder_slider,
-            disabled=notifications_disabled,
-        )
-
-        custom_label = ft.Text(
-            t("custom_reminder"),
-            size=13,
-            color=COLORS["done_text"] if notifications_disabled else COLORS["white"],
+        overdue_row, overdue_switch, overdue_dropdown = _make_digest_row(
+            "overdue_nudge", "overdue_nudge_desc",
+            self.state.overdue_nudge_enabled, self.state.overdue_nudge_time,
         )
 
         notification_sub_controls = ft.Column(
             [
-                ft.Text(t("reminder_minutes_before"), size=13),
-                reminder_checkboxes,
-                ft.Divider(height=5, color="transparent"),
-                custom_label,
-                ft.Row([reminder_slider, reminder_label], spacing=8),
+                digest_row,
+                preview_row,
+                overdue_row,
                 ft.Divider(height=5, color="transparent"),
                 ft.TextButton(
                     t("test_notification"),
@@ -429,12 +460,25 @@ class ProfilePage:
                     int(slider.value) * DURATION_SLIDER_STEP
                 )
                 self.state.email_weekly_stats = email_cb.value
-                await self.settings_service.save_settings()
+                # Sync digest notification settings to state before saving
+                self.state.daily_digest_enabled = digest_switch.value
+                self.state.daily_digest_time = time(int(digest_dropdown.value), 0)
+                self.state.evening_preview_enabled = preview_switch.value
+                self.state.evening_preview_time = time(int(preview_dropdown.value), 0)
+                self.state.overdue_nudge_enabled = overdue_switch.value
+                self.state.overdue_nudge_time = time(int(overdue_dropdown.value), 0)
+                try:
+                    await self.settings_service.save_settings()
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+                    return
+                # Reschedule digest alarms after settings change
+                await notification_service.reschedule_digests()
                 if self.tasks_view:
                     self.tasks_view.pending_details["estimated_minutes"] = (
                         self.state.default_estimated_minutes
                     )
-                    self.tasks_view.details_btn.content.controls[1].value = t("add_details")
+                    self.tasks_view._details_text.value = t("add_details")
                 self.snack.show(t("preferences_saved"))
             self.page.run_task(_save)
 
@@ -576,7 +620,7 @@ class ProfilePage:
                         [
                             ft.Text(t("account_age"), weight="bold", size=13),
                             ft.Text(
-                                f"{t('since')} {date.today().strftime('%b %d, %Y')}",
+                                f"{t('since')} {(self.state.account_created or date.today()).strftime('%b %d, %Y')}",
                                 color=COLORS["done_text"],
                                 size=12,
                             ),
@@ -642,6 +686,7 @@ class ProfilePage:
         )
 
         preferences_section = self._build_preferences_section()
+        data_management_section = self._build_data_management_section()
 
         reset_btn_container = ft.Container(
             content=danger_btn(
@@ -662,6 +707,8 @@ class ProfilePage:
                 most_active_card,
                 ft.Divider(height=15, color="transparent"),
                 preferences_section,
+                ft.Divider(height=15, color="transparent"),
+                data_management_section,
                 ft.Divider(height=15, color="transparent"),
                 reset_btn_container,
             ],
