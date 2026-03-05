@@ -194,10 +194,7 @@ class AuthController:
             return success
 
         async def handle_toggle_passkey(enable: bool) -> None:
-            if enable:
-                # TODO: Show password dialog to enable passkey
-                pass
-            else:
+            if not enable:
                 await self._auth.disable_passkey()
 
         open_encryption_settings_dialog(

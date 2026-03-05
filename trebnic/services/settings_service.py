@@ -17,6 +17,15 @@ class SettingsService:
         await db.set_setting("default_estimated_minutes", self.state.default_estimated_minutes)
         await db.set_setting("email_weekly_stats", self.state.email_weekly_stats)
         await db.set_setting("language", self.state.language)
+        # Notification settings
+        await db.set_setting("notifications_enabled", self.state.notifications_enabled)
+        await db.set_setting("notify_timer_complete", self.state.notify_timer_complete)
+        await db.set_setting("daily_digest_enabled", self.state.daily_digest_enabled)
+        await db.set_setting("daily_digest_time", self.state.daily_digest_time.strftime("%H:%M"))
+        await db.set_setting("evening_preview_enabled", self.state.evening_preview_enabled)
+        await db.set_setting("evening_preview_time", self.state.evening_preview_time.strftime("%H:%M"))
+        await db.set_setting("overdue_nudge_enabled", self.state.overdue_nudge_enabled)
+        await db.set_setting("overdue_nudge_time", self.state.overdue_nudge_time.strftime("%H:%M"))
 
     async def get_setting(self, key: str, default=None):
         """Get a setting value from database."""

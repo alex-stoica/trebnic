@@ -1,8 +1,9 @@
 import asyncio
+import concurrent.futures
 import logging
 import os
-from datetime import date, timedelta
-from typing import List, Tuple, Optional
+from datetime import date, time, timedelta
+from typing import Any, List, Tuple, Optional
 
 try:
     from credentials import RESEND_API_KEY as _CRED_API_KEY, FEEDBACK_EMAIL as _CRED_EMAIL
@@ -10,10 +11,9 @@ except ImportError:
     _CRED_API_KEY = ""
     _CRED_EMAIL = ""
 
-import flet as ft
-
-from config import NavItem
+from config import NavItem, TaskFilter
 from database import db, DatabaseError
+from events import AppEvent
 from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
@@ -34,11 +34,11 @@ class TaskService:
     All data operations are async. Use page.run_task() or await for async calls.
     """
 
-    def __init__(self, state: AppState, page: Optional[ft.Page] = None) -> None:
+    def __init__(self, state: AppState, page: Optional[Any] = None) -> None:
         self.state = state
         self._page = page
 
-    def set_page(self, page: ft.Page) -> None:
+    def set_page(self, page: Any) -> None:
         """Set the Flet page for async task scheduling."""
         self._page = page
 
@@ -82,6 +82,8 @@ class TaskService:
 
         all_tasks = await db.load_tasks()
         for t_dict in all_tasks:
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 state.done_tasks.append(task)
@@ -92,6 +94,26 @@ class TaskService:
         state.email_weekly_stats = await db.get_setting("email_weekly_stats", False)
         state.language = await db.get_setting("language", "en")
         set_language(state.language)
+
+        # Notification settings
+        state.notifications_enabled = await db.get_setting("notifications_enabled", False)
+        state.notify_timer_complete = await db.get_setting("notify_timer_complete", True)
+        state.daily_digest_enabled = await db.get_setting("daily_digest_enabled", True)
+        digest_time_str = await db.get_setting("daily_digest_time", "08:00")
+        state.daily_digest_time = time.fromisoformat(digest_time_str)
+        state.evening_preview_enabled = await db.get_setting("evening_preview_enabled", False)
+        preview_time_str = await db.get_setting("evening_preview_time", "20:00")
+        state.evening_preview_time = time.fromisoformat(preview_time_str)
+        state.overdue_nudge_enabled = await db.get_setting("overdue_nudge_enabled", True)
+        nudge_time_str = await db.get_setting("overdue_nudge_time", "14:00")
+        state.overdue_nudge_time = time.fromisoformat(nudge_time_str)
+
+        account_created = await db.get_setting("account_created", None)
+        if account_created:
+            state.account_created = date.fromisoformat(account_created)
+        else:
+            state.account_created = date.today()
+            await db.set_setting("account_created", date.today().isoformat())
 
         await TaskService._seed_email_config()
 
@@ -112,7 +134,6 @@ class TaskService:
 
         if loop is not None:
             # Already in an async context - create task and run
-            import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, TaskService.load_state_async())
                 return future.result()
@@ -143,7 +164,6 @@ class TaskService:
         self.state.projects.extend(new_state.projects)
 
         # Notify UI to rebuild via registry
-        from events import AppEvent  # AppEvent enum is safe to import
         event_bus = registry.get(Services.EVENT_BUS)
         if event_bus:
             event_bus.emit(AppEvent.REFRESH_UI)
@@ -174,7 +194,6 @@ class TaskService:
             self.state.projects.clear()
             self.state.projects.extend(new_state.projects)
 
-            from events import AppEvent  # AppEvent enum is safe to import
             event_bus = registry.get(Services.EVENT_BUS)
             if event_bus:
                 event_bus.emit(AppEvent.REFRESH_UI)
@@ -214,8 +233,12 @@ class TaskService:
 
     async def persist_task(self, task: Task) -> None:
         """Persist task to database."""
-        is_done = task in self.state.done_tasks
+        is_done = any(t.id == task.id for t in self.state.done_tasks)
         await db.save_task(task.to_dict(is_done=is_done))
+
+    async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:
+        """Atomically increment a task's spent_seconds in the database."""
+        await db.increment_spent_seconds(task_id, seconds)
 
     async def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task with rollback on failure."""
@@ -237,16 +260,6 @@ class TaskService:
             task.due_date = old_date
             raise
 
-    async def set_task_notes(self, task: Task, notes: str) -> None:
-        """Update task notes with rollback on failure."""
-        old_notes = task.notes
-        task.notes = notes
-        try:
-            await self.persist_task(task)
-        except DatabaseError:
-            task.notes = old_notes
-            raise
-
     async def update_task_time(self, task: Task, spent_seconds: int) -> None:
         """Update task's spent time with rollback on failure."""
         old_seconds = task.spent_seconds
@@ -263,9 +276,8 @@ class TaskService:
         DB is the single source of truth. UI should call refresh() after this.
         Returns the next recurring task if one was created, None otherwise.
         """
-        # Load fresh task from DB to avoid stale data issues
-        all_tasks = await db.load_tasks_filtered(is_done=False)
-        db_task_dict = next((t for t in all_tasks if t.get("id") == task.id), None)
+        # Load fresh task by ID — single row, not full table scan
+        db_task_dict = await db.load_task_by_id(task.id)
         if db_task_dict is None:
             return None
 
@@ -398,23 +410,34 @@ class TaskService:
         self.state.tasks.clear()
         self.state.done_tasks.clear()
         for t_dict in all_tasks:
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self.state.done_tasks.append(task)
             else:
                 self.state.tasks.append(task)
 
-    async def get_filtered_tasks(self, done_limit: int = 50) -> Tuple[List[Task], List[Task]]:
+    async def get_filtered_tasks(
+        self,
+        done_limit: int = 50,
+        nav: Optional[NavItem] = None,
+        project_ids: Optional[List[str]] = None,
+    ) -> Tuple[List[Task], List[Task]]:
         """Get filtered tasks using efficient SQL queries.
 
         Args:
             done_limit: Maximum number of done tasks to return (prevents loading
                        thousands of historical tasks into memory).
+            nav: Navigation filter. Falls back to self.state.selected_nav if None.
+            project_ids: Project IDs to filter by. Falls back to self.state.selected_projects if None.
 
         Returns:
             Tuple of (pending_tasks, done_tasks) filtered by current navigation.
         """
-        nav = self.state.selected_nav
+        if nav is None:
+            nav = self.state.selected_nav
+        effective_project_ids = project_ids if project_ids is not None else list(self.state.selected_projects)
         today = date.today()
 
         # Build filter parameters based on navigation
@@ -423,20 +446,22 @@ class TaskService:
 
         # Apply nav-based date filter
         if nav == NavItem.TODAY:
-            pending_kwargs["due_date_lte"] = today
-            done_kwargs["due_date_eq"] = today
-        elif nav == NavItem.UPCOMING:
-            pending_kwargs["due_date_gt"] = today
-            done_kwargs["due_date_gt"] = today
+            if self.state.task_filter == TaskFilter.NEXT:
+                # Next: future tasks only
+                pending_kwargs["due_date_gt"] = today
+                done_kwargs["due_date_gt"] = today
+            else:
+                # Today: due today or overdue
+                pending_kwargs["due_date_lte"] = today
+                done_kwargs["due_date_eq"] = today
         elif nav == NavItem.INBOX:
             pending_kwargs["due_date_is_null"] = True
             done_kwargs["due_date_is_null"] = True
 
         # Apply project filter if any projects selected (combines with nav filter)
-        if self.state.selected_projects:
-            project_ids = list(self.state.selected_projects)
-            pending_kwargs["project_ids"] = project_ids
-            done_kwargs["project_ids"] = project_ids
+        if effective_project_ids:
+            pending_kwargs["project_ids"] = effective_project_ids
+            done_kwargs["project_ids"] = effective_project_ids
 
         # Query database with filters
         pending_dicts = await db.load_tasks_filtered(**pending_kwargs)
@@ -447,7 +472,7 @@ class TaskService:
 
         # Filter recurring tasks to only show those scheduled for today
         # This ensures recurring tasks only appear on their scheduled days
-        if nav == NavItem.TODAY:
+        if nav == NavItem.TODAY and self.state.task_filter == TaskFilter.TODAY:
             pending = self._filter_recurring_tasks_for_today(pending, today)
 
         return pending, sorted(done, key=lambda x: x.id or 0, reverse=True)
@@ -464,6 +489,8 @@ class TaskService:
         for p_dict in await db.load_projects():
             self.state.projects.append(Project.from_dict(p_dict))
         for t_dict in await db.load_tasks():
+            if t_dict.get("is_draft"):
+                continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
                 self.state.done_tasks.append(task)

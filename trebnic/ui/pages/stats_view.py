@@ -1,6 +1,6 @@
 import flet as ft
-from typing import Any, Callable, Optional, List
-from datetime import datetime, date, timedelta
+from typing import Any, Callable, List, Optional
+from datetime import date, timedelta
 
 from config import (
     COLORS,
@@ -23,6 +23,7 @@ from config import (
 from events import event_bus, AppEvent, Subscription
 from i18n import t
 from models.entities import AppState
+from registry import registry, Services
 from services.stats import stats_service
 from ui.helpers import seconds_to_time, SnackService
 
@@ -36,14 +37,17 @@ class StatsPage:
         state: AppState,
         navigate: Callable[[PageType], None],
         load_time_entries: Callable,
+        snack: SnackService,
     ) -> None:
         self.page = page
         self.state = state
         self.navigate = navigate
         self.load_time_entries = load_time_entries
+        self.snack = snack
         self._time_entries: List[dict] = []
         self._content_column: Optional[ft.Column] = None  # Reference to rebuild on filter change
         self._week_offset: int = 0  # 0 = current week, -1 = last week, etc.
+        self._stale: bool = True  # start stale so first build() loads data
 
         # Subscribe to all events that affect stats data
         self._subscriptions: List[Subscription] = [
@@ -69,13 +73,18 @@ class StatsPage:
         self._subscriptions.clear()
 
     def _on_data_changed(self, data: Any) -> None:
-        """Handle data changes - reload time entries and rebuild content."""
+        """Handle data changes - reload only when stats page is visible."""
+        if self.state.current_page != PageType.STATS:
+            self._stale = True
+            return
         self._load_data()
 
     def _load_data(self) -> None:
         """Load time entries for stats calculation."""
         async def _load() -> None:
             self._time_entries = await self.load_time_entries()
+            task_service = registry.require(Services.TASK)
+            await task_service.refresh_state_tasks()
             self._rebuild_content()
 
         self.page.run_task(_load)
@@ -92,10 +101,6 @@ class StatsPage:
             self._build_daily_chart(),
             ft.Container(height=SPACING_XL),
             self._build_project_breakdown(),
-            ft.Container(height=SPACING_XL),
-            self._build_export_section(),
-            ft.Container(height=SPACING_XL),
-            self._build_coming_soon_section(),
         ]
         self.page.update()
 
@@ -183,7 +188,7 @@ class StatsPage:
                             COLORS["blue"],
                             t("time_tracked"),
                             time_tracked,
-                            f"{stats.tasks_with_time_entries} {t('tasks_with_time')}",
+                            f"{stats.tasks_with_estimates} {t('tasks_with_estimates')}",
                         ),
                     ],
                     spacing=SPACING_XL,
@@ -508,20 +513,18 @@ class StatsPage:
             self.state.projects,
         )
 
-        # Sort by time tracked
-        project_stats.sort(key=lambda p: p.tracked_seconds, reverse=True)
-
-        # Find max time for progress bar scaling
-        max_seconds = max((p.tracked_seconds for p in project_stats), default=1)
-        if max_seconds == 0:
-            max_seconds = 1
+        # Sort by completion rate, then by time tracked
+        project_stats.sort(
+            key=lambda p: (p.tasks_completed / max(p.tasks_completed + p.tasks_pending, 1), p.tracked_seconds),
+            reverse=True,
+        )
 
         rows = []
         for ps in project_stats:
             time_text = seconds_to_time(ps.tracked_seconds) if ps.tracked_seconds > 0 else "0m"
             total_tasks = ps.tasks_completed + ps.tasks_pending
             completion_rate = (ps.tasks_completed / total_tasks * 100) if total_tasks > 0 else 0
-            progress_width = (ps.tracked_seconds / max_seconds) if max_seconds > 0 else 0
+            progress_value = completion_rate / 100
 
             # Get project color (gray for unassigned)
             if ps.project_id is None:
@@ -542,17 +545,11 @@ class StatsPage:
                                 ft.Text(time_text, size=FONT_SIZE_BASE, color=COLORS["accent"]),
                             ],
                         ),
-                        ft.Container(
-                            content=ft.Container(
-                                width=progress_width * 200,
-                                height=4,
-                                bgcolor=project_color,
-                                border_radius=2,
-                            ),
-                            width=200,
-                            height=4,
+                        ft.ProgressBar(
+                            value=progress_value,
+                            color=project_color,
                             bgcolor=COLORS["border"],
-                            border_radius=2,
+                            bar_height=6,
                         ),
                         ft.Row(
                             [
@@ -611,123 +608,27 @@ class StatsPage:
             border_radius=BORDER_RADIUS,
         )
 
-    def _export_to_json(self, e: ft.ControlEvent) -> None:
-        """Export stats to JSON file."""
-        async def _do_export() -> None:
-            json_data = stats_service.export_to_json(
-                self.state.tasks,
-                self.state.done_tasks,
-                self.state.projects,
-                self._time_entries,
-            )
-
-            # Generate filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"trebnic_stats_{timestamp}.json"
-
-            # Use file picker to save (flet 0.80.x async API)
-            file_picker = ft.FilePicker()
-            self.page.services.append(file_picker)
-            self.page.update()
-
-            result = await file_picker.save_file(
-                dialog_title=t("export_statistics"),
-                file_name=filename,
-                file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=["json"],
-            )
-
-            if result:
-                try:
-                    with open(result, "w", encoding="utf-8") as f:
-                        f.write(json_data)
-                    SnackService.show(self.page, f"{t('exported_to')} {result}")
-                except OSError as ex:
-                    SnackService.show(self.page, f"{t('export_failed')}: {ex}")
-
-        self.page.run_task(_do_export)
-
-    def _build_export_section(self) -> ft.Container:
-        """Build export section with JSON export button."""
-        return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(ft.Icons.DOWNLOAD, size=20, color=COLORS["accent"]),
-                    ft.Text(t("export_data"), weight="bold", size=FONT_SIZE_LG),
-                    ft.Container(expand=True),
-                    ft.Button(
-                        t("export_to_json"),
-                        icon=ft.Icons.FILE_DOWNLOAD,
-                        on_click=self._export_to_json,
-                        bgcolor=COLORS["accent"],
-                        color=COLORS["bg"],
-                    ),
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            bgcolor=COLORS["card"],
-            padding=PADDING_2XL,
-            border_radius=BORDER_RADIUS,
-        )
-
-    def _build_coming_soon_section(self) -> ft.Container:
-        """Build placeholder for upcoming features."""
-        features = [
-            (t("estimation_breakdown"), t("estimation_breakdown_desc")),
-        ]
-
-        feature_chips = []
-        for name, description in features:
-            chip = ft.Container(
-                content=ft.Text(name, size=FONT_SIZE_SM),
-                bgcolor=COLORS["input_bg"],
-                padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=SPACING_MD),
-                border_radius=BORDER_RADIUS,
-                border=ft.Border.all(1, COLORS["border"]),
-                tooltip=description,
-            )
-            feature_chips.append(chip)
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.UPCOMING, size=20, color=COLORS["done_text"]),
-                            ft.Text(t("coming_soon"), weight="bold", size=FONT_SIZE_LG, color=COLORS["done_text"]),
-                        ],
-                        spacing=SPACING_MD,
-                    ),
-                    ft.Container(height=SPACING_LG),
-                    ft.Row(feature_chips, wrap=True, spacing=SPACING_MD, run_spacing=SPACING_MD),
-                ],
-            ),
-            bgcolor=COLORS["card"],
-            padding=PADDING_2XL,
-            border_radius=BORDER_RADIUS,
-            opacity=0.7,
-        )
-
     def build(self) -> ft.Column:
-        """Build the stats page."""
-        # Load time entries if not already loaded
-        if not self._time_entries:
-            self._load_data()
+        """Build the stats page.
 
+        Shows header + spinner on first load, then _rebuild_content() fills in the real sections
+        once time entries are loaded. This avoids building all sections twice (once eagerly here,
+        then again when the async load completes).
+        """
         self._content_column = ft.Column(
             [
                 self._build_header(),
-                ft.Container(height=SPACING_MD),
-                self._build_overview_cards(),
-                ft.Container(height=SPACING_XL),
-                self._build_daily_chart(),
-                ft.Container(height=SPACING_XL),
-                self._build_project_breakdown(),
-                ft.Container(height=SPACING_XL),
-                self._build_export_section(),
-                ft.Container(height=SPACING_XL),
-                self._build_coming_soon_section(),
+                ft.Container(
+                    content=ft.ProgressRing(color=COLORS["accent"]),
+                    alignment=ft.Alignment(0, 0),
+                    padding=PADDING_2XL,
+                ),
             ],
             spacing=SPACING_MD,
         )
+        if self._stale:
+            self._stale = False
+            self._load_data()
+        else:
+            self._rebuild_content()
         return self._content_column

@@ -49,7 +49,7 @@ This creates an `ImportError` at startup.
 # database.py
 from registry import registry, Services
 
-def _encrypt_value(value: str) -> str:
+def _encrypt_field(value: str) -> str:
     crypto = registry.get(Services.CRYPTO)
     if crypto is None:
         return value
@@ -86,36 +86,7 @@ This is handled by `encrypt_if_unlocked()` and `decrypt_if_encrypted()` helpers.
 
 When the app is locked, `decrypt_if_encrypted()` returns `LOCKED_PLACEHOLDER` ("[Locked]") instead of the raw `ENC:1:...` base64 string. This provides a clean UI experience.
 
-## Remaining Work
-
-### Passkey/Biometrics (High Priority)
-
-Platform-specific implementation needed:
-
-| Platform | API |
-|----------|-----|
-| Windows | Windows Hello / Credential Manager |
-| macOS | Keychain + Touch ID |
-| iOS | LocalAuthentication framework |
-| Android | BiometricPrompt API |
-
-The `PasskeyService` class has placeholder methods ready for implementation.
-
-### Password Change with Re-encryption ✅ IMPLEMENTED
-
-Re-encryption is now implemented in `AuthService.change_master_password()`:
-
-1. Verify old password and keep reference to old key/AESGCM
-2. Create `decrypt_with_old_key` closure that uses the old key
-3. Derive new key from new password
-4. Create `encrypt_with_new_key` function using new key
-5. Call `db.reencrypt_all_data(decrypt_fn, encrypt_fn)` which:
-   - Loads all tasks and projects
-   - For each encrypted field, decrypts with old key, re-encrypts with new key
-   - Updates all rows in a single transaction
-6. On failure, rolls back to old key
-
-**Key insight**: The old key must be captured *before* deriving the new key, since `crypto` is a singleton and `derive_key_from_password()` overwrites `crypto._key`.
+## Future work
 
 ### SQLCipher Integration
 

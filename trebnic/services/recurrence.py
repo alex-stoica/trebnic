@@ -17,15 +17,21 @@ def _add_months(base: date, months: int) -> date:
     return date(new_year, new_month, clamped_day)
 
 
-def _find_next_weekday(base: date, weekdays: List[int]) -> Optional[date]:
+def _find_next_weekday(base: date, weekdays: List[int], interval: int = 1) -> Optional[date]:
     if not weekdays:
         return None
-    
-    for offset in range(1, 8):  # Check next 7 days
-        candidate = base + timedelta(days=offset)
-        if candidate.weekday() in weekdays:
-            return candidate
-    return None
+
+    sorted_days = sorted(weekdays)
+    base_weekday = base.weekday()
+
+    # Check for a later weekday in the same week (still within this cycle)
+    for wd in sorted_days:
+        if wd > base_weekday:
+            return base + timedelta(days=(wd - base_weekday))
+
+    # Past the last weekday this week — jump `interval` weeks, return first weekday
+    cycle_monday = base - timedelta(days=base_weekday) + timedelta(weeks=interval)
+    return cycle_monday + timedelta(days=sorted_days[0])
 
 
 def _calculate_by_frequency(
@@ -40,10 +46,9 @@ def _calculate_by_frequency(
         return base + timedelta(days=interval)
     
     if frequency == RecurrenceFrequency.WEEKS:
-        next_weekday = _find_next_weekday(base, weekdays)
+        next_weekday = _find_next_weekday(base, weekdays, interval)
         if next_weekday:
             return next_weekday
-        # Otherwise, just add weeks
         return base + timedelta(weeks=interval)
     
     if frequency == RecurrenceFrequency.MONTHS:

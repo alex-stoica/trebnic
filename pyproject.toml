@@ -21,14 +21,23 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "flet>=0.80.0",
-    "aiosqlite>=0.19.0,<1.0.0",
-    "cryptography>=46.0.3,<47.0.0",
-    "argon2-cffi>=25.1.0,<26.0.0",
-    "httpx>=0.28.0,<1.0.0",
-    "python-dotenv>=1.2.1,<2.0.0",
-    "resend>=2.21.0,<3.0.0",
+    "flet (==0.82.0)",
+    "aiosqlite>=0.19.0",
+    "cryptography>=46.0.3",
+    "argon2-cffi>=25.1.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.2.1",
+
     "plyer>=2.1.0",
+    "flet-android-notifications (>=0.5.2,<0.6.0)",
+    "flet-circular-slider (>=0.5.0)",
+    "requests (>=2.32.5,<3.0.0)",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
 ]
 
 [project.urls]
@@ -46,10 +55,13 @@ product = "Trebnic"
 
 [tool.flet.app]
 module = "main"
-source_dir = "trebnic"
-
-[tool.flet.android]
-dependencies = ["pyjnius"]
+path = "trebnic"
 
 [tool.flet.android.permission]
 "android.permission.POST_NOTIFICATIONS" = true
+"android.permission.SCHEDULE_EXACT_ALARM" = true
+"android.permission.RECEIVE_BOOT_COMPLETED" = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["trebnic"]
