@@ -19,6 +19,14 @@ from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
 from services.recurrence import calculate_next_recurrence, calculate_next_recurrence_from_date
 
+
+def safe_parse_time(value: str, default: str) -> time:
+    """Parse a time string, falling back to default on malformed input."""
+    try:
+        return time.fromisoformat(value)
+    except (ValueError, TypeError):
+        return time.fromisoformat(default)
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,13 +108,13 @@ class TaskService:
         state.notify_timer_complete = await db.get_setting("notify_timer_complete", True)
         state.daily_digest_enabled = await db.get_setting("daily_digest_enabled", True)
         digest_time_str = await db.get_setting("daily_digest_time", "08:00")
-        state.daily_digest_time = time.fromisoformat(digest_time_str)
+        state.daily_digest_time = safe_parse_time(digest_time_str, "08:00")
         state.evening_preview_enabled = await db.get_setting("evening_preview_enabled", False)
         preview_time_str = await db.get_setting("evening_preview_time", "20:00")
-        state.evening_preview_time = time.fromisoformat(preview_time_str)
+        state.evening_preview_time = safe_parse_time(preview_time_str, "20:00")
         state.overdue_nudge_enabled = await db.get_setting("overdue_nudge_enabled", True)
         nudge_time_str = await db.get_setting("overdue_nudge_time", "14:00")
-        state.overdue_nudge_time = time.fromisoformat(nudge_time_str)
+        state.overdue_nudge_time = safe_parse_time(nudge_time_str, "14:00")
 
         account_created = await db.get_setting("account_created", None)
         if account_created:
@@ -486,6 +494,7 @@ class TaskService:
         self.state.done_tasks.clear()
         self.state.projects.clear()
         self.state.viewing_task_id = None
+        self.state.selected_projects.clear()
         for p_dict in await db.load_projects():
             self.state.projects.append(Project.from_dict(p_dict))
         for t_dict in await db.load_tasks():
