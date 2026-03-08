@@ -7,6 +7,7 @@ from events import event_bus
 from registry import registry, Services
 from services.crypto import crypto
 from services.logic import TaskService
+from services.state_manager import StateManager
 from services.timer import TimerService
 from services.project_service import ProjectService
 from services.time_entry_service import TimeEntryService
@@ -35,6 +36,7 @@ class AppComponents:
 
     def __init__(self) -> None:
         self.state: Optional[AppState] = None
+        self.state_manager: Optional[StateManager] = None
         self.service: Optional[TaskService] = None
         self.project_service: Optional[ProjectService] = None
         self.time_entry_service: Optional[TimeEntryService] = None
@@ -127,11 +129,15 @@ class AppInitializer:
         """Initialize application services."""
         try:
             self.components.state = TaskService.load_state()
-        except DatabaseError as e:
+        except (DatabaseError, ValueError) as e:
             self.components.state = TaskService.create_empty_state()
             self.components.pending_error = f"Failed to load data: {e}"
  
-        self.components.service = TaskService(self.components.state, self.page)
+        self.components.state_manager = StateManager(self.components.state)
+        registry.register(Services.STATE_MANAGER, self.components.state_manager)
+
+        self.components.service = TaskService(self.components.state, self.page,
+                                              state_manager=self.components.state_manager)
  
         self.components.project_service = ProjectService(self.components.state)
         self.components.time_entry_service = TimeEntryService()
@@ -227,6 +233,7 @@ class AppInitializer:
 
         self.components.project_dialogs = ProjectDialogs(
             self.page, state, project_service, snack,
+            state_manager=self.components.state_manager,
         )
 
         self.components.timer_widget = TimerWidget(lambda e: None)
@@ -234,6 +241,7 @@ class AppInitializer:
         # Claude chat service and view
         svc_container = ServiceContainer(
             state=state,
+            state_manager=self.components.state_manager,
             task=task_service,
             project=project_service,
             time_entry=time_entry_service,

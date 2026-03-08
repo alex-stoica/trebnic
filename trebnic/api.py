@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from config import RecurrenceFrequency
 from core import ServiceContainer
+from services.logic import safe_parse_time
 from database import db
 from events import AppEvent, event_bus
 from models.entities import DailyNote, Project, Task, TimeEntry
@@ -55,7 +56,7 @@ class TrebnicAPI:
             estimated_seconds=estimated_seconds,
             due_date=due_date,
         )
-        self._svc.state.tasks.append(task)
+        self._svc.state_manager.add_task(task)
         event_bus.emit(AppEvent.TASK_CREATED, task)
         return task
 
@@ -89,14 +90,11 @@ class TrebnicAPI:
 
         next_task = await self._svc.task.complete_task(task)
 
-        # Move from pending to done in state
-        if task in self._svc.state.tasks:
-            self._svc.state.tasks.remove(task)
-        self._svc.state.done_tasks.append(task)
+        self._svc.state_manager.move_to_done(task)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
 
         if next_task:
-            self._svc.state.tasks.append(next_task)
+            self._svc.state_manager.add_task(next_task)
             event_bus.emit(AppEvent.TASK_CREATED, next_task)
 
         return next_task
@@ -145,7 +143,7 @@ class TrebnicAPI:
         )
         await self._svc.time_entry.save_time_entry(entry)
 
-        self._svc.state.done_tasks.append(task)
+        self._svc.state_manager.add_done_task(task)
         event_bus.emit(AppEvent.TASK_CREATED, task)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
         return task
@@ -158,10 +156,7 @@ class TrebnicAPI:
         """
         await self._svc.task.delete_task(task)
 
-        if task in self._svc.state.tasks:
-            self._svc.state.tasks.remove(task)
-        elif task in self._svc.state.done_tasks:
-            self._svc.state.done_tasks.remove(task)
+        self._svc.state_manager.remove_task_from_any(task)
 
         event_bus.emit(AppEvent.TASK_DELETED, task)
 
@@ -241,7 +236,7 @@ class TrebnicAPI:
         task.is_draft = False
         task.due_date = date.today()
         await self._svc.task.persist_task(task)
-        self._svc.state.tasks.append(task)
+        self._svc.state_manager.add_task(task)
         event_bus.emit(AppEvent.TASK_CREATED, task)
         return task
 
@@ -331,7 +326,7 @@ class TrebnicAPI:
         project_id = self._svc.project.generate_project_id(name)
         project = Project(id=project_id, name=name, icon=icon, color=color)
         await self._svc.project.save_project(project)
-        self._svc.state.projects.append(project)
+        self._svc.state_manager.add_project(project)
         event_bus.emit(AppEvent.SIDEBAR_REBUILD)
         return project
 
@@ -500,20 +495,19 @@ class TrebnicAPI:
         )
 
         # --- reload in-memory state directly (skip seed_default_data) ---
-        self._svc.state.projects.clear()
-        for p_dict in await db.load_projects():
-            self._svc.state.projects.append(Project.from_dict(p_dict))
-
-        self._svc.state.tasks.clear()
-        self._svc.state.done_tasks.clear()
+        new_projects = [Project.from_dict(p_dict) for p_dict in await db.load_projects()]
+        new_tasks = []
+        new_done = []
         for t_dict in await db.load_tasks():
             if t_dict.get("is_draft"):
                 continue
-            task = Task.from_dict(t_dict)
+            t = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
-                self._svc.state.done_tasks.append(task)
+                new_done.append(t)
             else:
-                self._svc.state.tasks.append(task)
+                new_tasks.append(t)
+        sm = self._svc.state_manager
+        sm.replace_all(new_tasks, new_done, new_projects)
 
         self._svc.state.default_estimated_minutes = await db.get_setting("default_estimated_minutes", 15)
         self._svc.state.language = await db.get_setting("language", "en")
@@ -521,13 +515,13 @@ class TrebnicAPI:
         self._svc.state.notify_timer_complete = await db.get_setting("notify_timer_complete", True)
         self._svc.state.daily_digest_enabled = await db.get_setting("daily_digest_enabled", True)
         digest_time_str = await db.get_setting("daily_digest_time", "08:00")
-        self._svc.state.daily_digest_time = time.fromisoformat(digest_time_str)
+        self._svc.state.daily_digest_time = safe_parse_time(digest_time_str, "08:00")
         self._svc.state.evening_preview_enabled = await db.get_setting("evening_preview_enabled", False)
         preview_time_str = await db.get_setting("evening_preview_time", "20:00")
-        self._svc.state.evening_preview_time = time.fromisoformat(preview_time_str)
+        self._svc.state.evening_preview_time = safe_parse_time(preview_time_str, "20:00")
         self._svc.state.overdue_nudge_enabled = await db.get_setting("overdue_nudge_enabled", True)
         nudge_time_str = await db.get_setting("overdue_nudge_time", "14:00")
-        self._svc.state.overdue_nudge_time = time.fromisoformat(nudge_time_str)
+        self._svc.state.overdue_nudge_time = safe_parse_time(nudge_time_str, "14:00")
 
         event_bus.emit(AppEvent.DATA_RESET)
 
