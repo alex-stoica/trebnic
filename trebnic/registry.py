@@ -128,3 +128,4 @@ class Services:
     NOTIFICATION = "notification"
     DAILY_NOTES = "daily_notes"
     CLAUDE = "claude"
+    STATE_MANAGER = "state_manager"

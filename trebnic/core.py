@@ -22,6 +22,7 @@ from registry import registry, Services
 from services.logic import TaskService
 from services.project_service import ProjectService
 from services.settings_service import SettingsService
+from services.state_manager import StateManager
 from services.time_entry_service import TimeEntryService
 from services.daily_notes_service import DailyNoteService
 from services.timer import TimerService
@@ -31,6 +32,7 @@ from services.timer import TimerService
 class ServiceContainer:
     """Container holding all initialized services for headless use."""
     state: AppState
+    state_manager: StateManager
     task: TaskService
     project: ProjectService
     time_entry: TimeEntryService
@@ -69,8 +71,11 @@ async def bootstrap(
     # Load state from database (initializes schema, seeds if empty)
     state = await TaskService.load_state_async()
 
-    # Create services
-    task_service = TaskService(state)
+    # Create state manager and services
+    state_manager = StateManager(state)
+    registry.register(Services.STATE_MANAGER, state_manager)
+
+    task_service = TaskService(state, state_manager=state_manager)
     project_service = ProjectService(state)
     time_entry_service = TimeEntryService()
     settings_service = SettingsService(state)
@@ -85,6 +90,7 @@ async def bootstrap(
 
     return ServiceContainer(
         state=state,
+        state_manager=state_manager,
         task=task_service,
         project=project_service,
         time_entry=time_entry_service,

@@ -31,6 +31,7 @@ from config import (
 )
 from models.entities import AppState, Project
 from services.project_service import ProjectService
+from services.state_manager import StateManager
 from ui.helpers import accent_btn, danger_btn, SnackService
 from ui.dialogs.dialog_state import IconPickerState, ColorPickerState
 from events import event_bus, AppEvent
@@ -197,11 +198,13 @@ class ProjectDialogs:
         state: AppState,
         project_service: ProjectService,
         snack: SnackService,
+        state_manager: Optional[StateManager] = None,
     ) -> None:
         self.page = page
         self.state = state
         self.project_service = project_service
         self.snack = snack
+        self._sm = state_manager
         self._icon = PROJECT_ICONS[0]
         self._color = PROJECT_COLORS[0]["value"]
         self._dialog: Optional[ft.AlertDialog] = None
@@ -412,7 +415,7 @@ class ProjectDialogs:
                     icon=self._icon,
                     color=self._color,
                 )
-                self.state.projects.append(new_p)
+                self._sm.add_project(new_p)
                 await self.project_service.save_project(new_p)
                 msg = t("project_created").replace("{name}", name)
 

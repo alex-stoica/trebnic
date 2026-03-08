@@ -18,6 +18,7 @@ from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
 from services.recurrence import calculate_next_recurrence, calculate_next_recurrence_from_date
+from services.state_manager import StateManager
 
 
 def safe_parse_time(value: str, default: str) -> time:
@@ -42,9 +43,11 @@ class TaskService:
     All data operations are async. Use page.run_task() or await for async calls.
     """
 
-    def __init__(self, state: AppState, page: Optional[Any] = None) -> None:
+    def __init__(self, state: AppState, page: Optional[Any] = None,
+                 state_manager: Optional[StateManager] = None) -> None:
         self.state = state
         self._page = page
+        self._sm = state_manager
 
     def set_page(self, page: Any) -> None:
         """Set the Flet page for async task scheduling."""
@@ -164,12 +167,7 @@ class TaskService:
         new_state = await TaskService.load_state_async()
 
         # Update the existing state object in place to preserve references
-        self.state.tasks.clear()
-        self.state.tasks.extend(new_state.tasks)
-        self.state.done_tasks.clear()
-        self.state.done_tasks.extend(new_state.done_tasks)
-        self.state.projects.clear()
-        self.state.projects.extend(new_state.projects)
+        self._sm.replace_all(new_state.tasks, new_state.done_tasks, new_state.projects)
 
         # Notify UI to rebuild via registry
         event_bus = registry.get(Services.EVENT_BUS)
@@ -195,12 +193,7 @@ class TaskService:
             # Fallback for testing or early init
             new_state = TaskService.load_state()
 
-            self.state.tasks.clear()
-            self.state.tasks.extend(new_state.tasks)
-            self.state.done_tasks.clear()
-            self.state.done_tasks.extend(new_state.done_tasks)
-            self.state.projects.clear()
-            self.state.projects.extend(new_state.projects)
+            self._sm.replace_all(new_state.tasks, new_state.done_tasks, new_state.projects)
 
             event_bus = registry.get(Services.EVENT_BUS)
             if event_bus:
@@ -415,16 +408,17 @@ class TaskService:
         which is needed for views like calendar that read from state directly.
         """
         all_tasks = await db.load_tasks()
-        self.state.tasks.clear()
-        self.state.done_tasks.clear()
+        new_tasks = []
+        new_done = []
         for t_dict in all_tasks:
             if t_dict.get("is_draft"):
                 continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
-                self.state.done_tasks.append(task)
+                new_done.append(task)
             else:
-                self.state.tasks.append(task)
+                new_tasks.append(task)
+        self._sm.replace_tasks(new_tasks, new_done)
 
     async def get_filtered_tasks(
         self,
@@ -490,21 +484,20 @@ class TaskService:
         await db.clear_all()
         await db.seed_default_data()
         await TaskService._seed_email_config()
-        self.state.tasks.clear()
-        self.state.done_tasks.clear()
-        self.state.projects.clear()
         self.state.viewing_task_id = None
         self.state.selected_projects.clear()
-        for p_dict in await db.load_projects():
-            self.state.projects.append(Project.from_dict(p_dict))
+        new_projects = [Project.from_dict(p) for p in await db.load_projects()]
+        new_tasks = []
+        new_done = []
         for t_dict in await db.load_tasks():
             if t_dict.get("is_draft"):
                 continue
             task = Task.from_dict(t_dict)
             if t_dict.get("is_done"):
-                self.state.done_tasks.append(task)
+                new_done.append(task)
             else:
-                self.state.tasks.append(task)
+                new_tasks.append(task)
+        self._sm.replace_all(new_tasks, new_done, new_projects)
 
     def task_name_exists(self, name: str, exclude_task: Task) -> bool:
         """Check if a task name already exists (sync, in-memory check)."""
