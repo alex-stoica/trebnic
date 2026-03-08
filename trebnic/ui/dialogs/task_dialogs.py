@@ -10,6 +10,17 @@ from config import (
     DIALOG_WIDTH_LG,
     DATE_PICKER_YEARS,
     BORDER_RADIUS,
+    SPACING_XS,
+    SPACING_SM,
+    SPACING_MD,
+    SPACING_LG,
+    SPACING_XL,
+    SPACING_2XL,
+    PADDING_SM,
+    PADDING_MD,
+    PADDING_LG,
+    PADDING_XL,
+    PADDING_2XL,
     PageType,
     RecurrenceFrequency,
     NavItem,
@@ -145,7 +156,7 @@ class RecurrenceDialogController:
                 ft.Row(self.weekday_cbs[4:], spacing=0),
             ],
             visible=self.state.frequency == RecurrenceFrequency.WEEKS,
-            spacing=8,
+            spacing=SPACING_MD,
         )
 
         self.freq_dd = ft.Dropdown(
@@ -188,7 +199,7 @@ class RecurrenceDialogController:
             content=self.end_date_text,
             on_click=self._open_end_date_picker,
             ink=True,
-            padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=PADDING_SM),
             border_radius=4,
         )
 
@@ -203,10 +214,10 @@ class RecurrenceDialogController:
                             ft.Radio(value="on_date", label=t("on_date")),
                             self.end_date_btn,
                         ],
-                        spacing=8,
+                        spacing=SPACING_MD,
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
             ),
         )
 
@@ -293,7 +304,7 @@ class RecurrenceDialogController:
             content=ft.Column(
                 [
                     self.enable_switch,
-                    ft.Divider(height=15, color=COLORS["border"]),
+                    ft.Divider(height=SPACING_2XL, color=COLORS["border"]),
                     ft.Text(t("frequency_label"), weight="bold", size=13),
                     ft.Row(
                         [
@@ -301,11 +312,11 @@ class RecurrenceDialogController:
                             self.interval_field,
                             self.freq_dd,
                         ],
-                        spacing=8,
+                        spacing=SPACING_MD,
                     ),
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     self.weekdays_section,
-                    ft.Divider(height=15, color=COLORS["border"]),
+                    ft.Divider(height=SPACING_2XL, color=COLORS["border"]),
                     ft.Text(t("behavior"), weight="bold", size=13),
                     self.from_completion_switch,
                     ft.Text(
@@ -313,11 +324,11 @@ class RecurrenceDialogController:
                         size=11,
                         color=COLORS["done_text"],
                     ),
-                    ft.Divider(height=15, color=COLORS["border"]),
+                    ft.Divider(height=SPACING_2XL, color=COLORS["border"]),
                     ft.Text(t("ends"), weight="bold", size=13),
                     self.end_type_group,
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
                 tight=True,
                 scroll=ft.ScrollMode.AUTO,
             ),
@@ -394,7 +405,7 @@ class TaskDialogs:
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
-            content=ft.Column([field, error], tight=True, spacing=5),
+            content=ft.Column([field, error], tight=True, spacing=SPACING_SM),
         )
 
         _, close = open_dialog(
@@ -428,11 +439,11 @@ class TaskDialogs:
                     ft.Text(p.name, size=14, expand=True),
                     check_icon,
                 ],
-                spacing=12,
+                spacing=SPACING_XL,
             )
             container = ft.Container(
                 content=row,
-                padding=ft.Padding.symmetric(vertical=10, horizontal=15),
+                padding=ft.Padding.symmetric(vertical=PADDING_LG, horizontal=PADDING_2XL),
                 border_radius=8,
                 ink=True,
                 on_click=lambda e, pid=p.id: select(pid),
@@ -446,11 +457,11 @@ class TaskDialogs:
                 ft.Icon(ft.Icons.CLOSE, color=COLORS["done_text"], size=18),
                 ft.Text(t("unassign"), size=14, color=COLORS["done_text"]),
             ],
-            spacing=12,
+            spacing=SPACING_XL,
         )
         unassign_container = ft.Container(
             content=unassign_row,
-            padding=ft.Padding.symmetric(vertical=10, horizontal=15),
+            padding=ft.Padding.symmetric(vertical=PADDING_LG, horizontal=PADDING_2XL),
             border_radius=8,
             ink=True,
             on_click=lambda e: select(None),
@@ -459,7 +470,7 @@ class TaskDialogs:
 
         content = ft.Container(
             width=DIALOG_WIDTH_SM,
-            content=ft.Column(opts, tight=True, spacing=4),
+            content=ft.Column(opts, tight=True, spacing=SPACING_SM),
         )
 
         _, close = open_dialog(
@@ -586,7 +597,7 @@ class TaskDialogs:
                     ),
                 ],
                 tight=True,
-                spacing=4,
+                spacing=SPACING_SM,
             ),
         )
 
@@ -663,14 +674,14 @@ class TaskDialogs:
                     [
                         ft.Row(
                             [ft.Icon(icon, color=color), ft.Text(label, weight="bold")],
-                            spacing=10,
+                            spacing=SPACING_LG,
                         ),
                         ft.Text(value, size=24, weight="bold", color=color),
                     ],
-                    spacing=5,
+                    spacing=SPACING_SM,
                 ),
                 bgcolor=COLORS["card"],
-                padding=15,
+                padding=PADDING_2XL,
                 border_radius=BORDER_RADIUS,
             )
 
@@ -682,7 +693,7 @@ class TaskDialogs:
                             ft.Icon(ft.Icons.SCHEDULE, color=COLORS["blue"]),
                             ft.Text(t("estimated"), weight="bold"),
                         ],
-                        spacing=10,
+                        spacing=SPACING_LG,
                     ),
                     ft.Text(
                         TimeFormatter.seconds_to_display(task.estimated_seconds),
@@ -690,10 +701,10 @@ class TaskDialogs:
                         color=COLORS["done_text"],
                     ),
                 ],
-                spacing=5,
+                spacing=SPACING_SM,
             ),
             bgcolor=COLORS["card"],
-            padding=15,
+            padding=PADDING_2XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -712,10 +723,10 @@ class TaskDialogs:
                         color=COLORS["done_text"],
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
             ),
             bgcolor=COLORS["card"],
-            padding=15,
+            padding=PADDING_2XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -731,9 +742,9 @@ class TaskDialogs:
                         color=COLORS["done_text"],
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
             ),
-            padding=ft.Padding.only(top=10),
+            padding=ft.Padding.only(top=PADDING_LG),
         )
 
         entries_count = len(time_entries)
@@ -757,7 +768,7 @@ class TaskDialogs:
                             ft.Text(t("time_entries_label"), weight="bold", size=13),
                             ft.Text(entries_text, color=COLORS["done_text"], size=12),
                         ],
-                        spacing=2,
+                        spacing=SPACING_XS,
                         expand=True,
                     ),
                     ft.IconButton(
@@ -767,10 +778,10 @@ class TaskDialogs:
                         on_click=view_entries,
                     ),
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
             ),
             bgcolor=COLORS["card"],
-            padding=12,
+            padding=PADDING_XL,
             border_radius=BORDER_RADIUS,
             on_click=view_entries,
             ink=True,
@@ -797,7 +808,7 @@ class TaskDialogs:
                     entries_card,
                     project_row,
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
                 tight=True,
             ),
         )
@@ -838,7 +849,7 @@ class TaskDialogs:
                         t("task_is_recurring").replace("{title}", task.title),
                         size=14,
                     ),
-                    ft.Divider(height=15, color="transparent"),
+                    ft.Divider(height=SPACING_2XL, color="transparent"),
                     create_option_item(
                         ft.Icons.DELETE_OUTLINE,
                         t("delete_this_occurrence"),
@@ -850,7 +861,7 @@ class TaskDialogs:
                         size=11,
                         color=COLORS["done_text"],
                     ),
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     create_option_item(
                         ft.Icons.DELETE_FOREVER,
                         t("delete_all_occurrences"),
@@ -863,7 +874,7 @@ class TaskDialogs:
                         color=COLORS["done_text"],
                     ),
                 ],
-                spacing=5,
+                spacing=SPACING_SM,
                 tight=True,
             ),
         )
@@ -923,11 +934,11 @@ class TaskDialogs:
                     ft.Container(
                         content=knob,
                         alignment=ft.Alignment(0, 0),
-                        padding=ft.Padding.only(top=10, bottom=10),
+                        padding=ft.Padding.only(top=PADDING_LG, bottom=PADDING_LG),
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
+                spacing=SPACING_LG,
                 tight=True,
             ),
         )

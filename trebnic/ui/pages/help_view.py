@@ -9,9 +9,13 @@ from typing import Callable
 from config import (
     COLORS,
     BORDER_RADIUS,
-    PageType,
-    FONT_SIZE_MD,
     FONT_SIZE_BASE,
+    FONT_SIZE_MD,
+    PADDING_3XL,
+    PADDING_LG,
+    PageType,
+    SPACING_3XL,
+    SPACING_SM,
 )
 from i18n import t
 
@@ -57,7 +61,7 @@ class HelpPage:
                         t("privacy_first_desc"),
                         size=FONT_SIZE_MD,
                     ),
-                    ft.Container(height=5),
+                    ft.Container(height=SPACING_SM),
                     ft.Row([
                         ft.Container(
                             content=ft.Row([
@@ -82,7 +86,7 @@ class HelpPage:
                 spacing=10,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -194,7 +198,7 @@ class HelpPage:
                 spacing=12,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -218,13 +222,13 @@ class HelpPage:
                 text_align=ft.TextAlign.CENTER,
             ),
             alignment=ft.Alignment(0, 0),
-            padding=ft.Padding.only(top=10, bottom=20),
+            padding=ft.Padding.only(top=PADDING_LG, bottom=PADDING_3XL),
         )
 
         return ft.Column(
             [
                 header,
-                ft.Divider(height=20, color="transparent"),
+                ft.Divider(height=SPACING_3XL, color="transparent"),
                 intro_card,
                 how_to_use_card,
                 feedback_link,

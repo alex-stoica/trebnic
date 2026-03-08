@@ -1,7 +1,7 @@
 import flet as ft
 from typing import Optional
 
-from config import COLORS, BORDER_RADIUS
+from config import COLORS, BORDER_RADIUS, SPACING_XS, SPACING_SM, SPACING_MD, PADDING_MD, PADDING_2XL
 from events import event_bus, AppEvent
 from i18n import t
 from models.entities import Task, Project, AppState
@@ -45,7 +45,7 @@ class TaskTile:
                     ft.Icon(ft.Icons.LOCK, color=COLORS["white"], size=10),
                     ft.Text(t("encrypted"), size=10, color=COLORS["white"], italic=True),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
                 tight=True,
             )
         return ft.Row(
@@ -53,7 +53,7 @@ class TaskTile:
                 ft.Text(self.display.project_icon, size=10),
                 ft.Text(self.display.project_name, size=10, color=COLORS["white"]),
             ],
-            spacing=4,
+            spacing=SPACING_SM,
             tight=True,
         )
 
@@ -69,7 +69,7 @@ class TaskTile:
                     ft.Icon(ft.Icons.LOCK, color=COLORS["done_text"], size=10) if is_project_locked else ft.Container(),
                     ft.Text(" - ".join(parts), size=10, color=COLORS["done_text"]),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
                 tight=True,
             ) if is_project_locked else ft.Text(" - ".join(parts), size=10, color=COLORS["done_text"])
             return ft.Container(
@@ -121,7 +121,7 @@ class TaskTile:
             )
             tags.append(due_tag)
 
-        return ft.Row(tags, spacing=8, tight=True, wrap=True)
+        return ft.Row(tags, spacing=SPACING_MD, tight=True, wrap=True)
 
     def _menu(self) -> ft.PopupMenuButton:
         items = []
@@ -205,7 +205,7 @@ class TaskTile:
                         italic=True,
                     ),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
                 tight=True,
             )
         return ft.Text(
@@ -235,7 +235,7 @@ class TaskTile:
 
         if self.is_done:
             return ft.Container(
-                padding=15,
+                padding=PADDING_2XL,
                 bgcolor=bg,
                 border_radius=BORDER_RADIUS,
                 content=ft.Row([
@@ -246,7 +246,7 @@ class TaskTile:
                             self._tags(),
                         ],
                         expand=True,
-                        spacing=2,
+                        spacing=SPACING_XS,
                     ),
                     time_txt,
                 ]),
@@ -254,7 +254,7 @@ class TaskTile:
 
         if self.state.is_mobile:
             return ft.Container(
-                padding=8,
+                padding=PADDING_MD,
                 bgcolor=bg,
                 border_radius=BORDER_RADIUS,
                 data=self.task,
@@ -267,10 +267,10 @@ class TaskTile:
                         ]),
                         self._tags(),
                     ],
-                    spacing=2,
+                    spacing=SPACING_XS,
                     tight=True,
                 ),
-            ) 
+            )
 
         # Desktop layout
         timer_btn = ft.IconButton(
@@ -281,7 +281,7 @@ class TaskTile:
         )
 
         return ft.Container(
-            padding=15,
+            padding=PADDING_2XL,
             bgcolor=bg,
             border_radius=BORDER_RADIUS,
             data=self.task,
@@ -294,7 +294,7 @@ class TaskTile:
                         ft.Row([self._tags()], tight=True),
                     ],
                     expand=True,
-                    spacing=2,
+                    spacing=SPACING_XS,
                 ),
                 timer_btn,
                 time_txt,

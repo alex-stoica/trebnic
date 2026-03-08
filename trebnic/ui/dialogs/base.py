@@ -6,7 +6,7 @@ create_option_item() builds clickable rows used in selection dialogs and menus.
 import flet as ft
 from typing import Callable, Tuple, Optional, List
 
-from config import COLORS
+from config import COLORS, SPACING_XL
 
 
 def open_dialog(
@@ -45,8 +45,8 @@ def create_option_item(
             ft.Icon(icon, size=18, color=color), 
             ft.Text(text, size=14, color=text_color, expand=not as_popup), 
         ], 
-        spacing=12, 
-    ) 
+        spacing=SPACING_XL,
+    )
 
     if as_popup:
         return ft.PopupMenuItem(

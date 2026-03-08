@@ -10,6 +10,7 @@ from config import (
     COLORS,
     FONT_SIZE_SM,
     FONT_SIZE_3XL,
+    SPACING_SM,
     DURATION_KNOB_MIN_MINUTES,
     DURATION_KNOB_MAX_MINUTES,
 )
@@ -103,7 +104,7 @@ class DurationKnob(ft.Container):
                 ft.Text(t("drag_to_adjust"), size=FONT_SIZE_SM, color=COLORS["done_text"], text_align=ft.TextAlign.CENTER),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=4,
+            spacing=SPACING_SM,
         )
 
     def _on_circular_change(self, e: ft.ControlEvent) -> None:
@@ -163,7 +164,7 @@ class DurationKnob(ft.Container):
                 ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=4,
+            spacing=SPACING_SM,
         )
 
     def _on_slider_change(self, e: ft.ControlEvent) -> None:

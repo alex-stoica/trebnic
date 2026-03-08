@@ -83,6 +83,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "upcoming": {"en": "Upcoming", "ro": "Viitoare"},
     "notes": {"en": "Notes", "ro": "Notițe"},
     "projects": {"en": "Projects", "ro": "Proiecte"},
+    "create_new_project": {"en": "Create new project", "ro": "Creează un proiect nou"},
 
     # Stats page
     "statistics": {"en": "Statistics", "ro": "Statistici"},
@@ -833,12 +834,42 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "draft_published_chat": {"en": "Draft published", "ro": "Ciornă publicată"},
     "project_created_chat": {"en": "Project created", "ro": "Proiect creat"},
     "send": {"en": "Send", "ro": "Trimite"},
+    "voice_input": {"en": "Voice input", "ro": "Dictare"},
+    "stt_not_available": {"en": "Speech recognition not available", "ro": "Recunoașterea vocală nu este disponibilă"},
+    "stt_error": {"en": "Voice input error", "ro": "Eroare dictare"},
+    "stt_listening": {"en": "Listening...", "ro": "Ascult..."},
     "notif_action_open": {"en": "Open", "ro": "Deschide"},
     "notif_action_view_stats": {"en": "View stats", "ro": "Vezi statistici"},
     "timer_running": {"en": "Timer running", "ro": "Cronometru activ"},
     "timer_elapsed_on_task": {"en": "{time} on {task}", "ro": "{time} pe {task}"},
     "and_n_more": {"en": "and {count} more...", "ro": "si inca {count}..."},
     "tasks_list_locked": {"en": "Unlock to see task details", "ro": "Deblocheaza pentru detalii"},
+    "note_empty_for_refine": {"en": "Write something in the note first", "ro": "Scrie ceva in notita mai intai"},
+
+    # HTTP error helpers
+    "error_timeout": {"en": "Request timed out. Try again later.", "ro": "Cererea a expirat. Incearca din nou mai tarziu."},
+    "error_rate_limit": {"en": "Too many requests. Please wait a moment.", "ro": "Prea multe cereri. Asteapta un moment."},
+    "error_server": {"en": "Server error. Try again later.", "ro": "Eroare de server. Incearca din nou mai tarziu."},
+    "error_forbidden": {"en": "Access denied.", "ro": "Acces interzis."},
+    "error_connection": {
+        "en": "Could not connect to server. Check your internet connection.",
+        "ro": "Nu s-a putut conecta la server. Verifica conexiunea la internet.",
+    },
+    "error_unknown_http": {"en": "Something went wrong. Try again later.", "ro": "Ceva nu a mers. Incearca din nou mai tarziu."},
+
+    # Calendar note loading
+    "notes_load_failed": {"en": "Failed to load notes", "ro": "Nu s-au putut incarca notitele"},
+
+    # Factory reset confirmation
+    "type_reset_to_confirm": {
+        "en": "Type {keyword} to confirm",
+        "ro": "Scrie {keyword} pentru a confirma",
+    },
+    "reset_keyword": {"en": "RESET", "ro": "RESET"},
+    "factory_reset_failed": {
+        "en": "Factory reset failed: {error}",
+        "ro": "Resetarea totala a esuat: {error}",
+    },
 }
 
 

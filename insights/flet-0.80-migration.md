@@ -107,8 +107,16 @@ No API changes required — all 0.80 code is compatible with 0.81.
 
 ## 0.81 → 0.82 bump (Mar 2026)
 
-Bumped to `flet>=0.82.0`. Requires Flutter SDK 3.41.4 (auto-downloaded on first build).
+Bumped to `flet==0.82.0` + `flet-android-notifications==0.7.2` in `pyproject.toml`.
 
-Breaking changes in 0.82: ad controls refactored (InterstitialAd → Service, BannerAd → LayoutControl). Not relevant to Trebnic.
+Flet 0.82.0 bumps `flutter_local_notifications` from 19.x to 20.x (resolves to 20.1.0).
 
-No API changes required for Trebnic — all 0.81 code is compatible with 0.82.
+Version history of `flet-android-notifications` compatibility:
+- **0.5.2**: Dart bug - uses old `initializationSettings:` param (v20 renamed to `settings:`)
+- **0.7.0/0.7.1**: Dart bug - uses short enum names (`dataSync`) instead of full names (`foregroundServiceTypeDataSync`)
+- **0.7.2**: Both fixes applied, works cleanly with flet 0.82
+
+No Dart patches needed with 0.7.2. Only the standard desugaring + manifest receiver
+post-clean-build fixes are required (see "Post-clean-build fixes" section above).
+
+No app-level API changes required.

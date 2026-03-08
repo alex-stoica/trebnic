@@ -11,6 +11,11 @@ from config import (
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
     DIALOG_WIDTH_LG,
+    SPACING_SM,
+    SPACING_MD,
+    SPACING_LG,
+    SPACING_2XL,
+    SPACING_3XL,
 )
 from i18n import t
 from models.entities import AppState
@@ -97,7 +102,7 @@ class TasksView:
                     self._note_card,
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=10,
+                spacing=SPACING_LG,
             ),
             alignment=ft.Alignment(0, 0),
             padding=ft.Padding.only(top=40, left=10, right=10, bottom=10),
@@ -110,8 +115,8 @@ class TasksView:
             controls=[], 
         ) 
 
-        self.done_list = ft.Column(controls=[], spacing=8)
-        self.overdue_list = ft.Column(controls=[], spacing=8)
+        self.done_list = ft.Column(controls=[], spacing=SPACING_MD)
+        self.overdue_list = ft.Column(controls=[], spacing=SPACING_MD)
 
         self._details_text = ft.Text(t("add_details"), size=13, color=COLORS["accent"])
         self.details_btn = ft.Container(
@@ -125,7 +130,7 @@ class TasksView:
                         color=COLORS["accent"],
                     ),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
             ),
             padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             border_radius=BORDER_RADIUS,
@@ -171,7 +176,7 @@ class TasksView:
         )
         self._filter_toggle = ft.Row(
             [self._today_chip, self._next_chip],
-            spacing=8,
+            spacing=SPACING_MD,
         )
 
     def _on_filter_change(self, value: str) -> None:
@@ -286,7 +291,7 @@ class TasksView:
         selected_proj: Dict[str, Any] = {"value": self.pending_details.get("project_id")}
 
         # ── Due date section ──────────────────────────────────────────────
-        date_chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+        date_chips_row = ft.Row(wrap=True, spacing=SPACING_SM, run_spacing=SPACING_SM)
 
         def _due_chip_style(is_selected: bool) -> dict:
             if is_selected:
@@ -365,7 +370,7 @@ class TasksView:
         _rebuild_date_chips()
 
         # ── Project section ───────────────────────────────────────────────
-        project_chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+        project_chips_row = ft.Row(wrap=True, spacing=SPACING_SM, run_spacing=SPACING_SM)
 
         def _make_project_chip(label: str, pid: Optional[str], color: Optional[str],
                                is_selected: bool) -> ft.Container:
@@ -378,7 +383,7 @@ class TasksView:
                 )
             controls.append(ft.Text(label, size=13, color=text_color))
             return ft.Container(
-                content=ft.Row(controls, spacing=6),
+                content=ft.Row(controls, spacing=SPACING_SM),
                 padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 border_radius=BORDER_RADIUS,
                 bgcolor=style["bgcolor"],
@@ -443,14 +448,14 @@ class TasksView:
                 [
                     ft.Text(t("due_date"), weight="bold", size=14),
                     date_chips_row,
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Text(t("assign_to_project"), weight="bold", size=14),
                     project_chips_row,
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Text(t("estimated_time"), weight="bold", size=14),
                     ft.Row(
                         [ft.Icon(ft.Icons.TIMER, size=18), time_label],
-                        spacing=8,
+                        spacing=SPACING_MD,
                     ),
                     slider,
                     ft.Text(
@@ -459,7 +464,7 @@ class TasksView:
                         color=COLORS["done_text"],
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
                 tight=True,
                 scroll=ft.ScrollMode.AUTO,
             ),
@@ -635,9 +640,9 @@ class TasksView:
                             weight="bold",
                         ),
                     ],
-                    spacing=8,
+                    spacing=SPACING_MD,
                 ),
-                ft.Divider(height=10, color="transparent"),
+                ft.Divider(height=SPACING_LG, color="transparent"),
                 self.done_list,
             ],
             visible=self._should_show_done_section(),
@@ -655,10 +660,10 @@ class TasksView:
                         ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, size=16, color=COLORS["danger"]),
                         self._overdue_label,
                     ],
-                    spacing=8,
+                    spacing=SPACING_MD,
                 ),
                 self.overdue_list,
-                ft.Divider(height=15, color="transparent"),
+                ft.Divider(height=SPACING_2XL, color="transparent"),
             ],
             visible=False,
         )
@@ -668,15 +673,15 @@ class TasksView:
             controls=[
                 ft.Row(
                     controls=[self.task_input, self.details_btn, self.submit_btn],
-                    spacing=10,
+                    spacing=SPACING_LG,
                 ),
                 self._filter_row,
-                ft.Divider(height=15, color="transparent"),
+                ft.Divider(height=SPACING_2XL, color="transparent"),
                 self._overdue_section,
                 self._section_label,
                 self.empty_state,
                 self.task_list,
-                ft.Divider(height=25, color="transparent"),
+                ft.Divider(height=SPACING_3XL, color="transparent"),
                 self._done_section,
             ],
             scroll=ft.ScrollMode.AUTO,

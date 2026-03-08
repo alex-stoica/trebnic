@@ -29,7 +29,8 @@ dependencies = [
     "python-dotenv>=1.2.1",
 
     "plyer>=2.1.0",
-    "flet-android-notifications (>=0.5.2,<0.6.0)",
+    "flet-android-notifications (==0.7.2)",
+    "flet-stt (==0.1.0)",
     "flet-circular-slider (>=0.5.0)",
     "requests (>=2.32.5,<3.0.0)",
 ]
@@ -61,6 +62,7 @@ path = "trebnic"
 "android.permission.POST_NOTIFICATIONS" = true
 "android.permission.SCHEDULE_EXACT_ALARM" = true
 "android.permission.RECEIVE_BOOT_COMPLETED" = true
+"android.permission.RECORD_AUDIO" = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

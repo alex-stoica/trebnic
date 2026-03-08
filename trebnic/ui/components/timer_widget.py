@@ -1,7 +1,7 @@
 import flet as ft
 from typing import Callable 
 
-from config import COLORS
+from config import COLORS, SPACING_XS
 from i18n import t
 from ui.helpers import format_timer_display
 
@@ -20,7 +20,7 @@ class TimerWidget(ft.Container):
                     self.task_text, 
                 ], 
                 tight=True,
-                spacing=2,
+                spacing=SPACING_XS,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ), 
             bgcolor=COLORS["accent"],

@@ -4,11 +4,20 @@ Provides a conversational interface where users can manage tasks via natural
 language. Messages are sent to Claude which uses tool_use to call TrebnicAPI
 methods. The conversation is ephemeral (resets on navigation).
 """
+import asyncio
+import json
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
 import flet as ft
 import httpx
+
+try:
+    from flet_stt import FletStt, SttError
+    STT_AVAILABLE = True
+except ImportError:
+    STT_AVAILABLE = False
+    SttError = None
 
 from config import (
     BORDER_RADIUS,
@@ -17,14 +26,16 @@ from config import (
     FONT_SIZE_MD,
     FONT_SIZE_SM,
     FONT_SIZE_XS,
+    PADDING_3XL,
     PageType,
+    SPACING_LG,
     SPACING_MD,
     SPACING_SM,
 )
 from i18n import t
 from models.entities import AppState
 from services.claude_service import ClaudeService, save_api_key, load_api_key
-from ui.helpers import SnackService, accent_btn
+from ui.helpers import SnackService, accent_btn, friendly_http_error
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +68,22 @@ class ChatView:
         self._setup_mode: bool = False
         self._api_key_field: Optional[ft.TextField] = None
 
+        # Speech-to-text
+        self._stt_initialized: bool = False
+        self._stt_listening: bool = False
+        self._mic_btn: Optional[ft.IconButton] = None
+
+        if STT_AVAILABLE:
+            self._stt = FletStt(
+                on_result=self._on_stt_result,
+                on_error=self._on_stt_error,
+                on_status=self._on_stt_status,
+            )
+            self.page.services.append(self._stt)
+            logger.info("STT: FletStt created, added to page.services")
+        else:
+            self._stt: Optional[FletStt] = None
+
     def _reset_conversation(self) -> None:
         """Reset conversation state for a fresh chat session."""
         self._messages.clear()
@@ -87,6 +114,21 @@ class ChatView:
             alignment=ft.Alignment(-1, 0),
         )
 
+    def _error_bubble(self, text: str) -> ft.Container:
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=COLORS["white"]),
+                    ft.Text(text, size=FONT_SIZE_MD, color=COLORS["white"], selectable=True, expand=True),
+                ],
+                spacing=8,
+            ),
+            bgcolor=COLORS["danger"],
+            border_radius=BORDER_RADIUS_MD,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            margin=ft.Margin.only(right=60, bottom=4),
+        )
+
     def _tool_action_chip(self, action: str, detail: str) -> ft.Container:
         return ft.Container(
             content=ft.Row(
@@ -107,6 +149,77 @@ class ChatView:
             [ft.ProgressRing(width=16, height=16, stroke_width=2)],
             alignment=ft.MainAxisAlignment.START,
         )
+
+    # ── Speech-to-text ────────────────────────────────────────────────
+
+    def _on_stt_result(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        if self._input_field:
+            self._input_field.value = data.get("text", "")
+            self._input_field.update()
+        if data.get("final", False):
+            self._set_mic_state(False)
+
+    def _on_stt_error(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        logger.error("STT error: %s", data)
+        self._set_mic_state(False)
+        error_msg = data.get("error", "")
+        if error_msg:
+            self.snack.show(f"{t('stt_error')}: {error_msg}", COLORS["danger"])
+
+    def _on_stt_status(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        status = data.get("status", "")
+        listening = status == "listening"
+        self._set_mic_state(listening)
+
+    def _set_mic_state(self, listening: bool) -> None:
+        self._stt_listening = listening
+        if self._mic_btn:
+            self._mic_btn.icon = ft.Icons.STOP_CIRCLE if listening else ft.Icons.MIC
+            self._mic_btn.icon_color = COLORS["danger"] if listening else COLORS["accent"]
+            self._mic_btn.update()
+
+    async def _on_mic_tap(self, e: Optional[ft.ControlEvent] = None) -> None:
+        if not STT_AVAILABLE:
+            self.snack.show(t("stt_not_available"), COLORS["danger"])
+            return
+        try:
+            if self._stt_listening:
+                logger.info("STT: stopping listening")
+                await self._stt.stop()
+                return
+
+            # Immediate visual feedback before any await
+            self._set_mic_state(True)
+
+            if not self._stt_initialized:
+                logger.info("STT: initializing (5s timeout)...")
+                try:
+                    available = await asyncio.wait_for(self._stt.initialize(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.error("STT: initialize() timed out after 5s")
+                    self._set_mic_state(False)
+                    self.snack.show(t("stt_not_available"), COLORS["danger"])
+                    return
+                logger.info("STT: initialize returned %s", available)
+                if not available:
+                    self._set_mic_state(False)
+                    self.snack.show(t("stt_not_available"), COLORS["danger"])
+                    return
+                self._stt_initialized = True
+
+            logger.info("STT: starting listen")
+            await self._stt.listen(partial_results=True, listen_mode="dictation", on_device=False)
+        except SttError as exc:
+            logger.error("STT SttError: %s", exc)
+            self._set_mic_state(False)
+            self.snack.show(f"{t('stt_error')}: {exc}", COLORS["danger"])
+        except Exception as exc:
+            logger.exception("STT mic tap error")
+            self._set_mic_state(False)
+            self.snack.show(f"{t('stt_error')}: {exc}", COLORS["danger"])
 
     # ── Send flow ─────────────────────────────────────────────────────
 
@@ -144,14 +257,13 @@ class ChatView:
             self._messages.append({"role": "assistant", "content": response_text})
 
         except ValueError as exc:
-            # API key not configured
-            self.snack.show(str(exc), COLORS["danger"])
+            self._add_bubble(self._error_bubble(str(exc)))
         except httpx.HTTPError as exc:
             logger.exception("Chat error")
-            error_msg = str(exc)
-            if "401" in error_msg or "authentication" in error_msg.lower():
-                error_msg = t("invalid_api_key")
-            self.snack.show(f"{t('chat_error')}: {error_msg}", COLORS["danger"])
+            self._add_bubble(self._error_bubble(friendly_http_error(exc)))
+        except Exception as exc:
+            logger.exception("Unexpected chat error")
+            self._add_bubble(self._error_bubble(friendly_http_error(exc)))
         finally:
             self._set_loading(False)
 
@@ -237,7 +349,7 @@ class ChatView:
                         size=FONT_SIZE_SM,
                         color=COLORS["done_text"],
                     ),
-                    ft.Container(height=5),
+                    ft.Container(height=SPACING_SM),
                     self._api_key_field,
                     ft.Container(
                         content=accent_btn(t("save"), self._on_save_api_key),
@@ -247,7 +359,7 @@ class ChatView:
                 spacing=10,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -317,6 +429,9 @@ class ChatView:
             on_submit=lambda e: self.page.run_task(self._on_send),
             text_size=FONT_SIZE_MD,
             content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            multiline=True,
+            min_lines=1,
+            max_lines=6,
         )
 
         self._send_btn = ft.IconButton(
@@ -326,8 +441,15 @@ class ChatView:
             tooltip=t("send"),
         )
 
+        self._mic_btn = ft.IconButton(
+            ft.Icons.MIC,
+            icon_color=COLORS["accent"],
+            on_click=self._on_mic_tap,
+            tooltip=t("voice_input"),
+        )
+
         input_row = ft.Row(
-            [self._input_field, self._send_btn],
+            [self._input_field, self._mic_btn, self._send_btn],
             spacing=SPACING_MD,
         )
 
@@ -355,7 +477,7 @@ class ChatView:
         return ft.Column(
             [
                 header,
-                ft.Divider(height=10, color="transparent"),
+                ft.Divider(height=SPACING_LG, color="transparent"),
                 setup_container,
                 chat_container,
             ],
