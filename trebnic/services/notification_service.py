@@ -452,7 +452,7 @@ class NotificationService:
         if self._is_in_quiet_hours():
             logger.info("Skipping immediate notification - in quiet hours")
             return
-        await self._deliver_immediate(title, body, task_id, actions=actions)
+        await self._deliver_immediate(title, body, task_id, actions=actions, payload=payload)
         event_bus.emit(AppEvent.NOTIFICATION_FIRED, {
             "task_id": task_id,
             "ntype": "immediate",
@@ -469,6 +469,7 @@ class NotificationService:
         *,
         actions: Optional[List[Dict[str, str]]] = None,
         style: Optional[Any] = None,
+        payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Deliver a notification immediately, handling encryption state."""
         if self._is_app_locked():
@@ -478,7 +479,7 @@ class NotificationService:
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
         elif self._backend == NotificationBackend.FLET_EXTENSION:
-            await self._deliver_extension_notification(title, body, task_id, actions=actions, style=style)
+            await self._deliver_extension_notification(title, body, task_id, actions=actions, style=style, payload=payload)
 
     def _is_app_locked(self) -> bool:
         crypto = registry.get(Services.CRYPTO)
@@ -496,6 +497,7 @@ class NotificationService:
         *,
         actions: Optional[List[Dict[str, str]]] = None,
         style: Optional[Any] = None,
+        payload: Optional[Dict[str, Any]] = None,
         channel_id: str = "trebnic_reminders",
         channel_name: str = "Task reminders",
         channel_description: str = "Task reminders from Trebnic",
@@ -506,7 +508,10 @@ class NotificationService:
             return False
         try:
             nid = notification_id if notification_id else (task_id if task_id else abs(hash(title)) % 100000)
-            payload_str = json.dumps({"task_id": task_id})
+            base_payload = {"task_id": task_id}
+            if payload:
+                base_payload.update(payload)
+            payload_str = json.dumps(base_payload)
             effective_style = style if style is not None else BigTextStyle(text=body)
             kwargs: Dict[str, Any] = {
                 "notification_id": nid,

@@ -291,7 +291,10 @@ class RecurrenceDialogController:
 
     def save(self, e: ft.ControlEvent) -> None:
         """Save the recurrence settings."""
-        self.state.interval = int(self.interval_field.value or 1)
+        try:
+            self.state.interval = int(self.interval_field.value or 1)
+        except ValueError:
+            self.state.interval = 1
         self.state.apply_to_task()
         self.on_save()
         self.on_close(e)
