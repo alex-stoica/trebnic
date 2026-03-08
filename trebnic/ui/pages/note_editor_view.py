@@ -1,8 +1,19 @@
+import asyncio
+import json
+import logging
+
 import flet as ft
 from datetime import date
 from typing import Callable, Optional
 
 import httpx
+
+try:
+    from flet_stt import FletStt, SttError
+    STT_AVAILABLE = True
+except ImportError:
+    STT_AVAILABLE = False
+    SttError = None
 
 from config import COLORS, PageType, FONT_SIZE_LG, FONT_SIZE_2XL, SPACING_LG
 from database import DatabaseError
@@ -11,7 +22,9 @@ from models.entities import AppState
 from services.claude_service import load_api_key, refine_note
 from services.daily_notes_service import DailyNoteService
 from ui.dialogs.base import open_dialog
-from ui.helpers import SnackService, danger_btn
+from ui.helpers import SnackService, danger_btn, friendly_http_error
+
+logger = logging.getLogger(__name__)
 
 
 class NoteEditorView:
@@ -38,8 +51,22 @@ class NoteEditorView:
         self._note_field: Optional[ft.TextField] = None
         self._refine_field: Optional[ft.TextField] = None
         self._refine_btn: Optional[ft.IconButton] = None
-        self._refine_spinner: Optional[ft.ProgressRing] = None
         self._original_content: str = ""
+
+        # Speech-to-text for refine field
+        self._stt_initialized: bool = False
+        self._stt_listening: bool = False
+        self._mic_btn: Optional[ft.IconButton] = None
+
+        if STT_AVAILABLE:
+            self._stt = FletStt(
+                on_result=self._on_stt_result,
+                on_error=self._on_stt_error,
+                on_status=self._on_stt_status,
+            )
+            self.page.services.append(self._stt)
+        else:
+            self._stt: Optional[FletStt] = None
 
     def build(self) -> ft.Column:
         note_date = self.state.editing_note_date or date.today()
@@ -95,24 +122,31 @@ class NoteEditorView:
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
             border_radius=8,
-            dense=True,
             expand=True,
             text_size=13,
             multiline=True,
-            min_lines=2,
+            min_lines=1,
+            max_lines=4,
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            on_submit=lambda e: self.page.run_task(self._refine_async),
         )
-        self._refine_spinner = ft.ProgressRing(width=20, height=20, stroke_width=2, visible=False)
         self._refine_btn = ft.IconButton(
             icon=ft.Icons.SEND,
             icon_color=COLORS["accent"],
-            icon_size=20,
             tooltip=t("refine_hint"),
-            on_click=lambda e: self._on_refine_click(),
+            on_click=self._on_refine_tap,
         )
+        self._mic_btn = ft.IconButton(
+            icon=ft.Icons.MIC,
+            icon_color=COLORS["accent"],
+            tooltip=t("voice_input"),
+            on_click=self._on_mic_tap,
+        )
+
+        refine_controls = [self._refine_field, self._mic_btn, self._refine_btn]
         refine_row = ft.Row(
-            [self._refine_field, self._refine_spinner, self._refine_btn],
-            spacing=4,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            refine_controls,
+            spacing=8,
         )
 
         # Check API key availability — show red hint if missing
@@ -123,13 +157,14 @@ class NoteEditorView:
                 self._refine_field.border_color = COLORS["danger"]
                 self._refine_field.hint_style = ft.TextStyle(color=COLORS["danger"])
                 self._refine_btn.disabled = True
+                self._mic_btn.disabled = True
                 self.page.update()
         self.page.run_task(_check_api_key)
 
         return ft.Column(
             [
                 header,
-                ft.Divider(height=10, color="transparent"),
+                ft.Divider(height=SPACING_LG, color="transparent"),
                 self._note_field,
                 refine_row,
             ],
@@ -169,16 +204,83 @@ class NoteEditorView:
         self._original_content = current
         self.snack.show(t("daily_note_saved"))
 
-    def _on_refine_click(self) -> None:
-        self.page.run_task(self._refine_async)
+    # ── Speech-to-text ────────────────────────────────────────────────
+
+    def _on_stt_result(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        if self._refine_field:
+            self._refine_field.value = data.get("text", "")
+            self._refine_field.update()
+        if data.get("final", False):
+            self._set_mic_state(False)
+
+    def _on_stt_error(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        logger.error("STT error (note editor): %s", data)
+        self._set_mic_state(False)
+        error_msg = data.get("error", "")
+        if error_msg:
+            self.snack.show(f"{t('stt_error')}: {error_msg}", COLORS["danger"])
+
+    def _on_stt_status(self, e: ft.ControlEvent) -> None:
+        data = json.loads(e.data)
+        listening = data.get("status", "") == "listening"
+        self._set_mic_state(listening)
+
+    def _set_mic_state(self, listening: bool) -> None:
+        self._stt_listening = listening
+        if self._mic_btn:
+            self._mic_btn.icon = ft.Icons.STOP_CIRCLE if listening else ft.Icons.MIC
+            self._mic_btn.icon_color = COLORS["danger"] if listening else COLORS["accent"]
+            self._mic_btn.update()
+
+    async def _on_mic_tap(self, e: Optional[ft.ControlEvent] = None) -> None:
+        if not STT_AVAILABLE:
+            self.snack.show(t("stt_not_available"), COLORS["danger"])
+            return
+        try:
+            if self._stt_listening:
+                await self._stt.stop()
+                return
+
+            self._set_mic_state(True)
+
+            if not self._stt_initialized:
+                try:
+                    available = await asyncio.wait_for(self._stt.initialize(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    self._set_mic_state(False)
+                    self.snack.show(t("stt_not_available"), COLORS["danger"])
+                    return
+                if not available:
+                    self._set_mic_state(False)
+                    self.snack.show(t("stt_not_available"), COLORS["danger"])
+                    return
+                self._stt_initialized = True
+
+            await self._stt.listen(partial_results=True, listen_mode="dictation", on_device=False)
+        except SttError as exc:
+            logger.error("STT SttError (note editor): %s", exc)
+            self._set_mic_state(False)
+            self.snack.show(f"{t('stt_error')}: {exc}", COLORS["danger"])
+        except Exception as exc:
+            logger.exception("STT mic tap error (note editor)")
+            self._set_mic_state(False)
+            self.snack.show(f"{t('stt_error')}: {exc}", COLORS["danger"])
+
+    async def _on_refine_tap(self, e: Optional[ft.ControlEvent] = None) -> None:
+        await self._refine_async()
 
     async def _refine_async(self) -> None:
         content = (self._note_field.value or "").strip()
         instruction = (self._refine_field.value or "").strip()
-        if not content or not instruction:
+        if not instruction:
+            self.snack.show(t("refine_hint"))
             return
-        self._refine_btn.visible = False
-        self._refine_spinner.visible = True
+        if not content:
+            self.snack.show(t("note_empty_for_refine"), COLORS["danger"])
+            return
+        self._refine_btn.disabled = True
         self._refine_field.hint_text = t("refining_note")
         self.page.update()
         try:
@@ -188,10 +290,9 @@ class NoteEditorView:
         except ValueError as err:
             self.snack.show(str(err))
         except (httpx.HTTPStatusError, httpx.TimeoutException) as err:
-            self.snack.show(str(err))
+            self.snack.show(friendly_http_error(err), COLORS["danger"])
         finally:
-            self._refine_btn.visible = True
-            self._refine_spinner.visible = False
+            self._refine_btn.disabled = False
             self._refine_field.hint_text = t("refine_hint")
             self.page.update()
 

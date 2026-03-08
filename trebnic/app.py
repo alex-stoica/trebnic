@@ -6,7 +6,8 @@ from typing import Optional, Any, List
 logger = logging.getLogger(__name__)
 
 from config import (
-    COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG, SPACING_XS, PADDING_2XL,
+    COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG,
+    SPACING_XS, SPACING_LG, PADDING_SM, PADDING_2XL, PADDING_3XL,
 )
 from database import db
 from events import event_bus, AppEvent, Subscription
@@ -426,10 +427,10 @@ class TrebnicApp:
         """Build the projects navigation section."""
         add_project_btn = ft.Container(
             content=ft.Text("➕", size=14),
-            padding=5,
+            padding=PADDING_SM,
             border_radius=5,
             on_click=self._on_add_project_click,
-            tooltip="Create new project",
+            tooltip=t("create_new_project"),
         )
 
         self.nav_projects = ft.ListTile(
@@ -477,7 +478,7 @@ class TrebnicApp:
         self.sidebar = ft.Container(
             width=250,
             bgcolor=COLORS["sidebar"],
-            padding=20,
+            padding=PADDING_3XL,
             content=self.nav_content,
             visible=False,
         )
@@ -512,12 +513,12 @@ class TrebnicApp:
             expand=True,
             bgcolor=COLORS["bg"],
             alignment=ft.Alignment(-1, -1),
-            padding=ft.Padding.only(left=20, right=20, top=20, bottom=20),
+            padding=PADDING_3XL,
             content=ft.Column(
                 alignment=ft.MainAxisAlignment.START,
                 controls=[
                     self.header,
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     self.page_content,
                 ],
                 scroll=ft.ScrollMode.AUTO,

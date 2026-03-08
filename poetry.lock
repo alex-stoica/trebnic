@@ -435,14 +435,14 @@ web = ["flet-web (==0.82.0)", "flet-web (==0.82.0)"]
 
 [[package]]
 name = "flet-android-notifications"
-version = "0.5.2"
+version = "0.7.2"
 description = "Native local notifications for Flet apps (Android)"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "flet_android_notifications-0.5.2-py3-none-any.whl", hash = "sha256:c8dbed07adff90de71d7e8d99a7b31e1fceb1c7e456836347df9207c6531a993"},
-    {file = "flet_android_notifications-0.5.2.tar.gz", hash = "sha256:858b1a1431008b8575e22372de428baa4232936c534ae6c151a863708dd56ce6"},
+    {file = "flet_android_notifications-0.7.2-py3-none-any.whl", hash = "sha256:cb092ef0e2c3b193fd807cdf2d0114dba055b962f16c8db954d19ed7befc3f69"},
+    {file = "flet_android_notifications-0.7.2.tar.gz", hash = "sha256:4c44620633e79306db3c3505c901c5cfa3672d59097cb24559d86a9899ea07ee"},
 ]
 
 [package.dependencies]
@@ -462,6 +462,21 @@ files = [
 
 [package.dependencies]
 flet = ">=0.80.5"
+
+[[package]]
+name = "flet-stt"
+version = "0.1.0"
+description = "Speech-to-text for Flet apps via OS-native recognition (Android/iOS)"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "flet_stt-0.1.0-py3-none-any.whl", hash = "sha256:649d5c865014cbc84cdf52bfef55b7d84d8b0edd99c3ecce2ee230e3419dbc92"},
+    {file = "flet_stt-0.1.0.tar.gz", hash = "sha256:05cc8929b7c0b7698b018470b116da8b5e7724a70e77bf812b45d78ab6cf1e93"},
+]
+
+[package.dependencies]
+flet = ">=0.82.0"
 
 [[package]]
 name = "h11"
@@ -862,4 +877,4 @@ dev = ["pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "9e278e24b04f08db7e3df3d9143751f639819d62a193841b74bd409e291dded1"
+content-hash = "57593e7faeb0ce96f62f0f4bbacad999ce2f2603240eb783b4b5c76c248e8ecb"

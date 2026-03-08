@@ -19,6 +19,7 @@ from config import (
     SPACING_MD,
     SPACING_LG,
     SPACING_XL,
+    SPACING_2XL,
     PADDING_LG,
     PADDING_XL,
     DIALOG_WIDTH_MD,
@@ -892,7 +893,7 @@ class TimeEntriesView:
             [
                 header,
                 subheader,
-                ft.Divider(height=15, color="transparent"), 
+                ft.Divider(height=SPACING_2XL, color="transparent"),
                 self._entries_container,
             ],
             spacing=SPACING_LG,

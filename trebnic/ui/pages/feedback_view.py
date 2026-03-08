@@ -9,14 +9,17 @@ from typing import Callable, Optional
 from config import (
     COLORS,
     BORDER_RADIUS,
-    PageType,
-    FONT_SIZE_SM,
     FONT_SIZE_MD,
+    FONT_SIZE_SM,
     FONT_SIZE_XS,
+    PADDING_3XL,
+    PageType,
+    SPACING_3XL,
+    SPACING_SM,
 )
 from database import db
 from i18n import t
-from ui.helpers import accent_btn, SnackService
+from ui.helpers import accent_btn, friendly_http_error, SnackService
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +144,7 @@ class FeedbackPage:
                     self._message_field.update()
             else:
                 self.snack.show(
-                    f"{t('feedback_failed')}: {error}", COLORS["danger"],
+                    f"{t('feedback_failed')}: {friendly_http_error(error)}", COLORS["danger"],
                 )
         except OSError as exc:
             logger.exception("Send feedback failed")
@@ -199,7 +202,7 @@ class FeedbackPage:
                         size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
-                    ft.Container(height=5),
+                    ft.Container(height=SPACING_SM),
                     ft.Button(
                         t("make_donation"),
                         icon=ft.Icons.COFFEE,
@@ -211,7 +214,7 @@ class FeedbackPage:
                 spacing=10,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -251,7 +254,7 @@ class FeedbackPage:
                         size=FONT_SIZE_MD,
                         color=COLORS["done_text"],
                     ),
-                    ft.Container(height=5),
+                    ft.Container(height=SPACING_SM),
                     self._category_dd,
                     self._message_field,
                     ft.Container(
@@ -262,7 +265,7 @@ class FeedbackPage:
                 spacing=15,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -309,7 +312,7 @@ class FeedbackPage:
                         size=FONT_SIZE_SM,
                         color=COLORS["done_text"],
                     ),
-                    ft.Container(height=5),
+                    ft.Container(height=SPACING_SM),
                     self._api_key_field,
                     self._email_field,
                     ft.Container(
@@ -320,7 +323,7 @@ class FeedbackPage:
                 spacing=10,
             ),
             bgcolor=COLORS["card"],
-            padding=20,
+            padding=PADDING_3XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -351,7 +354,7 @@ class FeedbackPage:
         return ft.Column(
             [
                 header,
-                ft.Divider(height=20, color="transparent"),
+                ft.Divider(height=SPACING_3XL, color="transparent"),
                 donation_card,
                 feedback_card,
                 config_card,

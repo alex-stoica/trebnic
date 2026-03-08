@@ -1,10 +1,17 @@
+import logging
+
 import flet as ft
 from datetime import date, timedelta
 from typing import Callable, List, Optional, Set, Tuple
 
-from config import COLORS, CALENDAR_HEADER_HEIGHT, DIALOG_WIDTH_XL
+from config import (
+    COLORS, CALENDAR_HEADER_HEIGHT, DIALOG_WIDTH_XL,
+    SPACING_XS, SPACING_SM, PADDING_SM, PADDING_LG,
+)
 from database import DatabaseError
 from i18n import t
+
+logger = logging.getLogger(__name__)
 from models.entities import AppState, Task
 from services.daily_notes_service import DailyNoteService
 from ui.helpers import SnackService
@@ -191,7 +198,7 @@ class CalendarView:
         )
 
         content_control = (
-            ft.Column(items, scroll=ft.ScrollMode.AUTO, spacing=2)
+            ft.Column(items, scroll=ft.ScrollMode.AUTO, spacing=SPACING_XS)
             if items
             else ft.Text(
                 "\u2014",
@@ -203,9 +210,11 @@ class CalendarView:
 
         content = ft.Container(
             content=content_control,
-            padding=4,
+            padding=PADDING_SM,
             expand=True,
             alignment=ft.Alignment(0, -1),
+            on_click=lambda e, day=d: self._open_daily_note(day),
+            ink=True,
         )
 
         # Weekend columns get a slightly lighter border
@@ -219,7 +228,7 @@ class CalendarView:
         return ft.Container(
             content=ft.Column(
                 [header, content],
-                spacing=4,
+                spacing=SPACING_SM,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             expand=True,
@@ -238,7 +247,9 @@ class CalendarView:
         try:
             self._note_dates = await self._daily_notes_svc.get_dates_with_notes(start, end)
         except DatabaseError:
+            logger.exception("Failed to load note dates for %s - %s", start, end)
             self._note_dates = set()
+            self._snack.show(t("notes_load_failed"), COLORS["danger"])
 
     def build(self) -> ft.Column:
         today = date.today()
@@ -276,21 +287,21 @@ class CalendarView:
                 ft.Text(date_range, color=COLORS["done_text"], size=11),
                 nav_controls,
             ],
-            spacing=4,
+            spacing=SPACING_SM,
         )
 
         day_columns = [self._create_day_column(d, today, is_mobile) for d in days]
 
         calendar_row = ft.Row(
             day_columns,
-            spacing=4,
+            spacing=SPACING_SM,
             vertical_alignment=ft.CrossAxisAlignment.START,
         )
 
         calendar_container = ft.Container(
             content=calendar_row,
             expand=True,
-            padding=ft.Padding.only(top=10),
+            padding=ft.Padding.only(top=PADDING_LG),
         )
 
         return ft.Column([header_row, calendar_container], expand=True)

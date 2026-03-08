@@ -2,7 +2,10 @@ import flet as ft
 from datetime import date
 from typing import Callable, List, Optional
 
-from config import COLORS, PageType
+from config import (
+    COLORS, PageType, SPACING_SM, SPACING_MD, SPACING_XL,
+    PADDING_LG, PADDING_XL, PADDING_3XL,
+)
 from database import DatabaseError
 from i18n import t
 from models.entities import AppState, DailyNote
@@ -65,13 +68,13 @@ class NotesView:
             bgcolor=COLORS["input_bg"],
             border=ft.Border.all(1, COLORS["border"]),
             border_radius=8,
-            padding=10,
+            padding=PADDING_LG,
             visible=False,
             on_click=lambda e: self._open_editor(date.today()),
             ink=True,
         )
 
-        self._recent_list = ft.Column(controls=[], spacing=8)
+        self._recent_list = ft.Column(controls=[], spacing=SPACING_MD)
 
         self._empty_recent = ft.Container(
             content=ft.Column(
@@ -81,10 +84,10 @@ class NotesView:
                     ft.Text(t("no_notes_yet_desc"), size=13, color=COLORS["done_text"]),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=8,
+                spacing=SPACING_MD,
             ),
             alignment=ft.Alignment(0, 0),
-            padding=ft.Padding.only(top=20),
+            padding=ft.Padding.only(top=PADDING_3XL),
             visible=True,
         )
 
@@ -178,8 +181,8 @@ class NotesView:
             ))
 
         return ft.Container(
-            content=ft.Column(children, spacing=6),
-            padding=ft.Padding.all(12),
+            content=ft.Column(children, spacing=SPACING_SM),
+            padding=ft.Padding.all(PADDING_XL),
             border_radius=8,
             bgcolor=COLORS["card"],
             on_click=lambda e, d=note.date: self._toggle_expand(d),
@@ -221,7 +224,7 @@ class NotesView:
                     self._placeholder,
                     self._note_display,
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             padding=ft.Padding.symmetric(horizontal=4, vertical=10),
@@ -230,7 +233,7 @@ class NotesView:
         recent_section = ft.Column(
             [
                 ft.Text(t("recent_notes"), size=14, weight="bold", color=COLORS["done_text"]),
-                ft.Divider(height=8, color="transparent"),
+                ft.Divider(height=SPACING_MD, color="transparent"),
                 self._empty_recent,
                 self._recent_list,
             ],
@@ -242,6 +245,6 @@ class NotesView:
                 ft.Divider(color=COLORS["border"]),
                 recent_section,
             ],
-            spacing=12,
+            spacing=SPACING_XL,
             scroll=ft.ScrollMode.AUTO,
         )

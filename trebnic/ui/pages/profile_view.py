@@ -12,6 +12,16 @@ from config import (
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
     DIALOG_WIDTH_MD,
+    SPACING_XS,
+    SPACING_SM,
+    SPACING_MD,
+    SPACING_LG,
+    SPACING_2XL,
+    PADDING_SM,
+    PADDING_MD,
+    PADDING_LG,
+    PADDING_XL,
+    PADDING_2XL,
 )
 from models.entities import AppState
 from database import db, DatabaseError
@@ -136,10 +146,10 @@ class ProfilePage:
                     ft.Icon(ft.Icons.LANGUAGE, size=16, color=COLORS["white"]),
                     self._build_lang_en(),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=PADDING_SM),
             border_radius=12,
             bgcolor=COLORS["accent"] if is_en else "transparent",
             on_click=select_en,
@@ -153,10 +163,10 @@ class ProfilePage:
                     self._build_lang_ro(),
                     self._build_romanian_flag(),
                 ],
-                spacing=4,
+                spacing=SPACING_SM,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=PADDING_SM),
             border_radius=12,
             bgcolor=COLORS["accent"] if not is_en else "transparent",
             on_click=select_ro,
@@ -166,7 +176,7 @@ class ProfilePage:
         return ft.Container(
             content=ft.Row(
                 [en_container, ro_container],
-                spacing=2,
+                spacing=SPACING_XS,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=COLORS["input_bg"],
@@ -255,7 +265,7 @@ class ProfilePage:
             content=ft.Column(
                 [
                     ft.Text(t("data_management"), weight="bold", size=16),
-                    ft.Divider(height=10, color=COLORS["border"]),
+                    ft.Divider(height=SPACING_LG, color=COLORS["border"]),
                     ft.Row(
                         [
                             ft.Button(
@@ -273,25 +283,49 @@ class ProfilePage:
                                 color=COLORS["white"],
                             ),
                         ],
-                        spacing=10,
+                        spacing=SPACING_LG,
                         wrap=True,
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
             ),
             bgcolor=COLORS["card"],
-            padding=15,
+            padding=PADDING_2XL,
             border_radius=BORDER_RADIUS,
         )
 
     def _open_reset_dialog(self, e: ft.ControlEvent) -> None:
+        keyword = t("reset_keyword")
+        reset_btn = danger_btn(t("reset_everything"), lambda e: None)
+        reset_btn.disabled = True
+
+        def on_input_change(e: ft.ControlEvent) -> None:
+            typed = (e.control.value or "").strip()
+            reset_btn.disabled = typed != keyword
+            reset_btn.update()
+
+        confirm_field = ft.TextField(
+            hint_text=t("type_reset_to_confirm").format(keyword=keyword),
+            border_color=COLORS["border"],
+            bgcolor=COLORS["input_bg"],
+            border_radius=BORDER_RADIUS,
+            text_align=ft.TextAlign.CENTER,
+            on_change=on_input_change,
+        )
+
         def confirm(e: ft.ControlEvent) -> None:
             async def _reset() -> None:
-                await self.task_service.reset()
+                try:
+                    await self.task_service.reset()
+                except DatabaseError as ex:
+                    self.snack.show(t("factory_reset_failed").format(error=ex), COLORS["danger"])
+                    return
                 close()
                 event_bus.emit(AppEvent.DATA_RESET)
                 self.snack.show(t("all_data_reset"), COLORS["danger"])
             self.page.run_task(_reset)
+
+        reset_btn.on_click = confirm
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
@@ -313,9 +347,10 @@ class ProfilePage:
                         text_align=ft.TextAlign.CENTER,
                         color=COLORS["done_text"],
                     ),
+                    confirm_field,
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=15,
+                spacing=SPACING_2XL,
             ),
         )
 
@@ -325,7 +360,7 @@ class ProfilePage:
             content,
             lambda c: [
                 ft.TextButton(t("cancel"), on_click=c),
-                danger_btn(t("reset_everything"), confirm),
+                reset_btn,
             ],
         )
 
@@ -407,7 +442,7 @@ class ProfilePage:
                 value=str(current_time.hour),
                 width=100,
                 dense=True,
-                content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                content_padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=PADDING_SM),
             )
             row = ft.Row(
                 [
@@ -416,7 +451,7 @@ class ProfilePage:
                             ft.Text(t(label_key), size=13),
                             ft.Text(t(desc_key), size=11, color=COLORS["done_text"]),
                         ],
-                        spacing=2,
+                        spacing=SPACING_XS,
                         expand=True,
                     ),
                     switch,
@@ -444,14 +479,14 @@ class ProfilePage:
                 digest_row,
                 preview_row,
                 overdue_row,
-                ft.Divider(height=5, color="transparent"),
+                ft.Divider(height=SPACING_SM, color="transparent"),
                 ft.TextButton(
                     t("test_notification"),
                     icon=ft.Icons.NOTIFICATIONS_ACTIVE,
                     on_click=on_test_notification,
                 ),
             ],
-            spacing=8,
+            spacing=SPACING_MD,
         )
 
         def save(e: ft.ControlEvent) -> None:
@@ -496,19 +531,19 @@ class ProfilePage:
             content=ft.Column(
                 [
                     ft.Text(t("preferences"), weight="bold", size=16),
-                    ft.Divider(height=10, color=COLORS["border"]),
+                    ft.Divider(height=SPACING_LG, color=COLORS["border"]),
                     ft.Text(t("default_estimated_time"), size=13),
-                    ft.Row([ft.Icon(ft.Icons.TIMER, size=18), duration_label], spacing=8),
+                    ft.Row([ft.Icon(ft.Icons.TIMER, size=18), duration_label], spacing=SPACING_MD),
                     slider,
                     ft.Text(
                         t("time_range_hint"),
                         size=11,
                         color=COLORS["done_text"],
                     ),
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Text(t("notifications"), size=13),
                     email_cb,
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Row(
                         [
                             ft.Row(
@@ -516,14 +551,14 @@ class ProfilePage:
                                     ft.Icon(ft.Icons.NOTIFICATIONS, size=18),
                                     ft.Text(t("notifications_enabled"), size=13),
                                 ],
-                                spacing=8,
+                                spacing=SPACING_MD,
                             ),
                             notifications_switch,
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     notification_sub_controls,
-                    ft.Divider(height=10, color="transparent"),
+                    ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Row(
                         [
                             ft.TextButton(
@@ -534,13 +569,13 @@ class ProfilePage:
                             accent_btn(t("save_preferences"), save),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=10,
+                        spacing=SPACING_LG,
                     ),
                 ],
-                spacing=8,
+                spacing=SPACING_MD,
             ),
             bgcolor=COLORS["card"],
-            padding=15,
+            padding=PADDING_2XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -606,10 +641,10 @@ class ProfilePage:
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=5,
+                spacing=SPACING_SM,
             ),
             alignment=ft.Alignment(0, 0),
-            padding=10,
+            padding=PADDING_LG,
         )
 
         account_age_card = ft.Container(
@@ -625,14 +660,14 @@ class ProfilePage:
                                 size=12,
                             ),
                         ],
-                        spacing=2,
+                        spacing=SPACING_XS,
                         expand=True,
                     ),
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
             ),
             bgcolor=COLORS["card"],
-            padding=12,
+            padding=PADDING_XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -649,14 +684,14 @@ class ProfilePage:
                                 size=12,
                             ),
                         ],
-                        spacing=2,
+                        spacing=SPACING_XS,
                         expand=True,
                     ),
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
             ),
             bgcolor=COLORS["card"],
-            padding=12,
+            padding=PADDING_XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -674,14 +709,14 @@ class ProfilePage:
                                 size=12,
                             ),
                         ],
-                        spacing=2,
+                        spacing=SPACING_XS,
                         expand=True,
                     ),
                 ],
-                spacing=10,
+                spacing=SPACING_LG,
             ),
             bgcolor=COLORS["card"],
-            padding=12,
+            padding=PADDING_XL,
             border_radius=BORDER_RADIUS,
         )
 
@@ -701,16 +736,16 @@ class ProfilePage:
             [
                 header,
                 avatar_section,
-                ft.Divider(height=10, color=COLORS["border"]),
+                ft.Divider(height=SPACING_LG, color=COLORS["border"]),
                 account_age_card,
                 tasks_completed_card,
                 most_active_card,
-                ft.Divider(height=15, color="transparent"),
+                ft.Divider(height=SPACING_2XL, color="transparent"),
                 preferences_section,
-                ft.Divider(height=15, color="transparent"),
+                ft.Divider(height=SPACING_2XL, color="transparent"),
                 data_management_section,
-                ft.Divider(height=15, color="transparent"),
+                ft.Divider(height=SPACING_2XL, color="transparent"),
                 reset_btn_container,
             ],
-            spacing=8,
+            spacing=SPACING_MD,
         )
