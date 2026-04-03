@@ -411,14 +411,14 @@ test-randomorder = ["pytest-randomly"]
 
 [[package]]
 name = "flet"
-version = "0.82.0"
+version = "0.82.2"
 description = "Flet for Python - easily build interactive multi-platform apps in Python"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "flet-0.82.0-py3-none-any.whl", hash = "sha256:06a91640bb851cb636497bc386d8aa09a5f40a9f274143f1132a1026d35d0e5e"},
-    {file = "flet-0.82.0.tar.gz", hash = "sha256:6d785acffe3c838e3e00972ab129f3f6ae5720de3a5407494893bad7e3911d35"},
+    {file = "flet-0.82.2-py3-none-any.whl", hash = "sha256:278806e5480423772d342566e49f06867bf13ced709bf449890f0bcb27d5a101"},
+    {file = "flet-0.82.2.tar.gz", hash = "sha256:eaad9675ea0c5b81a256c39f92354b219ca3c1fbe27ead7d2a7667a71c835dbe"},
 ]
 
 [package.dependencies]
@@ -428,21 +428,21 @@ oauthlib = {version = ">=3.2.2", markers = "platform_system != \"Pyodide\""}
 repath = ">=0.9.0"
 
 [package.extras]
-all = ["flet-cli (==0.82.0)", "flet-desktop (==0.82.0)", "flet-desktop-light (==0.82.0)", "flet-web (==0.82.0)"]
-cli = ["flet-cli (==0.82.0)", "flet-cli (==0.82.0)"]
-desktop = ["flet-desktop (==0.82.0)", "flet-desktop-light (==0.82.0)"]
-web = ["flet-web (==0.82.0)", "flet-web (==0.82.0)"]
+all = ["flet-cli (==0.82.2)", "flet-desktop (==0.82.2)", "flet-desktop-light (==0.82.2)", "flet-web (==0.82.2)"]
+cli = ["flet-cli (==0.82.2)", "flet-cli (==0.82.2)"]
+desktop = ["flet-desktop (==0.82.2)", "flet-desktop-light (==0.82.2)"]
+web = ["flet-web (==0.82.2)", "flet-web (==0.82.2)"]
 
 [[package]]
 name = "flet-android-notifications"
-version = "0.7.2"
+version = "0.7.5"
 description = "Native local notifications for Flet apps (Android)"
 optional = false
-python-versions = ">=3.10"
+python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_android_notifications-0.7.2-py3-none-any.whl", hash = "sha256:cb092ef0e2c3b193fd807cdf2d0114dba055b962f16c8db954d19ed7befc3f69"},
-    {file = "flet_android_notifications-0.7.2.tar.gz", hash = "sha256:4c44620633e79306db3c3505c901c5cfa3672d59097cb24559d86a9899ea07ee"},
+    {file = "flet_android_notifications-0.7.5-py3-none-any.whl", hash = "sha256:0c11ca31066394ba8f04cd496aa13281589e8a13062d2a06f937a1fdfff84cc7"},
+    {file = "flet_android_notifications-0.7.5.tar.gz", hash = "sha256:49820d223b3c2c1a853de890387548313ba0d60480fec140f3c85bea5b4f676e"},
 ]
 
 [package.dependencies]
@@ -450,14 +450,14 @@ flet = ">=0.80.5"
 
 [[package]]
 name = "flet-circular-slider"
-version = "0.6.0"
+version = "0.6.1"
 description = "Circular/radial slider control for Flet, wrapping sleek_circular_slider Flutter package"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_circular_slider-0.6.0-py3-none-any.whl", hash = "sha256:598cc155da52a5cfcd68bc9e1394d6de826529bc3d256181be47d961f11e3856"},
-    {file = "flet_circular_slider-0.6.0.tar.gz", hash = "sha256:013048bdd85d02a90493f035b490207cdbe1f1d4801752689e068dbb411f14cc"},
+    {file = "flet_circular_slider-0.6.1-py3-none-any.whl", hash = "sha256:f06248440fdf48f65d8a788fb1deb81da341ad7b995e5002dfafef35daffb866"},
+    {file = "flet_circular_slider-0.6.1.tar.gz", hash = "sha256:438475d252cb2635f06b357752c629266406ff395251b3206ba52a10196bdd2a"},
 ]
 
 [package.dependencies]
@@ -465,14 +465,14 @@ flet = ">=0.80.5"
 
 [[package]]
 name = "flet-stt"
-version = "0.1.0"
+version = "0.1.5"
 description = "Speech-to-text for Flet apps via OS-native recognition (Android/iOS)"
 optional = false
-python-versions = ">=3.10"
+python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_stt-0.1.0-py3-none-any.whl", hash = "sha256:649d5c865014cbc84cdf52bfef55b7d84d8b0edd99c3ecce2ee230e3419dbc92"},
-    {file = "flet_stt-0.1.0.tar.gz", hash = "sha256:05cc8929b7c0b7698b018470b116da8b5e7724a70e77bf812b45d78ab6cf1e93"},
+    {file = "flet_stt-0.1.5-py3-none-any.whl", hash = "sha256:97384dcb271fa7d30551df10106a7e22b6e6356b0a138446462783d08be1a425"},
+    {file = "flet_stt-0.1.5.tar.gz", hash = "sha256:8cfbe3c6e858476bf09fe9caf28d39f95fdae1a5f31cf0f629fcbca1f11fb9e6"},
 ]
 
 [package.dependencies]
@@ -877,4 +877,4 @@ dev = ["pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "57593e7faeb0ce96f62f0f4bbacad999ce2f2603240eb783b4b5c76c248e8ecb"
+content-hash = "abbb403601c238b9679a9b550ff7fc5f8d3be7ed4819962abe476c3ea211df13"
