@@ -101,6 +101,7 @@ class NotesView:
         try:
             note = await self._svc.get_note(date.today())
         except DatabaseError:
+            self.snack.show(t("notes_load_failed"), COLORS["danger"])
             return
 
         if note and note.content.strip():
@@ -117,6 +118,7 @@ class NotesView:
         try:
             self._recent_notes = await self._svc.get_recent_notes(limit=50)
         except DatabaseError:
+            self.snack.show(t("notes_load_failed"), COLORS["danger"])
             self._recent_notes = []
 
         today = date.today()

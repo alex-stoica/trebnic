@@ -102,10 +102,12 @@ class TrebnicApp:
         self._cleanup()
 
     def _on_app_lifecycle_state_change(self, e: ft.AppLifecycleStateChangeEvent) -> None:
-        """Handle app lifecycle changes - sync timer on resume from background."""
+        """Handle app lifecycle changes - sync timer on resume from background and
+        rebuild the Android digest body so tomorrow's alarm reflects current tasks."""
         if e.state in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
             if self.timer_svc.running:
                 event_bus.emit(AppEvent.TIMER_SYNC)
+            self.page.run_task(notification_service.reschedule_digests)
 
     def _cleanup(self) -> None:
         """Clean up all resources."""

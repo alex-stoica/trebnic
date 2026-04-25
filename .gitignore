@@ -29,6 +29,9 @@ nul
 # Developer utilities
 cpy_files.py
 
+# Local-only notes and learnings
+insights/
+
 # Claude
 .claude/
 CLAUDE.md

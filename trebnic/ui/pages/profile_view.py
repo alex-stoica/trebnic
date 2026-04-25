@@ -1,7 +1,10 @@
 import json
+import logging
 import flet as ft
 from datetime import date, datetime, time
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 from config import (
     COLORS,
@@ -28,7 +31,7 @@ from database import db, DatabaseError
 from services.logic import TaskService
 from services.notification_service import notification_service, NotificationBackend
 from services.settings_service import SettingsService
-from ui.helpers import format_duration, accent_btn, danger_btn, SnackService
+from ui.helpers import format_duration, danger_btn, SnackService
 from ui.dialogs.base import open_dialog
 from events import event_bus, AppEvent
 from i18n import set_language, t, get_language
@@ -119,23 +122,29 @@ class ProfilePage:
             en_container.bgcolor = COLORS["accent"] if is_en else "transparent"
             ro_container.bgcolor = COLORS["accent"] if not is_en else "transparent"
 
-        def select_en(e: ft.ControlEvent) -> None:
-            if get_language() == "en":
-                return
-            self.state.language = "en"
-            set_language("en")
+        def _apply_language(lang: str) -> None:
+            self.state.language = lang
+            set_language(lang)
             update_toggle_state()
             event_bus.emit(AppEvent.LANGUAGE_CHANGED)
             self.page.update()
 
+            async def _persist() -> None:
+                try:
+                    await db.set_setting("language", lang)
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+            self.page.run_task(_persist)
+
+        def select_en(e: ft.ControlEvent) -> None:
+            if get_language() == "en":
+                return
+            _apply_language("en")
+
         def select_ro(e: ft.ControlEvent) -> None:
             if get_language() == "ro":
                 return
-            self.state.language = "ro"
-            set_language("ro")
-            update_toggle_state()
-            event_bus.emit(AppEvent.LANGUAGE_CHANGED)
-            self.page.update()
+            _apply_language("ro")
 
         is_en = self.state.language == "en"
 
@@ -365,7 +374,13 @@ class ProfilePage:
         )
 
     def _build_preferences_section(self) -> ft.Container:
-        """Build the preferences section with estimated time and notifications."""
+        """Build the preferences section with estimated time and notifications.
+
+        Every control auto-persists on change. There is no Save button — the page
+        behaves like a real Android settings screen so users never lose changes
+        by tapping back. The slider persists on release (on_change_end) to avoid
+        a DB write per drag tick.
+        """
         duration_label = ft.Text(
             format_duration(self.state.default_estimated_minutes),
             size=14,
@@ -376,20 +391,58 @@ class ProfilePage:
             duration_label.value = format_duration(int(e.control.value) * DURATION_SLIDER_STEP)
             duration_label.update()
 
+        def on_slider_end(e: ft.ControlEvent) -> None:
+            new_value = int(e.control.value) * DURATION_SLIDER_STEP
+            self.state.default_estimated_minutes = new_value
+            if self.tasks_view:
+                self.tasks_view.pending_details["estimated_minutes"] = new_value
+                self.tasks_view._details_text.value = t("add_details")
+
+            async def _do() -> None:
+                try:
+                    await db.set_setting("default_estimated_minutes", new_value)
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+            self.page.run_task(_do)
+
         slider = ft.Slider(
             min=DURATION_SLIDER_MIN,
             max=DURATION_SLIDER_MAX,
             divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,
             value=self.state.default_estimated_minutes // DURATION_SLIDER_STEP,
             on_change=on_slider,
+            on_change_end=on_slider_end,
         )
+
+        def on_email_change(e: ft.ControlEvent) -> None:
+            self.state.email_weekly_stats = e.control.value
+
+            async def _do() -> None:
+                try:
+                    await db.set_setting("email_weekly_stats", e.control.value)
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+            self.page.run_task(_do)
 
         email_cb = ft.Checkbox(
             value=self.state.email_weekly_stats,
             label=t("email_weekly_stats"),
+            on_change=on_email_change,
         )
 
-        # Notification settings
+        # Notification settings — auto-persist on change so the master toggle and
+        # sub-switches don't silently drop their value when the user navigates away.
+        notification_sub_controls = ft.Column(spacing=SPACING_MD)
+
+        def _persist(db_key: str, value: object) -> None:
+            async def _do() -> None:
+                try:
+                    await db.set_setting(db_key, value)
+                    await notification_service.reschedule_digests()
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+            self.page.run_task(_do)
+
         def on_notifications_toggle(e: ft.ControlEvent) -> None:
             async def _toggle() -> None:
                 if e.control.value:
@@ -399,33 +452,39 @@ class ProfilePage:
                         self.snack.show(t("notification_permission_denied"), COLORS["danger"])
                         self.page.update()
                         return
-                    else:
-                        self.snack.show(t("notification_permission_granted"))
+                    self.snack.show(t("notification_permission_granted"))
                 self.state.notifications_enabled = e.control.value
-                self.page.update()
+                notification_sub_controls.visible = e.control.value
+                try:
+                    try:
+                        await db.set_setting("notifications_enabled", e.control.value)
+                        await notification_service.reschedule_digests()
+                    except (DatabaseError, TypeError, ValueError, OSError, RuntimeError) as ex:
+                        # Don't let a failed reschedule revert the user's UI choice —
+                        # visibility + DB write must stick even if the alarm scheduling
+                        # extension throws. Log and surface as a snack.
+                        logger.exception("notifications toggle: reschedule failed")
+                        self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+                finally:
+                    self.page.update()
             self.page.run_task(_toggle)
 
-        def on_test_notification(e: ft.ControlEvent) -> None:
-            try:
-                backend = notification_service.backend
-                if backend == NotificationBackend.NONE:
-                    self.snack.show(f"{t('test_notification_unavailable')} (backend: none)", COLORS["danger"])
-                    return
+        def on_send_overdue_now(e: ft.ControlEvent) -> None:
+            backend = notification_service.backend
+            if backend == NotificationBackend.NONE:
+                self.snack.show(f"{t('test_notification_unavailable')} (backend: none)", COLORS["danger"])
+                return
 
-                async def _test() -> None:
-                    try:
-                        ntitle = t("test_notification_title")
-                        body = t("test_notification_body")
-                        success = await notification_service.test_notification(ntitle, body)
-                        if success:
-                            self.snack.show(f"{t('test_notification_sent')} ({backend.value})")
-                        else:
-                            self.snack.show(f"{t('test_notification_failed')} ({backend.value})", COLORS["danger"])
-                    except (OSError, RuntimeError, ValueError) as ex:
-                        self.snack.show(f"Error: {ex}", COLORS["danger"])
-                self.page.run_task(_test)
-            except (OSError, RuntimeError, ValueError) as ex:
-                self.snack.show(f"Error: {ex}", COLORS["danger"])
+            async def _send() -> None:
+                try:
+                    sent = await notification_service.send_overdue_digest_now()
+                    if sent:
+                        self.snack.show(t("overdue_digest_sent"))
+                    else:
+                        self.snack.show(t("no_overdue_tasks"))
+                except (OSError, RuntimeError, ValueError) as ex:
+                    self.snack.show(f"Error: {ex}", COLORS["danger"])
+            self.page.run_task(_send)
 
         notifications_switch = ft.Switch(
             value=self.state.notifications_enabled,
@@ -433,16 +492,30 @@ class ProfilePage:
         )
 
         # Hour options for digest time pickers (06:00 - 22:00)
-        hour_options = [ft.Option(key=str(h), text=f"{h:02d}:00") for h in range(6, 23)]
+        hour_options = [ft.dropdown.Option(key=str(h), text=f"{h:02d}:00") for h in range(6, 23)]
 
-        def _make_digest_row(label_key: str, desc_key: str, enabled: bool, current_time: time) -> tuple:
-            switch = ft.Switch(value=enabled)
+        def _make_digest_row(
+            label_key: str, desc_key: str, enabled: bool, current_time: time,
+            enabled_key: str, time_key: str,
+        ) -> tuple:
+            # DB key and AppState attribute name are intentionally the same here.
+            def on_switch_change(e: ft.ControlEvent) -> None:
+                setattr(self.state, enabled_key, e.control.value)
+                _persist(enabled_key, e.control.value)
+
+            def on_time_change(e: ft.ControlEvent) -> None:
+                new_time = time(int(e.control.value), 0)
+                setattr(self.state, time_key, new_time)
+                _persist(time_key, new_time.strftime("%H:%M"))
+
+            switch = ft.Switch(value=enabled, on_change=on_switch_change)
             dropdown = ft.Dropdown(
                 options=hour_options,
                 value=str(current_time.hour),
                 width=100,
                 dense=True,
                 content_padding=ft.Padding.symmetric(horizontal=PADDING_MD, vertical=PADDING_SM),
+                on_select=on_time_change,
             )
             row = ft.Row(
                 [
@@ -464,68 +537,55 @@ class ProfilePage:
         digest_row, digest_switch, digest_dropdown = _make_digest_row(
             "daily_digest", "daily_digest_desc",
             self.state.daily_digest_enabled, self.state.daily_digest_time,
+            "daily_digest_enabled", "daily_digest_time",
         )
         preview_row, preview_switch, preview_dropdown = _make_digest_row(
             "evening_preview", "evening_preview_desc",
             self.state.evening_preview_enabled, self.state.evening_preview_time,
+            "evening_preview_enabled", "evening_preview_time",
         )
         overdue_row, overdue_switch, overdue_dropdown = _make_digest_row(
             "overdue_nudge", "overdue_nudge_desc",
             self.state.overdue_nudge_enabled, self.state.overdue_nudge_time,
+            "overdue_nudge_enabled", "overdue_nudge_time",
         )
 
-        notification_sub_controls = ft.Column(
-            [
-                digest_row,
-                preview_row,
-                overdue_row,
-                ft.Divider(height=SPACING_SM, color="transparent"),
-                ft.TextButton(
-                    t("test_notification"),
-                    icon=ft.Icons.NOTIFICATIONS_ACTIVE,
-                    on_click=on_test_notification,
-                ),
-            ],
-            spacing=SPACING_MD,
-        )
-
-        def save(e: ft.ControlEvent) -> None:
-            async def _save() -> None:
-                self.state.default_estimated_minutes = (
-                    int(slider.value) * DURATION_SLIDER_STEP
-                )
-                self.state.email_weekly_stats = email_cb.value
-                # Sync digest notification settings to state before saving
-                self.state.daily_digest_enabled = digest_switch.value
-                self.state.daily_digest_time = time(int(digest_dropdown.value), 0)
-                self.state.evening_preview_enabled = preview_switch.value
-                self.state.evening_preview_time = time(int(preview_dropdown.value), 0)
-                self.state.overdue_nudge_enabled = overdue_switch.value
-                self.state.overdue_nudge_time = time(int(overdue_dropdown.value), 0)
-                try:
-                    await self.settings_service.save_settings()
-                except DatabaseError as ex:
-                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
-                    return
-                # Reschedule digest alarms after settings change
-                await notification_service.reschedule_digests()
-                if self.tasks_view:
-                    self.tasks_view.pending_details["estimated_minutes"] = (
-                        self.state.default_estimated_minutes
-                    )
-                    self.tasks_view._details_text.value = t("add_details")
-                self.snack.show(t("preferences_saved"))
-            self.page.run_task(_save)
+        notification_sub_controls.controls = [
+            digest_row,
+            preview_row,
+            overdue_row,
+            ft.Divider(height=SPACING_SM, color="transparent"),
+            ft.TextButton(
+                t("send_overdue_digest_now"),
+                icon=ft.Icons.NOTIFICATIONS_ACTIVE,
+                on_click=on_send_overdue_now,
+            ),
+        ]
+        notification_sub_controls.visible = self.state.notifications_enabled
 
         def reset_defaults(e: ft.ControlEvent) -> None:
             slider.value = 15 // DURATION_SLIDER_STEP
             duration_label.value = format_duration(15)
             email_cb.value = False
+            self.state.default_estimated_minutes = 15
+            self.state.email_weekly_stats = False
+            if self.tasks_view:
+                self.tasks_view.pending_details["estimated_minutes"] = 15
+                self.tasks_view._details_text.value = t("add_details")
             if get_language() != "en":
                 self.state.language = "en"
                 set_language("en")
                 event_bus.emit(AppEvent.LANGUAGE_CHANGED)
             self.page.update()
+
+            async def _persist_reset() -> None:
+                try:
+                    await db.set_setting("default_estimated_minutes", 15)
+                    await db.set_setting("email_weekly_stats", False)
+                    await db.set_setting("language", self.state.language)
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+            self.page.run_task(_persist_reset)
 
         return ft.Container(
             content=ft.Column(
@@ -566,10 +626,8 @@ class ProfilePage:
                                 on_click=reset_defaults,
                                 style=ft.ButtonStyle(color=COLORS["done_text"]),
                             ),
-                            accent_btn(t("save_preferences"), save),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=SPACING_LG,
                     ),
                 ],
                 spacing=SPACING_MD,

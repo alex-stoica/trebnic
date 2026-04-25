@@ -2,6 +2,7 @@ import uuid
 from typing import Optional
 
 from database import db
+from i18n import t
 from models.entities import AppState, Project
 
 
@@ -21,10 +22,10 @@ class ProjectService:
         Returns an error message if invalid, None if valid.
         """
         if not name:
-            return "Name required"
+            return t("name_required")
         for p in self.state.projects:
             if p.name.lower() == name.lower() and p.id != editing_id:
-                return "Project already exists"
+                return t("project_already_exists")
         return None
 
     def generate_project_id(self, name: str) -> str:

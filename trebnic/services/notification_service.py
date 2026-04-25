@@ -174,9 +174,17 @@ class NotificationService:
         logger.info("Notification scheduler stopped")
 
     def _subscribe_to_events(self) -> None:
-        """Only subscribe to TIMER_STOPPED for timer-complete notifications."""
-        sub = event_bus.subscribe(AppEvent.TIMER_STOPPED, self._on_timer_event)
-        self._subscriptions.append(sub)
+        """Subscribe to TIMER_STOPPED and to task-mutation events that may change
+        the digest contents (so we can rebuild and reschedule on Android, where
+        the alarm body is fixed at schedule time)."""
+        self._subscriptions.append(
+            event_bus.subscribe(AppEvent.TIMER_STOPPED, self._on_timer_event)
+        )
+        for evt in (
+            AppEvent.TASK_CREATED, AppEvent.TASK_UPDATED, AppEvent.TASK_COMPLETED,
+            AppEvent.TASK_UNCOMPLETED, AppEvent.TASK_DELETED, AppEvent.TASK_POSTPONED,
+        ):
+            self._subscriptions.append(event_bus.subscribe(evt, self._on_task_mutation))
 
     def _unsubscribe_from_events(self) -> None:
         for sub in self._subscriptions:
@@ -186,6 +194,12 @@ class NotificationService:
     def _on_timer_event(self, data: Any) -> None:
         """Handle timer stop — schedule_timer_complete_notification is called by timer_controller."""
         pass  # Timer complete is handled directly by timer_controller calling the method
+
+    def _on_task_mutation(self, data: Any) -> None:
+        """Reschedule digests so Android alarm body reflects the latest task list."""
+        if not self._running or self._schedule_async is None:
+            return
+        self._schedule_async(self._schedule_all_digests)
 
     # ── Desktop polling loop ──────────────────────────────────────────
 
@@ -350,48 +364,52 @@ class NotificationService:
         # Desktop uses the polling loop, no explicit scheduling needed
 
     async def _schedule_android_digests(self, state: Any) -> None:
-        """Schedule daily AlarmManager alarms for each enabled digest."""
+        """Schedule daily AlarmManager alarms for each enabled digest.
+
+        The Flet extension exposes no on-fire callback, so the body is whatever
+        we set at schedule time. We rebuild from the current task snapshot here
+        and reschedule on every meaningful event (settings change, app resume,
+        task mutation) so the body stays as fresh as possible.
+        """
         # Cancel existing digest alarms first
         for nid in (DIGEST_NOTIFICATION_ID, PREVIEW_NOTIFICATION_ID, OVERDUE_NOTIFICATION_ID):
             await self._cancel_extension_notification(nid)
 
         digest_actions = [{"id": "open_tasks", "title": t("notif_action_open")}]
+        # Skip the daily nudge entirely if the user has no pending tasks at all —
+        # otherwise schedule with a neutral fallback so daily reminders keep firing
+        # even when the app stays closed for days.
+        has_pending = bool(state.tasks)
 
-        if state.daily_digest_enabled:
-            trigger = self._next_trigger_time(state.daily_digest_time)
+        async def schedule_digest(nid: int, enabled: bool, target_time: time, builder: Callable) -> None:
+            if not enabled:
+                return
+            if not has_pending:
+                return
+            built = await builder()
+            if built is not None:
+                title, body, _style = built
+            else:
+                title, body = "Trebnic", t("digest_check_app")
+            trigger = self._next_trigger_time(target_time)
             await self._schedule_extension_notification(
-                DIGEST_NOTIFICATION_ID,
-                "Trebnic",
-                t("daily_digest_pending"),
-                trigger,
-                None,
+                nid, title, body, trigger, None,
                 match_date_time_components="time",
                 actions=digest_actions,
             )
 
-        if state.evening_preview_enabled:
-            trigger = self._next_trigger_time(state.evening_preview_time)
-            await self._schedule_extension_notification(
-                PREVIEW_NOTIFICATION_ID,
-                "Trebnic",
-                t("evening_preview_pending"),
-                trigger,
-                None,
-                match_date_time_components="time",
-                actions=digest_actions,
-            )
-
-        if state.overdue_nudge_enabled:
-            trigger = self._next_trigger_time(state.overdue_nudge_time)
-            await self._schedule_extension_notification(
-                OVERDUE_NOTIFICATION_ID,
-                "Trebnic",
-                t("overdue_nudge_pending"),
-                trigger,
-                None,
-                match_date_time_components="time",
-                actions=digest_actions,
-            )
+        await schedule_digest(
+            DIGEST_NOTIFICATION_ID, state.daily_digest_enabled,
+            state.daily_digest_time, self._build_morning_digest,
+        )
+        await schedule_digest(
+            PREVIEW_NOTIFICATION_ID, state.evening_preview_enabled,
+            state.evening_preview_time, self._build_evening_preview,
+        )
+        await schedule_digest(
+            OVERDUE_NOTIFICATION_ID, state.overdue_nudge_enabled,
+            state.overdue_nudge_time, self._build_overdue_nudge,
+        )
 
     def _next_trigger_time(self, target: time) -> datetime:
         """Compute next datetime for a given time-of-day (today or tomorrow)."""
@@ -404,6 +422,23 @@ class NotificationService:
     async def reschedule_digests(self) -> None:
         """Public method to reschedule digests after settings change."""
         await self._schedule_all_digests()
+
+    async def send_overdue_digest_now(self) -> bool:
+        """Build and immediately deliver the overdue digest using current state.
+
+        Exercises the real overdue path (builder + delivery) instead of the bare
+        delivery-only test. Returns False when there are no overdue tasks so the
+        UI can show a "nothing to send" message rather than an empty notification.
+        """
+        if self._backend == NotificationBackend.NONE:
+            return False
+        built = await self._build_overdue_nudge()
+        if built is None:
+            return False
+        title, body, style = built
+        digest_actions = [{"id": "open_tasks", "title": t("notif_action_open")}]
+        await self._deliver_immediate(title, body, actions=digest_actions, style=style)
+        return True
 
     # ── Timer complete notification ───────────────────────────────────
 
@@ -512,7 +547,7 @@ class NotificationService:
             if payload:
                 base_payload.update(payload)
             payload_str = json.dumps(base_payload)
-            effective_style = style if style is not None else BigTextStyle(text=body)
+            effective_style = style if style is not None else BigTextStyle(big_text=body)
             kwargs: Dict[str, Any] = {
                 "notification_id": nid,
                 "title": title,
@@ -563,7 +598,7 @@ class NotificationService:
                 "schedule_mode": "inexact_allow_while_idle",
                 "group_key": "trebnic_tasks",
                 "color": "#4a9eff",
-                "style": BigTextStyle(text=body),
+                "style": BigTextStyle(big_text=body),
             }
             if match_date_time_components:
                 kwargs["match_date_time_components"] = match_date_time_components

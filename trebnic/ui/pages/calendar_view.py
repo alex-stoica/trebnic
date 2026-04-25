@@ -92,6 +92,7 @@ class CalendarView:
             try:
                 note = await self._daily_notes_svc.get_note(note_date)
             except DatabaseError:
+                self._snack.show(t("notes_load_failed"), COLORS["danger"])
                 return
             if note and note.content.strip():
                 md.value = note.content

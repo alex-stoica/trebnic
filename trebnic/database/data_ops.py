@@ -105,8 +105,12 @@ class DataOpsMixin:
         relationships across export/import cycles.
         """
         try:
-            await self.clear_all()
             async with self._get_connection() as conn:
+                await conn.executescript(
+                    "DELETE FROM scheduled_notifications; DELETE FROM time_entries; "
+                    "DELETE FROM tasks; DELETE FROM projects; DELETE FROM daily_notes; "
+                    "DELETE FROM settings;"
+                )
                 # Projects (string IDs, use save_project logic inline)
                 for p in projects:
                     name = _encrypt_field(p["name"])

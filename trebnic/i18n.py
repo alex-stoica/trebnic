@@ -516,6 +516,13 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "daily_digest_pending": {"en": "Checking today's tasks...", "ro": "Se verifică treburile de azi..."},
     "evening_preview_pending": {"en": "Checking tomorrow's tasks...", "ro": "Se verifică treburile de mâine..."},
     "overdue_nudge_pending": {"en": "Checking overdue tasks...", "ro": "Se verifică treburile restante..."},
+    "digest_check_app": {
+        "en": "Open Trebnic to check your tasks today",
+        "ro": "Deschide Trebnic pentru a verifica treburile de azi",
+    },
+    "send_overdue_digest_now": {"en": "Send overdue digest now", "ro": "Trimite rezumat restanțe acum"},
+    "no_overdue_tasks": {"en": "No overdue tasks", "ro": "Nicio treabă restantă"},
+    "overdue_digest_sent": {"en": "Overdue digest sent", "ro": "Rezumat restanțe trimis"},
     "test_notification": {"en": "Test notification", "ro": "Notificare test"},
     "test_notification_title": {"en": "Test notification", "ro": "Notificare test"},
     "test_notification_body": {"en": "Notifications are working!", "ro": "Notificările funcționează!"},
@@ -859,6 +866,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
 
     # Calendar note loading
     "notes_load_failed": {"en": "Failed to load notes", "ro": "Nu s-au putut incarca notitele"},
+
+    # Project validation
+    "name_required": {"en": "Name required", "ro": "Numele este obligatoriu"},
+    "project_already_exists": {"en": "Project already exists", "ro": "Proiectul exista deja"},
 
     # Factory reset confirmation
     "type_reset_to_confirm": {
