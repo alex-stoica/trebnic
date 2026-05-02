@@ -435,18 +435,18 @@ web = ["flet-web (==0.82.2)", "flet-web (==0.82.2)"]
 
 [[package]]
 name = "flet-android-notifications"
-version = "0.7.5"
+version = "0.7.9"
 description = "Native local notifications for Flet apps (Android)"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_android_notifications-0.7.5-py3-none-any.whl", hash = "sha256:0c11ca31066394ba8f04cd496aa13281589e8a13062d2a06f937a1fdfff84cc7"},
-    {file = "flet_android_notifications-0.7.5.tar.gz", hash = "sha256:49820d223b3c2c1a853de890387548313ba0d60480fec140f3c85bea5b4f676e"},
+    {file = "flet_android_notifications-0.7.9-py3-none-any.whl", hash = "sha256:88f11ad119cac209464bc339b30374661df900cbb9b5586ae9baca5cdbf0cada"},
+    {file = "flet_android_notifications-0.7.9.tar.gz", hash = "sha256:756b8ef4ef35ad4e32868413a133b95eb78db7c28fef399f2f38526e9063ba7b"},
 ]
 
 [package.dependencies]
-flet = ">=0.80.5"
+flet = ">=0.82.0"
 
 [[package]]
 name = "flet-circular-slider"
@@ -877,4 +877,4 @@ dev = ["pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "abbb403601c238b9679a9b550ff7fc5f8d3be7ed4819962abe476c3ea211df13"
+content-hash = "185b66020bf5165a8cd5032c7e37fc8946910ad4e6eb6a5404ec5a91c1ccdd29"

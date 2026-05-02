@@ -125,21 +125,9 @@ class DatabaseCore:
                     updated_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS scheduled_notifications (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ntype TEXT NOT NULL,
-                    task_id INTEGER,
-                    trigger_time TEXT NOT NULL,
-                    payload TEXT,
-                    delivered INTEGER DEFAULT 0,
-                    canceled INTEGER DEFAULT 0,
-                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-                );
                 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
-                CREATE INDEX IF NOT EXISTS idx_notifications_trigger
-                    ON scheduled_notifications(trigger_time, delivered);
             """)
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error initializing database schema: {e}")
@@ -203,23 +191,8 @@ class DatabaseCore:
                     )
                 """)
 
-            if "scheduled_notifications" not in tables:
-                await conn.execute("""
-                    CREATE TABLE scheduled_notifications (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ntype TEXT NOT NULL,
-                        task_id INTEGER,
-                        trigger_time TEXT NOT NULL,
-                        payload TEXT,
-                        delivered INTEGER DEFAULT 0,
-                        canceled INTEGER DEFAULT 0,
-                        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-                    )
-                """)
-                await conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_notifications_trigger "
-                    "ON scheduled_notifications(trigger_time, delivered)"
-                )
+            if "scheduled_notifications" in tables:
+                await conn.execute("DROP TABLE scheduled_notifications")
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e

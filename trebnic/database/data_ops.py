@@ -82,7 +82,7 @@ class DataOpsMixin:
         try:
             async with self._get_connection() as conn:
                 await conn.executescript(
-                    "DELETE FROM scheduled_notifications; DELETE FROM time_entries; "
+                    "DELETE FROM time_entries; "
                     "DELETE FROM tasks; DELETE FROM projects; DELETE FROM daily_notes; "
                     "DELETE FROM settings;"
                 )
@@ -107,7 +107,7 @@ class DataOpsMixin:
         try:
             async with self._get_connection() as conn:
                 await conn.executescript(
-                    "DELETE FROM scheduled_notifications; DELETE FROM time_entries; "
+                    "DELETE FROM time_entries; "
                     "DELETE FROM tasks; DELETE FROM projects; DELETE FROM daily_notes; "
                     "DELETE FROM settings;"
                 )

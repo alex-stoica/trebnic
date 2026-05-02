@@ -25,19 +25,16 @@ class RecurrenceFrequency(Enum):
     MONTHS = "months"
 
 
-class NotificationType(Enum):
-    """Enum for notification types."""
-    TIMER_COMPLETE = "timer_complete"
-    DAILY_DIGEST = "daily_digest"
-    EVENING_PREVIEW = "evening_preview"
-    OVERDUE_NUDGE = "overdue_nudge"
-
-
-# Fixed notification IDs for digest notifications
+# Fixed notification IDs for digest notifications.
+# Each digest schedules a 7-day rolling horizon of one-shot alarms; per-day IDs
+# are derived as ``base + offset * NOTIFICATION_HORIZON_STRIDE`` so cancellation
+# can sweep the full set without tracking individual IDs.
 DIGEST_NOTIFICATION_ID = 9000
 PREVIEW_NOTIFICATION_ID = 9001
 OVERDUE_NOTIFICATION_ID = 9002
 TIMER_NOTIFICATION_ID = 9003
+NOTIFICATION_HORIZON_DAYS = 7
+NOTIFICATION_HORIZON_STRIDE = 1000
 
 
 class PermissionResult(Enum):

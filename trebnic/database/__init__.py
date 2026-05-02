@@ -20,11 +20,10 @@ from database.helpers import (  # noqa: E402
 from database.core import DatabaseCore  # noqa: E402
 from database.tasks import TasksMixin  # noqa: E402
 from database.records import RecordsMixin  # noqa: E402
-from database.notifications import NotificationsMixin  # noqa: E402
 from database.data_ops import DataOpsMixin  # noqa: E402
 
 
-class Database(DatabaseCore, TasksMixin, RecordsMixin, NotificationsMixin, DataOpsMixin):
+class Database(DatabaseCore, TasksMixin, RecordsMixin, DataOpsMixin):
     """Composed database class combining all mixins."""
     pass
 

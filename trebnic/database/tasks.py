@@ -104,7 +104,6 @@ class TasksMixin:
     async def delete_task(self, task_id: int) -> None:
         try:
             async with self._get_connection() as conn:
-                await conn.execute("DELETE FROM scheduled_notifications WHERE task_id=?", (task_id,))
                 await conn.execute("DELETE FROM time_entries WHERE task_id=?", (task_id,))
                 await conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
                 await conn.commit()
