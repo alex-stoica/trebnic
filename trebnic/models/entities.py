@@ -228,6 +228,8 @@ class AppState:
     evening_preview_time: time = field(default_factory=lambda: time(20, 0))
     overdue_nudge_enabled: bool = True
     overdue_nudge_time: time = field(default_factory=lambda: time(14, 0))
+    task_nudges_enabled: bool = True
+    task_nudge_time: time = field(default_factory=lambda: time(9, 0))
     account_created: Optional[date] = None
     quiet_hours_start: Optional[time] = None
     quiet_hours_end: Optional[time] = None

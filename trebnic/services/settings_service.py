@@ -26,6 +26,8 @@ class SettingsService:
         await db.set_setting("evening_preview_time", self.state.evening_preview_time.strftime("%H:%M"))
         await db.set_setting("overdue_nudge_enabled", self.state.overdue_nudge_enabled)
         await db.set_setting("overdue_nudge_time", self.state.overdue_nudge_time.strftime("%H:%M"))
+        await db.set_setting("task_nudges_enabled", self.state.task_nudges_enabled)
+        await db.set_setting("task_nudge_time", self.state.task_nudge_time.strftime("%H:%M"))
 
     async def get_setting(self, key: str, default=None):
         """Get a setting value from database."""

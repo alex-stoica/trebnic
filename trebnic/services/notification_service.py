@@ -20,8 +20,11 @@ from config import (
     DIGEST_NOTIFICATION_ID,
     PREVIEW_NOTIFICATION_ID,
     OVERDUE_NOTIFICATION_ID,
+    TASK_NUDGE_NOTIFICATION_ID,
+    TASK_NUDGE_SUMMARY_NOTIFICATION_ID,
     NOTIFICATION_HORIZON_DAYS,
     NOTIFICATION_HORIZON_STRIDE,
+    TASK_NUDGE_MAX_PER_DAY,
     PermissionResult,
 )
 from database import db, DatabaseError
@@ -249,6 +252,10 @@ class NotificationService:
                 self._build_overdue_nudge,
             )
 
+        # Actionable per-task nudges
+        if state.task_nudges_enabled:
+            await self._fire_task_nudges_if_due(state.task_nudge_time, today_str, now)
+
     async def _fire_digest_if_due(
         self,
         digest_key: str,
@@ -278,6 +285,28 @@ class NotificationService:
         title, body, style = result
         digest_actions = [{"id": "open_tasks", "title": t("notif_action_open")}]
         await self._deliver_immediate(title, body, actions=digest_actions, style=style)
+        await db.set_setting(setting_key, today_str)
+
+    async def _fire_task_nudges_if_due(self, scheduled_time: time, today_str: str, now: datetime) -> None:
+        """Desktop: fire actionable task nudges once per day when due."""
+        if now.time() < scheduled_time:
+            return
+
+        setting_key = "last_task_nudges_date"
+        last_fired = await db.get_setting(setting_key, "")
+        if last_fired == today_str:
+            return
+
+        if self._is_in_quiet_hours():
+            return
+
+        target = date.today()
+        candidates = await self._load_task_nudge_candidates(target)
+        if not candidates:
+            await db.set_setting(setting_key, today_str)
+            return
+
+        await self._deliver_task_nudges_now(candidates, target)
         await db.set_setting(setting_key, today_str)
 
     # ── Digest builders ───────────────────────────────────────────────
@@ -353,6 +382,101 @@ class NotificationService:
             summary_text = t("and_n_more").replace("{count}", str(len(tasks) - max_lines))
         return InboxStyle(lines=lines, summary_text=summary_text)
 
+    async def _load_task_nudge_candidates(self, target_date: date, limit: Optional[int] = None) -> List[Task]:
+        """Load pending dated tasks that should receive actionable nudges."""
+        try:
+            rows = await db.load_tasks_filtered(is_done=False, due_date_lte=target_date)
+        except DatabaseError:
+            return []
+
+        tasks = [Task.from_dict(r) for r in rows if r.get("due_date") is not None]
+        tasks.sort(key=lambda task: (task.due_date or date.max, task.sort_order, task.id or 0))
+        return tasks[:limit] if limit is not None else tasks
+
+    def _task_nudge_payload(self, task: Task, target_date: date) -> Dict[str, Any]:
+        return {
+            "kind": "task_nudge",
+            "task_id": task.id,
+            "target_date": target_date.isoformat(),
+        }
+
+    def _task_nudge_actions(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "id": "task_done",
+                "title": t("notif_action_done"),
+                "shows_user_interface": True,
+                "cancel_notification": True,
+            },
+            {
+                "id": "task_postpone_1d",
+                "title": t("notif_action_postpone"),
+                "shows_user_interface": True,
+                "cancel_notification": True,
+            },
+            {
+                "id": "open_task",
+                "title": t("notif_action_open"),
+                "shows_user_interface": True,
+                "cancel_notification": True,
+            },
+        ]
+
+    def _task_nudge_text(self, task: Task, target_date: date) -> tuple[str, str]:
+        if self._is_app_locked():
+            return t("task_reminder"), t("unlock_to_see_details")
+
+        title = task.title
+        if task.due_date and task.due_date < target_date:
+            body = t("task_nudge_overdue_body").replace("{date}", task.due_date.strftime("%b %d"))
+        else:
+            body = t("task_nudge_due_today_body")
+        return title, body
+
+    def _task_nudge_summary(self, candidates: List[Task]) -> tuple[str, str, Any]:
+        count = len(candidates)
+        title = t("task_nudges_summary_title").replace("{count}", str(count))
+        body = t("task_nudges_summary_body")
+        style = self._build_inbox_style(candidates)
+        return title, body, style
+
+    async def _deliver_task_nudges_now(self, candidates: List[Task], target_date: date) -> None:
+        """Deliver today's task nudges immediately for desktop or manual firing."""
+        shown = candidates[:TASK_NUDGE_MAX_PER_DAY]
+        for slot, task in enumerate(shown):
+            title, body = self._task_nudge_text(task, target_date)
+            await self._deliver_immediate(
+                title,
+                body,
+                task_id=task.id,
+                payload=self._task_nudge_payload(task, target_date),
+                actions=self._task_nudge_actions(),
+                notification_id=TASK_NUDGE_NOTIFICATION_ID + slot,
+                channel_id="trebnic_task_nudges",
+                channel_name="Task nudges",
+                group_key="trebnic_task_nudges",
+                visibility="private",
+                category="reminder",
+            )
+
+        if len(candidates) > TASK_NUDGE_MAX_PER_DAY:
+            title, body, style = self._task_nudge_summary(candidates)
+            await self._deliver_immediate(
+                title,
+                body,
+                payload={"kind": "task_nudge_summary", "target_date": target_date.isoformat()},
+                actions=[{"id": "open_tasks", "title": t("notif_action_open")}],
+                style=style,
+                notification_id=TASK_NUDGE_SUMMARY_NOTIFICATION_ID,
+                channel_id="trebnic_task_nudges",
+                channel_name="Task nudges",
+                group_key="trebnic_task_nudges",
+                set_as_group_summary=True,
+                group_alert_behavior="summary",
+                visibility="private",
+                category="reminder",
+            )
+
     # ── Digest scheduling (Android + reschedule after settings change) ──
 
     async def _cancel_all_digest_alarms(self) -> None:
@@ -369,6 +493,18 @@ class NotificationService:
             for offset in range(NOTIFICATION_HORIZON_DAYS):
                 await self._cancel_extension_notification(base_nid + offset * NOTIFICATION_HORIZON_STRIDE)
 
+    async def _cancel_all_task_nudge_alarms(self) -> None:
+        """Cancel every task nudge child and summary notification across the horizon."""
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            return
+        for offset in range(NOTIFICATION_HORIZON_DAYS):
+            day_base = TASK_NUDGE_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE
+            for slot in range(TASK_NUDGE_MAX_PER_DAY):
+                await self._cancel_extension_notification(day_base + slot)
+            await self._cancel_extension_notification(
+                TASK_NUDGE_SUMMARY_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE
+            )
+
     async def _schedule_all_digests(self) -> None:
         """Cancel any prior schedule, then re-schedule if notifications are enabled.
 
@@ -377,6 +513,7 @@ class NotificationService:
         cancellation, leaving stale alarms armed.
         """
         await self._cancel_all_digest_alarms()
+        await self._cancel_all_task_nudge_alarms()
 
         if not self._is_notifications_enabled():
             return
@@ -439,6 +576,65 @@ class NotificationService:
             OVERDUE_NOTIFICATION_ID, state.overdue_nudge_enabled,
             state.overdue_nudge_time, self._build_overdue_nudge,
         )
+        await self._schedule_android_task_nudges(state)
+
+    async def _schedule_android_task_nudges(self, state: Any) -> None:
+        """Schedule actionable per-task nudges across the Android horizon."""
+        if not state.task_nudges_enabled:
+            return
+
+        first_trigger = self._next_trigger_time(state.task_nudge_time)
+        for offset in range(NOTIFICATION_HORIZON_DAYS):
+            trigger = first_trigger + timedelta(days=offset)
+            target = trigger.date()
+            candidates = await self._load_task_nudge_candidates(target)
+            if not candidates:
+                continue
+
+            has_summary = len(candidates) > TASK_NUDGE_MAX_PER_DAY
+            group_alert_behavior = "summary" if has_summary else "all"
+            day_base = TASK_NUDGE_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE
+
+            for slot, task in enumerate(candidates[:TASK_NUDGE_MAX_PER_DAY]):
+                title, body = self._task_nudge_text(task, target)
+                await self._schedule_extension_notification(
+                    day_base + slot,
+                    title,
+                    body,
+                    trigger,
+                    task.id,
+                    actions=self._task_nudge_actions(),
+                    style=BigTextStyle(big_text=body) if FLET_EXTENSION_AVAILABLE else None,
+                    payload=self._task_nudge_payload(task, target),
+                    channel_id="trebnic_task_nudges",
+                    channel_name="Task nudges",
+                    channel_description="Actionable task nudges from Trebnic",
+                    group_key="trebnic_task_nudges",
+                    group_alert_behavior=group_alert_behavior,
+                    visibility="private",
+                    category="reminder",
+                )
+
+            if has_summary:
+                title, body, style = self._task_nudge_summary(candidates)
+                await self._schedule_extension_notification(
+                    TASK_NUDGE_SUMMARY_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE,
+                    title,
+                    body,
+                    trigger,
+                    None,
+                    actions=[{"id": "open_tasks", "title": t("notif_action_open")}],
+                    style=style,
+                    payload={"kind": "task_nudge_summary", "target_date": target.isoformat()},
+                    channel_id="trebnic_task_nudges",
+                    channel_name="Task nudges",
+                    channel_description="Actionable task nudges from Trebnic",
+                    group_key="trebnic_task_nudges",
+                    set_as_group_summary=True,
+                    group_alert_behavior="summary",
+                    visibility="private",
+                    category="reminder",
+                )
 
     def _next_trigger_time(self, target: time) -> datetime:
         """Compute next datetime for a given time-of-day (today or tomorrow)."""
@@ -476,7 +672,7 @@ class NotificationService:
         task_id: Optional[int] = None,
         payload: Optional[Dict[str, Any]] = None,
         *,
-        actions: Optional[List[Dict[str, str]]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         if not self._is_notifications_enabled():
             return
@@ -498,9 +694,18 @@ class NotificationService:
         body: str,
         task_id: Optional[int] = None,
         *,
-        actions: Optional[List[Dict[str, str]]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
         style: Optional[Any] = None,
         payload: Optional[Dict[str, Any]] = None,
+        notification_id: Optional[int] = None,
+        channel_id: str = "trebnic_reminders",
+        channel_name: str = "Task reminders",
+        channel_description: str = "Task reminders from Trebnic",
+        group_key: str = "trebnic_tasks",
+        set_as_group_summary: bool = False,
+        group_alert_behavior: str = "all",
+        visibility: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> None:
         """Deliver a notification immediately, handling encryption state."""
         if self._is_app_locked():
@@ -510,7 +715,23 @@ class NotificationService:
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
         elif self._backend == NotificationBackend.FLET_EXTENSION:
-            await self._deliver_extension_notification(title, body, task_id, actions=actions, style=style, payload=payload)
+            await self._deliver_extension_notification(
+                title,
+                body,
+                task_id,
+                actions=actions,
+                style=style,
+                payload=payload,
+                notification_id=notification_id,
+                channel_id=channel_id,
+                channel_name=channel_name,
+                channel_description=channel_description,
+                group_key=group_key,
+                set_as_group_summary=set_as_group_summary,
+                group_alert_behavior=group_alert_behavior,
+                visibility=visibility,
+                category=category,
+            )
 
     def _is_app_locked(self) -> bool:
         crypto = registry.get(Services.CRYPTO)
@@ -526,7 +747,7 @@ class NotificationService:
         body: str,
         task_id: Optional[int] = None,
         *,
-        actions: Optional[List[Dict[str, str]]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
         style: Optional[Any] = None,
         payload: Optional[Dict[str, Any]] = None,
         channel_id: str = "trebnic_reminders",
@@ -534,6 +755,11 @@ class NotificationService:
         channel_description: str = "Task reminders from Trebnic",
         importance: str = "high",
         notification_id: Optional[int] = None,
+        group_key: str = "trebnic_tasks",
+        set_as_group_summary: bool = False,
+        group_alert_behavior: str = "all",
+        visibility: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> bool:
         if self._flet_notifications is None:
             return False
@@ -543,7 +769,9 @@ class NotificationService:
             if payload:
                 base_payload.update(payload)
             payload_str = json.dumps(base_payload)
-            effective_style = style if style is not None else BigTextStyle(big_text=body)
+            effective_style = style
+            if effective_style is None and FLET_EXTENSION_AVAILABLE:
+                effective_style = BigTextStyle(big_text=body)
             kwargs: Dict[str, Any] = {
                 "notification_id": nid,
                 "title": title,
@@ -553,10 +781,17 @@ class NotificationService:
                 "channel_name": channel_name,
                 "channel_description": channel_description,
                 "importance": importance,
-                "group_key": "trebnic_tasks",
+                "group_key": group_key,
+                "set_as_group_summary": set_as_group_summary,
+                "group_alert_behavior": group_alert_behavior,
                 "color": "#4a9eff",
-                "style": effective_style,
             }
+            if effective_style is not None:
+                kwargs["style"] = effective_style
+            if visibility:
+                kwargs["visibility"] = visibility
+            if category:
+                kwargs["category"] = category
             if actions:
                 kwargs["actions"] = actions
             result = await self._flet_notifications.show_notification(**kwargs)
@@ -576,28 +811,49 @@ class NotificationService:
         task_id: Optional[int],
         *,
         match_date_time_components: Optional[str] = None,
-        actions: Optional[List[Dict[str, str]]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
         style: Optional[Any] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        channel_id: str = "trebnic_reminders",
+        channel_name: str = "Task reminders",
+        channel_description: str = "Task reminders from Trebnic",
+        group_key: str = "trebnic_tasks",
+        set_as_group_summary: bool = False,
+        group_alert_behavior: str = "all",
+        visibility: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> bool:
         if self._flet_notifications is None:
             return False
         try:
-            payload_str = json.dumps({"task_id": task_id})
-            effective_style = style if style is not None else BigTextStyle(big_text=body)
+            base_payload = {"task_id": task_id}
+            if payload:
+                base_payload.update(payload)
+            payload_str = json.dumps(base_payload)
+            effective_style = style
+            if effective_style is None and FLET_EXTENSION_AVAILABLE:
+                effective_style = BigTextStyle(big_text=body)
             kwargs: Dict[str, Any] = {
                 "notification_id": notification_id,
                 "title": title,
                 "body": body,
                 "scheduled_time": scheduled_time,
                 "payload": payload_str,
-                "channel_id": "trebnic_reminders",
-                "channel_name": "Task reminders",
-                "channel_description": "Task reminders from Trebnic",
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "channel_description": channel_description,
                 "schedule_mode": "inexact_allow_while_idle",
-                "group_key": "trebnic_tasks",
+                "group_key": group_key,
+                "set_as_group_summary": set_as_group_summary,
+                "group_alert_behavior": group_alert_behavior,
                 "color": "#4a9eff",
-                "style": effective_style,
             }
+            if effective_style is not None:
+                kwargs["style"] = effective_style
+            if visibility:
+                kwargs["visibility"] = visibility
+            if category:
+                kwargs["category"] = category
             if match_date_time_components:
                 kwargs["match_date_time_components"] = match_date_time_components
             if actions:
@@ -636,6 +892,53 @@ class NotificationService:
         except (OSError, RuntimeError) as e:
             logger.error(f"Error showing plyer notification: {e}")
             return False
+
+    async def handle_task_notification_action(self, action_id: str, task_id: Optional[int]) -> str:
+        """Apply a task notification action after Android opens/resumes Trebnic."""
+        if action_id not in {"task_done", "task_postpone_1d"}:
+            return "unsupported"
+        if task_id is None:
+            return "missing"
+        if self._is_app_locked():
+            return "locked"
+
+        try:
+            row = await db.load_task_by_id(int(task_id))
+        except (DatabaseError, TypeError, ValueError):
+            return "missing"
+
+        if row is None:
+            await self._cancel_all_task_nudge_alarms()
+            return "missing"
+        if row.get("is_done"):
+            await self._cancel_all_task_nudge_alarms()
+            return "noop"
+
+        task_service = registry.get(Services.TASK)
+        if task_service is None:
+            return "missing"
+
+        task = Task.from_dict(row)
+
+        if action_id == "task_done":
+            next_task = await task_service.complete_task(task)
+            await task_service.refresh_state_tasks()
+            event_bus.emit(AppEvent.TASK_COMPLETED, task)
+            if next_task:
+                event_bus.emit(AppEvent.TASK_CREATED, next_task)
+            result = "done"
+        else:
+            await task_service.postpone_task(task)
+            await task_service.refresh_state_tasks()
+            event_bus.emit(AppEvent.TASK_UPDATED, task)
+            event_bus.emit(AppEvent.TASK_POSTPONED, task)
+            result = "postponed"
+
+        event_bus.emit(AppEvent.REFRESH_UI)
+        await self._cancel_all_task_nudge_alarms()
+        if self._running:
+            await self._schedule_all_digests()
+        return result
 
     def _on_notification_tapped(self, e: Any) -> None:
         try:

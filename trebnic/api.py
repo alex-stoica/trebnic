@@ -407,6 +407,7 @@ class TrebnicAPI:
         "daily_digest_enabled", "daily_digest_time",
         "evening_preview_enabled", "evening_preview_time",
         "overdue_nudge_enabled", "overdue_nudge_time",
+        "task_nudges_enabled", "task_nudge_time",
     }
 
     async def export_data(self) -> Dict[str, Any]:
@@ -522,6 +523,9 @@ class TrebnicAPI:
         self._svc.state.overdue_nudge_enabled = await db.get_setting("overdue_nudge_enabled", True)
         nudge_time_str = await db.get_setting("overdue_nudge_time", "14:00")
         self._svc.state.overdue_nudge_time = safe_parse_time(nudge_time_str, "14:00")
+        self._svc.state.task_nudges_enabled = await db.get_setting("task_nudges_enabled", True)
+        task_nudge_time_str = await db.get_setting("task_nudge_time", "09:00")
+        self._svc.state.task_nudge_time = safe_parse_time(task_nudge_time_str, "09:00")
 
         event_bus.emit(AppEvent.DATA_RESET)
 

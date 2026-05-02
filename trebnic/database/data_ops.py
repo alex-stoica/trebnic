@@ -64,7 +64,11 @@ class DataOpsMixin:
             raise DatabaseError(f"Failed to export data: {e}") from e
 
     async def seed_default_data(self) -> None:
-        """Insert default seed data after factory reset."""
+        """Insert default seed data after factory reset.
+
+        Seeds only the three default projects. New users start with an empty
+        task board.
+        """
         try:
             default_projects = [
                 {"id": "personal", "name": "Personal", "icon": "📋", "color": "#2196f3"},

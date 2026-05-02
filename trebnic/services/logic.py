@@ -118,6 +118,9 @@ class TaskService:
         state.overdue_nudge_enabled = await db.get_setting("overdue_nudge_enabled", True)
         nudge_time_str = await db.get_setting("overdue_nudge_time", "14:00")
         state.overdue_nudge_time = safe_parse_time(nudge_time_str, "14:00")
+        state.task_nudges_enabled = await db.get_setting("task_nudges_enabled", True)
+        task_nudge_time_str = await db.get_setting("task_nudge_time", "09:00")
+        state.task_nudge_time = safe_parse_time(task_nudge_time_str, "09:00")
 
         account_created = await db.get_setting("account_created", None)
         if account_created:
@@ -166,13 +169,35 @@ class TaskService:
         """
         new_state = await TaskService.load_state_async()
 
-        # Update the existing state object in place to preserve references
+        # Update the existing state object in place to preserve references.
         self._sm.replace_all(new_state.tasks, new_state.done_tasks, new_state.projects)
+        self._copy_loaded_settings(new_state)
 
         # Notify UI to rebuild via registry
         event_bus = registry.get(Services.EVENT_BUS)
         if event_bus:
             event_bus.emit(AppEvent.REFRESH_UI)
+
+    def _copy_loaded_settings(self, new_state: AppState) -> None:
+        """Copy non-list state loaded from the DB into the live AppState object."""
+        self.state.default_estimated_minutes = new_state.default_estimated_minutes
+        self.state.email_weekly_stats = new_state.email_weekly_stats
+        self.state.language = new_state.language
+        set_language(new_state.language)
+        self.state.notifications_enabled = new_state.notifications_enabled
+        self.state.notify_timer_complete = new_state.notify_timer_complete
+        self.state.daily_digest_enabled = new_state.daily_digest_enabled
+        self.state.daily_digest_time = new_state.daily_digest_time
+        self.state.evening_preview_enabled = new_state.evening_preview_enabled
+        self.state.evening_preview_time = new_state.evening_preview_time
+        self.state.overdue_nudge_enabled = new_state.overdue_nudge_enabled
+        self.state.overdue_nudge_time = new_state.overdue_nudge_time
+        self.state.task_nudges_enabled = new_state.task_nudges_enabled
+        self.state.task_nudge_time = new_state.task_nudge_time
+        self.state.account_created = new_state.account_created
+        self.state.quiet_hours_start = new_state.quiet_hours_start
+        self.state.quiet_hours_end = new_state.quiet_hours_end
+        self.state.recovered_timer_entry = new_state.recovered_timer_entry
 
     def reload_state(self) -> None:
         """Reload state from database (sync wrapper).
@@ -194,6 +219,7 @@ class TaskService:
             new_state = TaskService.load_state()
 
             self._sm.replace_all(new_state.tasks, new_state.done_tasks, new_state.projects)
+            self._copy_loaded_settings(new_state)
 
             event_bus = registry.get(Services.EVENT_BUS)
             if event_bus:
@@ -498,6 +524,7 @@ class TaskService:
             else:
                 new_tasks.append(task)
         self._sm.replace_all(new_tasks, new_done, new_projects)
+        self._copy_loaded_settings(await TaskService.load_state_async())
 
     def task_name_exists(self, name: str, exclude_task: Task) -> bool:
         """Check if a task name already exists (sync, in-memory check)."""

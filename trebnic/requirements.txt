@@ -4,5 +4,5 @@ httpx>=0.28.0,<1.0.0
 python-dotenv>=1.2.1,<2.0.0
 
 plyer>=2.1.0
-flet-android-notifications>=0.2.0
+flet-android-notifications>=0.7.9
 flet-circular-slider>=0.2.0

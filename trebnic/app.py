@@ -222,6 +222,24 @@ class TrebnicApp:
             return
 
         action_id = data.get("action_id")
+        payload = data.get("payload") or {}
+        task_id = data.get("task_id")
+
+        if action_id in {"task_done", "task_postpone_1d"}:
+            async def _apply_task_action() -> None:
+                result = await notification_service.handle_task_notification_action(action_id, task_id)
+                if result == "done":
+                    self.snack.show(t("notif_task_done"))
+                elif result == "postponed":
+                    self.snack.show(t("notif_task_postponed"))
+                elif result == "locked":
+                    self.nav_manager.navigate_to(PageType.TASKS)
+                    self.snack.show(t("notif_unlock_first"), COLORS["danger"])
+                elif result in {"missing", "noop"}:
+                    self.page.update()
+
+            self.page.run_task(_apply_task_action)
+            return
 
         if action_id == "open_tasks":
             self.nav_manager.navigate_to(PageType.TASKS)
@@ -231,8 +249,17 @@ class TrebnicApp:
             self.nav_manager.navigate_to(PageType.STATS)
             return
 
+        if action_id == "open_task" or payload.get("kind") == "task_nudge":
+            if task_id is None:
+                self.nav_manager.navigate_to(PageType.TASKS)
+                return
+            self.nav_manager.navigate_to(PageType.TASKS)
+            task = self.state.get_task_by_id(task_id)
+            if task is not None:
+                event_bus.emit(AppEvent.TASK_STATS_REQUESTED, task)
+            return
+
         # Default body tap — navigate to task stats if task_id present
-        task_id = data.get("task_id")
         if task_id is None:
             return
 

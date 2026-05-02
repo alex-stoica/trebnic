@@ -245,6 +245,7 @@ class ProfilePage:
                             daily_notes=data.get("daily_notes", []),
                             settings=data.get("settings", {}),
                         )
+                        await self.task_service.reload_state_async()
                         close()
                         event_bus.emit(AppEvent.DATA_RESET)
                         self.snack.show(t("import_success"))
@@ -549,8 +550,14 @@ class ProfilePage:
             self.state.overdue_nudge_enabled, self.state.overdue_nudge_time,
             "overdue_nudge_enabled", "overdue_nudge_time",
         )
+        task_nudges_row, task_nudges_switch, task_nudges_dropdown = _make_digest_row(
+            "task_nudges", "task_nudges_desc",
+            self.state.task_nudges_enabled, self.state.task_nudge_time,
+            "task_nudges_enabled", "task_nudge_time",
+        )
 
         notification_sub_controls.controls = [
+            task_nudges_row,
             digest_row,
             preview_row,
             overdue_row,

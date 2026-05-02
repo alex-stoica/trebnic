@@ -33,8 +33,11 @@ DIGEST_NOTIFICATION_ID = 9000
 PREVIEW_NOTIFICATION_ID = 9001
 OVERDUE_NOTIFICATION_ID = 9002
 TIMER_NOTIFICATION_ID = 9003
+TASK_NUDGE_NOTIFICATION_ID = 10000
+TASK_NUDGE_SUMMARY_NOTIFICATION_ID = 10099
 NOTIFICATION_HORIZON_DAYS = 7
 NOTIFICATION_HORIZON_STRIDE = 1000
+TASK_NUDGE_MAX_PER_DAY = 3
 
 
 class PermissionResult(Enum):
@@ -87,9 +90,15 @@ PROJECT_ICONS = [
     "✈️", "🏋️", "🍕", "☕", "🛒", "💰", "📊", "🔧", "📝", "🎓",
     "🔔", "👥", "💊", "🌱", "🔒", "⏳", "💬", "⚡", "📍", "📋",
     "🏆", "📅", "🤝", "📈", "🧘", "🌍", "🧪", "🔑", "🛠️", "📣",
-    "🏥", "📞", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡",
+    "🏥", "🖊️", "🎁", "🧳", "📦", "🎭", "🧠", "🛡️", "🎸", "📡",
+    "🩺", "🩹", "🦷", "💤", "💃", "🚴", "🧶", "⛺", "🧩", "❤️",
+    "🎲", "🪴", "🏊", "🏛️", "📜", "🎻", "🩰", "🗺️", "🐶", "🤓",
+    "🍳", "🧱", "⚖️", "✒️", "💸", "🪢", "🔨", "🕸️", "🍼", "🥂" ,
+    "📖", "🔍", "🌐", "✍️", "🎤", "👪", "👶", "🐱", "💍", "☯️",
+    "🥗", "🍽️", "🧮", "🧼", "🗑️", "🧾", "🛍️", "⏰", "🚗", "🚆",
+    "🧲", "🌙", "💧", "🎧", "✂️", "🎫", "📌", "📎", "🚦", "🧭"
 ]
-
+ 
 PROJECT_COLORS = [
     {"name": "Blue", "value": "#2196f3"},
     {"name": "Green", "value": "#4caf50"},

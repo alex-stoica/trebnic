@@ -501,6 +501,21 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "evening_preview_desc": {"en": "Tomorrow's tasks preview", "ro": "Previzualizare treburi mâine"},
     "overdue_nudge": {"en": "Overdue nudge", "ro": "Memento restante"},
     "overdue_nudge_desc": {"en": "Reminder for overdue tasks", "ro": "Memento pentru treburi restante"},
+    "task_nudges": {"en": "Task nudges", "ro": "Mementouri pe treabă"},
+    "task_nudges_desc": {
+        "en": "Action buttons for due and overdue tasks",
+        "ro": "Butoane de acțiune pentru treburi scadente și restante",
+    },
+    "task_nudge_due_today_body": {"en": "Due today", "ro": "De făcut azi"},
+    "task_nudge_overdue_body": {"en": "Overdue since {date}", "ro": "Restantă din {date}"},
+    "task_nudges_summary_title": {
+        "en": "{count} tasks need attention",
+        "ro": "{count} treburi au nevoie de atenție",
+    },
+    "task_nudges_summary_body": {
+        "en": "Open Trebnic to review all due and overdue tasks",
+        "ro": "Deschide Trebnic pentru toate treburile scadente și restante",
+    },
     "tasks_due_today": {
         "en": "You have {count} tasks due today",
         "ro": "Ai {count} treburi de făcut azi",
@@ -847,6 +862,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "stt_listening": {"en": "Listening...", "ro": "Ascult..."},
     "notif_action_open": {"en": "Open", "ro": "Deschide"},
     "notif_action_view_stats": {"en": "View stats", "ro": "Vezi statistici"},
+    "notif_action_done": {"en": "Done", "ro": "Gata"},
+    "notif_action_postpone": {"en": "Postpone 1 day", "ro": "Amână 1 zi"},
+    "notif_task_done": {"en": "Task completed", "ro": "Treabă finalizată"},
+    "notif_task_postponed": {"en": "Task postponed", "ro": "Treabă amânată"},
+    "notif_unlock_first": {"en": "Unlock Trebnic first", "ro": "Deblochează Trebnic mai întâi"},
     "timer_running": {"en": "Timer running", "ro": "Cronometru activ"},
     "timer_elapsed_on_task": {"en": "{time} on {task}", "ro": "{time} pe {task}"},
     "and_n_more": {"en": "and {count} more...", "ro": "si inca {count}..."},

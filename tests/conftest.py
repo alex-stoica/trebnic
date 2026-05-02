@@ -13,6 +13,7 @@ from registry import registry, Services
 from services.logic import TaskService
 from services.project_service import ProjectService
 from services.settings_service import SettingsService
+from services.state_manager import StateManager
 from services.time_entry_service import TimeEntryService
 from services.timer import TimerService
 
@@ -54,7 +55,8 @@ async def services() -> ServiceContainer:
     # Bootstrap: init schema, load state, create services
     state = await TaskService.load_state_async()
 
-    task_service = TaskService(state)
+    state_manager = StateManager(state)
+    task_service = TaskService(state, state_manager=state_manager)
     project_service = ProjectService(state)
     time_entry_service = TimeEntryService()
     settings_service = SettingsService(state)
@@ -65,9 +67,11 @@ async def services() -> ServiceContainer:
     registry.register(Services.TIME_ENTRY, time_entry_service)
     registry.register(Services.SETTINGS, settings_service)
     registry.register(Services.TIMER, timer_service)
+    registry.register(Services.STATE_MANAGER, state_manager)
 
     svc = ServiceContainer(
         state=state,
+        state_manager=state_manager,
         task=task_service,
         project=project_service,
         time_entry=time_entry_service,

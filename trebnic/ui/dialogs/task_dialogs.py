@@ -403,6 +403,7 @@ class TaskDialogs:
                 await self.task_service.rename_task(task, name)
                 self.snack.show(t("renamed_to").replace("{name}", name))
                 close(e)
+                event_bus.emit(AppEvent.TASK_RENAMED, task)
                 event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_save)
 
