@@ -147,6 +147,21 @@ class TasksMixin:
             logger.error(f"Error deleting recurring tasks '{title}': {e}")
             raise DatabaseError(f"Failed to delete recurring tasks: {e}") from e
 
+    async def get_max_sort_order(self) -> int:
+        """Highest sort_order across all tasks, or -1 if there are none.
+
+        Used so a new task lands LAST. (The old limit=1 query returned the lowest
+        order because rows are sorted ascending.)
+        """
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute("SELECT COALESCE(MAX(sort_order), -1) FROM tasks") as cursor:
+                    row = await cursor.fetchone()
+                    return int(row[0]) if row and row[0] is not None else -1
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error getting max sort_order: {e}")
+            raise DatabaseError(f"Failed to get max sort_order: {e}") from e
+
     async def update_task_sort_orders(self, task_orders: List[tuple]) -> None:
         """Update sort_order for multiple tasks in a single transaction."""
         if not task_orders:

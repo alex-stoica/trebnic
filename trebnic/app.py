@@ -89,6 +89,9 @@ class TrebnicApp:
         self._subscriptions.append(
             self.event_bus.subscribe(AppEvent.NOTIFICATION_TAPPED, self._on_notification_tapped)
         )
+        self._subscriptions.append(
+            self.event_bus.subscribe(AppEvent.LOG_TIME_REQUESTED, self._on_log_time_requested)
+        )
         # Note: Task action events (TASK_*_REQUESTED) are handled by TaskActionHandler
 
     def _unsubscribe_all(self) -> None:
@@ -429,6 +432,10 @@ class TrebnicApp:
         self.task_dialogs.log_time(
             lambda task: self.time_entries_view.open_entry_editor(task_id=task.id)
         )
+
+    def _on_log_time_requested(self, task: Any) -> None:
+        """'Add time' action (e.g. from the post-completion snackbar): open the editor."""
+        self.time_entries_view.open_entry_editor(task_id=task.id)
 
     def _build_layout(self) -> None:
         """Build the main application layout."""

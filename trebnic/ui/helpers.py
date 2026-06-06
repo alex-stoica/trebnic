@@ -95,10 +95,15 @@ class SnackService:
         message: str,
         color: Optional[str] = None,
         update: bool = True,
+        action_label: Optional[str] = None,
+        on_action: Optional[Callable] = None,
     ) -> None:
         self.snack.open = False
         self.snack.content = ft.Text(message, color=COLORS["white"])
         self.snack.bgcolor = color or COLORS["card"]
+        # Optional action button (e.g. "Add time" after completing a task).
+        self.snack.action = action_label
+        self.snack.on_action = (lambda e: on_action()) if on_action else None
         self.snack.open = True
         if update:
             self.page.update()

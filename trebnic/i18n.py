@@ -365,7 +365,6 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "duration": {"en": "Duration", "ro": "Durată"},
     "end_after_start": {"en": "End must be after start", "ro": "Sfârșitul trebuie să fie după început"},
     "no_future_time": {"en": "Cannot log future time", "ro": "Nu poți înregistra timp viitor"},
-    "when_done": {"en": "When:", "ro": "Când:"},
     "stop_timer_to_edit": {
         "en": "Stop the timer before editing this entry",
         "ro": "Oprește cronometrul înainte de a edita această înregistrare",
@@ -378,6 +377,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "no_completion_date": {"en": "No completion date recorded", "ro": "Nicio dată de finalizare înregistrată"},
     "missing_completion_date": {"en": "Missing completion date", "ro": "Fără dată de finalizare"},
     "no_tasks": {"en": "No tasks yet", "ro": "Încă nicio treabă"},
+    "set_estimate": {"en": "Set estimate", "ro": "Setează estimarea"},
+    "quick_due": {"en": "Due", "ro": "Scadent"},
+    "quick_project": {"en": "Project", "ro": "Proiect"},
+    "estimate_updated": {"en": "Estimate updated", "ro": "Estimare actualizată"},
     "search": {"en": "Search", "ro": "Caută"},
     "delete_task_title": {"en": "Delete task?", "ro": "Ștergi treaba?"},
     "delete_task_confirm": {
@@ -839,16 +842,6 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "none_date": {"en": "None", "ro": "Fără"},
 
     # Task dialogs - Duration completion
-    "how_long_spent": {
-        "en": "How long did you spend on this task?",
-        "ro": "Cât timp ai petrecut pe această treabă?",
-    },
-    "complete_title": {
-        "en": "Complete: {title}",
-        "ro": "Finalizează: {title}",
-    },
-    "skip": {"en": "Skip time", "ro": "Fără timp"},
-    "complete_action": {"en": "Complete", "ro": "Finalizează"},
     "drag_to_adjust": {"en": "drag to adjust", "ro": "trage pentru a ajusta"},
 
     # Claude chat
@@ -872,6 +865,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "change_api_key": {"en": "Change API key", "ro": "Schimbă cheia API"},
     "task_created_chat": {"en": "Created", "ro": "Creat"},
     "task_completed_chat": {"en": "Completed", "ro": "Finalizat"},
+    "task_completed": {"en": "Completed \"{title}\"", "ro": "Finalizat „{title}”"},
     "task_deleted_chat": {"en": "Deleted", "ro": "Șters"},
     "task_renamed_chat": {"en": "Renamed", "ro": "Redenumit"},
     "task_postponed_chat": {"en": "Postponed", "ro": "Amânat"},

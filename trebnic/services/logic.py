@@ -243,9 +243,8 @@ class TaskService:
 
         UI should call refresh() after this.
         """
-        # Get current max sort_order from DB for accurate ordering
-        all_tasks = await db.load_tasks_filtered(is_done=False, limit=1)
-        max_order = max((t.get("sort_order", 0) for t in all_tasks), default=-1) if all_tasks else -1
+        # New task goes last: use the real MAX(sort_order), not the lowest row.
+        max_order = await db.get_max_sort_order()
 
         task = Task(
             title=title,
@@ -584,5 +583,28 @@ class TaskService:
     async def persist_reordered_tasks(self, tasks: List[Task]) -> None:
         """Persist sort_order for a list of tasks using efficient batch update."""
         task_orders = [(task.id, task.sort_order) for task in tasks if task.id is not None]
+        if task_orders:
+            await db.update_task_sort_orders(task_orders)
+
+    async def reorder_visible_tasks(self, ordered_visible_ids: List[int]) -> None:
+        """Apply a reorder of the visible set without colliding with hidden tasks.
+
+        The drag only knows the visible (filtered) rows. Renumbering just those
+        0..N collides with tasks in other navs/projects that share that range. So:
+        splice the new visible order into the GLOBAL order (hidden tasks keep their
+        relative positions), then renumber every task 0..N-1 — globally unique and
+        monotonic.
+        """
+        all_rows = await db.load_tasks()  # ordered by sort_order, id
+        visible_set = set(ordered_visible_ids)
+        remaining = list(ordered_visible_ids)
+        new_order: List[int] = []
+        for row in all_rows:
+            tid = row.get("id")
+            if tid in visible_set and remaining:
+                new_order.append(remaining.pop(0))
+            else:
+                new_order.append(tid)
+        task_orders = [(tid, i) for i, tid in enumerate(new_order) if tid is not None]
         if task_orders:
             await db.update_task_sort_orders(task_orders)

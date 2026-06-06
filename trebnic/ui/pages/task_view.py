@@ -23,7 +23,7 @@ from services.logic import TaskService
 from ui.helpers import format_duration, accent_btn, SnackService
 from ui.components.task_tile import TaskTile
 from ui.presenters.task_presenter import TaskPresenter
-from ui.dialogs.base import open_dialog
+from ui.dialogs.base import open_dialog, create_option_item
 from ui.dialogs.task_dialogs import get_date_picker
 from events import event_bus, AppEvent
 
@@ -55,6 +55,9 @@ class TasksView:
         }
         self._section_label: ft.Text = None  # Will be set in _build_controls
         self._done_section: ft.Column = None  # Will be set in _build_controls
+        self._quick_chips: Optional[ft.Row] = None
+        self._quick_due_text: Optional[ft.Text] = None
+        self._quick_project_text: Optional[ft.Text] = None
         self._build_controls()
 
     def _build_controls(self) -> None:
@@ -244,11 +247,112 @@ class TasksView:
         self._details_text.value = t("add_details")
         self.task_input.value = ""
         self.details_btn.visible = False
+        if self._quick_chips is not None:
+            self._quick_chips.visible = False
+        self._refresh_quick_labels()
         self.refresh()
 
-    def _on_change(self, e: ft.ControlEvent) -> None: 
-        self.details_btn.visible = bool(self.task_input.value.strip())
+    def _on_change(self, e: ft.ControlEvent) -> None:
+        has_text = bool(self.task_input.value.strip())
+        self.details_btn.visible = has_text
+        if self._quick_chips is not None:
+            self._quick_chips.visible = has_text
         self.page.update()
+
+    # ── Inline quick chips (Due / Project) on the add bar ────────────────────
+    def _quick_due_label(self) -> str:
+        d = self.pending_details.get("due_date")
+        if d is None:
+            return t("quick_due")
+        today = date.today()
+        if d == today:
+            return t("today")
+        if d == today + timedelta(days=1):
+            return t("tomorrow")
+        if d == today + timedelta(days=7):
+            return t("next_week")
+        return d.strftime("%b %d")
+
+    def _quick_project_label(self) -> str:
+        pid = self.pending_details.get("project_id")
+        if pid is None:
+            return t("quick_project")
+        p = self.state.get_project_by_id(pid)
+        return p.name if p else t("quick_project")
+
+    def _refresh_quick_labels(self) -> None:
+        if self._quick_due_text is not None:
+            self._quick_due_text.value = self._quick_due_label()
+        if self._quick_project_text is not None:
+            self._quick_project_text.value = self._quick_project_label()
+
+    def _set_quick_due(self, value: Any) -> None:
+        if value == "custom":
+            picker = get_date_picker(self.page)
+            picker.value = self.pending_details.get("due_date") or date.today()
+
+            def _on_pick(ev: ft.ControlEvent) -> None:
+                v = ev.control.value
+                if v is not None:
+                    self.pending_details["due_date"] = v.date() if hasattr(v, "date") else v
+                    self._refresh_quick_labels()
+                    self.page.update()
+
+            picker.on_change = _on_pick
+            picker.open = True
+            self.page.update()
+            return
+        self.pending_details["due_date"] = value  # None or a date
+        self._refresh_quick_labels()
+        self.page.update()
+
+    def _set_quick_project(self, pid: Optional[str]) -> None:
+        self.pending_details["project_id"] = pid
+        self._refresh_quick_labels()
+        self.page.update()
+
+    def _chip(self, icon: str, text_ctrl: ft.Text, items: list) -> ft.PopupMenuButton:
+        chip = ft.Container(
+            content=ft.Row(
+                [ft.Icon(icon, size=14, color=COLORS["accent"]), text_ctrl,
+                 ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=14, color=COLORS["accent"])],
+                spacing=SPACING_XS, tight=True,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            border_radius=BORDER_RADIUS,
+            bgcolor=COLORS["card"],
+        )
+        return ft.PopupMenuButton(content=chip, items=items, menu_position=ft.PopupMenuPosition.UNDER)
+
+    def _build_quick_chips(self) -> ft.Row:
+        today = date.today()
+        self._quick_due_text = ft.Text(self._quick_due_label(), size=12, color=COLORS["accent"])
+        self._quick_project_text = ft.Text(self._quick_project_label(), size=12, color=COLORS["accent"])
+
+        due_items = [
+            create_option_item(ft.Icons.BLOCK, t("none_date"), lambda e: self._set_quick_due(None), as_popup=True),
+            create_option_item(ft.Icons.TODAY, t("today"), lambda e: self._set_quick_due(today), as_popup=True),
+            create_option_item(ft.Icons.CALENDAR_TODAY, t("tomorrow"),
+                               lambda e: self._set_quick_due(today + timedelta(days=1)), as_popup=True),
+            create_option_item(ft.Icons.DATE_RANGE, t("next_week"),
+                               lambda e: self._set_quick_due(today + timedelta(days=7)), as_popup=True),
+            create_option_item(ft.Icons.CALENDAR_MONTH, t("custom_date"),
+                               lambda e: self._set_quick_due("custom"), as_popup=True),
+        ]
+        proj_items = [
+            create_option_item(ft.Icons.CLOSE, t("no_project"), lambda e: self._set_quick_project(None), as_popup=True),
+        ]
+        for p in self.state.projects:
+            proj_items.append(
+                create_option_item(ft.Icons.FOLDER, p.name,
+                                   lambda e, pid=p.id: self._set_quick_project(pid), as_popup=True)
+            )
+
+        return ft.Row(
+            [self._chip(ft.Icons.EVENT, self._quick_due_text, due_items),
+             self._chip(ft.Icons.FOLDER_OUTLINED, self._quick_project_text, proj_items)],
+            spacing=SPACING_SM,
+        )
 
     async def _on_reorder(self, e: ft.OnReorderEvent) -> None:
         """Handle task reorder - async for efficient batch DB update."""
@@ -266,21 +370,12 @@ class TasksView:
         # Get task IDs from current UI order (draggables have task.id in data)
         ui_task_ids = [ctrl.data for ctrl in self.task_list.controls]
 
-        # Apply the reorder to get desired order
+        # Apply the reorder to get the desired visible order
         moved_id = ui_task_ids.pop(old_idx)
         ui_task_ids.insert(new_idx, moved_id)
 
-        # Get fresh tasks from DB
-        filtered, _ = await self.service.get_filtered_tasks()
-        task_map = {t.id: t for t in filtered}
-
-        # Assign sort_order based on desired UI order
-        for i, task_id in enumerate(ui_task_ids):
-            if task_id in task_map:
-                task_map[task_id].sort_order = i
-
-        # Persist using efficient batch update (single transaction)
-        await self.service.persist_reordered_tasks(list(task_map.values()))
+        # Persist globally so hidden tasks can't collide with this view's order.
+        await self.service.reorder_visible_tasks(ui_task_ids)
 
         # Refresh UI from DB
         self.refresh()
@@ -669,6 +764,14 @@ class TasksView:
             visible=False,
         )
 
+        # Inline quick chips (Due / Project), shown only while typing a new task.
+        self._quick_chips = self._build_quick_chips()
+        self._quick_chips.visible = bool(self.task_input.value.strip())
+        quick_chips_row = ft.Container(
+            content=self._quick_chips,
+            padding=ft.Padding.only(top=6, bottom=2),
+        )
+
         return ft.Column(
             alignment=ft.MainAxisAlignment.START,
             controls=[
@@ -676,6 +779,7 @@ class TasksView:
                     controls=[self.task_input, self.details_btn, self.submit_btn],
                     spacing=SPACING_LG,
                 ),
+                quick_chips_row,
                 self._filter_row,
                 ft.Divider(height=SPACING_2XL, color="transparent"),
                 self._overdue_section,

@@ -77,6 +77,30 @@ class TestAddTask:
 
 
 # ===========================================================================
+# task ordering (sort_order)
+# ===========================================================================
+
+
+class TestOrdering:
+    async def test_new_tasks_go_last(self, api: TrebnicAPI):
+        tasks = [await api.add_task(f"T{i}") for i in range(3)]
+        orders = [(await db.load_task_by_id(t.id))["sort_order"] for t in tasks]
+        assert orders == sorted(orders) and orders[0] < orders[-1]
+
+    async def test_reorder_visible_is_collision_free(self, api: TrebnicAPI, services: ServiceContainer):
+        ids = [(await api.add_task(n)).id for n in ("A", "B", "C", "D", "E")]
+        a, b, c, d, e = ids
+        # reorder the visible subset [A,C,E] -> [E,A,C]; B,D are "hidden"
+        await services.task.reorder_visible_tasks([e, a, c])
+        rows = await db.load_tasks()  # ordered by sort_order, id
+        order = [r["id"] for r in rows]
+        sort_orders = [r["sort_order"] for r in rows]
+        assert order == [e, b, a, d, c]                 # visible reorder applied
+        assert sort_orders == [0, 1, 2, 3, 4]           # contiguous + unique (no collisions)
+        assert order[1] == b and order[3] == d          # hidden tasks kept their slots
+
+
+# ===========================================================================
 # complete_task
 # ===========================================================================
 

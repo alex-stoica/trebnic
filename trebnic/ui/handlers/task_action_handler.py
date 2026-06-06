@@ -91,6 +91,9 @@ class TaskActionHandler:
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TASK_STATS_REQUESTED, self._on_stats)
         )
+        self._subscriptions.append(
+            event_bus.subscribe(AppEvent.TASK_ESTIMATE_REQUESTED, self._on_estimate)
+        )
 
     def cleanup(self) -> None:
         """Unsubscribe from all events."""
@@ -103,32 +106,35 @@ class TaskActionHandler:
     def _on_complete(self, task: Task) -> None:
         """Handle task completion request.
 
-        Shows duration dialog if no time entries exist, otherwise completes directly.
+        Completing is instant (no blocking modal). If the task had no tracked time,
+        offer a non-blocking 'Add time' action to log it via the manual editor.
         """
         async def _complete() -> None:
-            has_time_entries = False
-            if task.id:
+            had_time = bool(task.spent_seconds)
+            if not had_time and task.id:
                 entries = await self._time_entry_svc.load_time_entries_for_task(task.id)
-                has_time_entries = len(entries) > 0
-
-            if not has_time_entries and task.spent_seconds == 0:
-                self._task_dialogs.duration_completion(task, self._do_complete_async)
-            else:
-                await self._do_complete_async(task)
+                had_time = len(entries) > 0
+            await self._do_complete_async(task, offer_add_time=not had_time)
 
         self._page.run_task(_complete)
 
-    async def _do_complete_async(self, task: Task, completed_at=None) -> None:
-        """Actually complete the task after any duration entry.
+    async def _do_complete_async(self, task: Task, completed_at=None, offer_add_time: bool = False) -> None:
+        """Complete the task. completed_at defaults to now.
 
-        completed_at lets the duration dialog backdate completion to the day the
-        work was done; defaults to now for the normal (already-timed) path.
+        When offer_add_time is set (no time was tracked), show an 'Add time'
+        snackbar action that opens the manual entry editor for this task.
         """
         new_task = await self._service.complete_task(task, completed_at=completed_at)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
         if new_task:
             self._snack.show(t("next_occurrence_scheduled").format(date=new_task.due_date.strftime("%b %d")))
             event_bus.emit(AppEvent.TASK_CREATED, new_task)
+        elif offer_add_time:
+            self._snack.show(
+                t("task_completed").replace("{title}", task.title),
+                action_label=t("add_time_entry"),
+                on_action=lambda: event_bus.emit(AppEvent.LOG_TIME_REQUESTED, task),
+            )
         if self._refresh_ui_async:
             await self._refresh_ui_async()
         else:
@@ -267,4 +273,8 @@ class TaskActionHandler:
     def _on_stats(self, task: Task) -> None:
         """Handle task stats request."""
         self._task_dialogs.stats(task)
+
+    def _on_estimate(self, task: Task) -> None:
+        """Handle set-estimate request."""
+        self._task_dialogs.set_estimate(task)
 

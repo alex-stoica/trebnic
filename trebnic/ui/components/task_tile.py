@@ -159,6 +159,12 @@ class TaskTile:
                 as_popup=True,
             ),
             create_option_item(
+                ft.Icons.HOURGLASS_EMPTY,
+                t("set_estimate"),
+                lambda e: event_bus.emit(AppEvent.TASK_ESTIMATE_REQUESTED, self.task),
+                as_popup=True,
+            ),
+            create_option_item(
                 ft.Icons.CONTENT_COPY_OUTLINED,
                 t("duplicate_task"),
                 lambda e: event_bus.emit(AppEvent.TASK_DUPLICATE_REQUESTED, self.task),

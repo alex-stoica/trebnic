@@ -1108,107 +1108,38 @@ class TaskDialogs:
         picker.open = True
         self.page.update()
 
-    def duration_completion(
-        self,
-        task: Task,
-        on_complete: Callable,
-    ) -> None:
-        """Show duration knob dialog for completing a task without time entries.
-
-        Supports backdating: pick the day the work was done so both the time entry
-        and the completion timestamp land on the right day (not always 'now').
-
-        Args:
-            task: The task being completed
-            on_complete: Async callback ``on_complete(task, completed_at)`` finalizing completion
-        """
-        # Default to estimated time or 15 minutes
+    def set_estimate(self, task: Task) -> None:
+        """Edit a task's estimated time on an existing task (metadata-only)."""
         initial_minutes = task.estimated_seconds // 60 if task.estimated_seconds else 15
-
         knob = DurationKnob(initial_minutes=initial_minutes, size=220)
-        when = {"date": date.today()}
-
-        def _completed_dt() -> datetime:
-            now = datetime.now()
-            if when["date"] >= date.today():
-                return now
-            # Past day: anchor at the same clock time on that day (always < now).
-            return datetime.combine(when["date"], now.time())
-
-        date_btn = ft.TextButton(t("today"), icon=ft.Icons.CALENDAR_TODAY)
-
-        def _refresh_date_label() -> None:
-            date_btn.text = t("today") if when["date"] == date.today() else when["date"].strftime("%b %d, %Y")
-            date_btn.update()
-
-        def pick_when(e: ft.ControlEvent) -> None:
-            def applied(d: date) -> None:
-                when["date"] = d
-                _refresh_date_label()
-            self._open_past_date_picker(when["date"], applied)
-
-        date_btn.on_click = pick_when
 
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
-                duration_seconds = knob.value * 60
-                end_time = _completed_dt()
-                start_time = end_time - timedelta(seconds=duration_seconds)
-                # Canonical: create the entry and recompute (do NOT += and persist —
-                # metadata saves no longer write spent_seconds).
-                _, affected = await self.time_entry_service.add_manual_entry(
-                    task.id, start_time, end_time
-                )
-                if task.id in affected:
-                    task.spent_seconds = affected[task.id]
+                task.estimated_seconds = knob.value * 60
+                await self.task_service.persist_task(task)  # metadata path; spent untouched
                 close(None)
-                await on_complete(task, end_time)
+                self.snack.show(t("estimate_updated"))
+                event_bus.emit(AppEvent.TASK_UPDATED, task)
+                event_bus.emit(AppEvent.REFRESH_UI)
             self.page.run_task(_save)
-
-        def skip(e: ft.ControlEvent) -> None:
-            async def _skip() -> None:
-                completed_at = _completed_dt()
-                close(None)
-                await on_complete(task, completed_at)
-            self.page.run_task(_skip)
 
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
             content=ft.Column(
                 [
-                    ft.Text(
-                        t("how_long_spent"),
-                        size=14,
-                        color=COLORS["done_text"],
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    ft.Container(
-                        content=knob,
-                        alignment=ft.Alignment(0, 0),
-                        padding=ft.Padding.only(top=PADDING_LG, bottom=PADDING_LG),
-                    ),
-                    ft.Row(
-                        [
-                            ft.Text(t("when_done"), size=13, color=COLORS["done_text"]),
-                            date_btn,
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        spacing=SPACING_SM,
-                    ),
+                    ft.Text(t("estimated_time"), size=14, color=COLORS["done_text"],
+                            text_align=ft.TextAlign.CENTER),
+                    ft.Container(content=knob, alignment=ft.Alignment(0, 0),
+                                padding=ft.Padding.only(top=PADDING_LG, bottom=PADDING_LG)),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=SPACING_LG,
                 tight=True,
             ),
         )
-
         _, close = open_dialog(
             self.page,
-            t("complete_title").replace("{title}", task.title),
+            t("set_estimate"),
             content,
-            lambda c: [
-                ft.TextButton(t("cancel"), on_click=c),
-                ft.TextButton(t("skip"), on_click=skip),
-                accent_btn(t("complete_action"), save),
-            ],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
         )

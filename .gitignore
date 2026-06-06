@@ -41,3 +41,7 @@ CLAUDE.md
 .env.local
 .env.*.local
 credentials.py
+# Build/tool artifacts
+uv.lock
+flutter_build_log.txt
+*.log
