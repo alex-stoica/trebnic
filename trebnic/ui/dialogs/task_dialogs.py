@@ -283,7 +283,8 @@ class RecurrenceDialogController:
     def _on_end_date_change(self, e: ft.ControlEvent) -> None:
         """Handle end date picker change."""
         if e.control.value:
-            self.state.end_date = e.control.value.date()
+            value = e.control.value
+            self.state.end_date = value.date() if hasattr(value, "date") else value
             self.end_date_text.value = self.state.end_date.strftime("%b %d, %Y")
             self.end_type_group.value = "on_date"
             self.state.end_type = "on_date"
@@ -541,7 +542,8 @@ class TaskDialogs:
 
         def handle_change(e: ft.ControlEvent) -> None:
             if e.control.value:
-                new_date = e.control.value.date()
+                value = e.control.value
+                new_date = value.date() if hasattr(value, "date") else value
 
                 async def _handle() -> None:
                     await self.task_service.set_task_due_date(task, new_date)

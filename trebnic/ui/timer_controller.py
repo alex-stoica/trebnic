@@ -68,6 +68,11 @@ class TimerController:
 
     def recover_timer(self, state: AppState) -> None:
         """Recover a running timer from app restart."""
+        # Finalize any stale running entries from earlier crashes (keep the one we
+        # are about to recover, if any) so they don't linger as phantom rows.
+        keep_id = state.recovered_timer_entry.id if state.recovered_timer_entry else None
+        self.page.run_task(self.timer_svc.reap_orphaned_entries, keep_id)
+
         if state.recovered_timer_entry is None:
             return
 

@@ -283,6 +283,28 @@ class RecordsMixin:
             logger.error(f"Error deleting time entry {entry_id}: {e}")
             raise DatabaseError(f"Failed to delete time entry: {e}") from e
 
+    async def load_orphaned_running_entries(self, keep_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Load running entries (end_time NULL) other than keep_id.
+
+        These accumulate when the app is killed repeatedly while a timer runs;
+        recovery only resumes the most recent one. The rest are stale and should be
+        finalized so they don't linger as phantom 'running' rows.
+        """
+        try:
+            async with self._get_connection() as conn:
+                if keep_id is None:
+                    query = "SELECT id, task_id, start_time, heartbeat_at FROM time_entries WHERE end_time IS NULL"
+                    params: tuple = ()
+                else:
+                    query = ("SELECT id, task_id, start_time, heartbeat_at FROM time_entries "
+                             "WHERE end_time IS NULL AND id != ?")
+                    params = (keep_id,)
+                async with conn.execute(query, params) as cursor:
+                    return [dict(r) async for r in cursor]
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error loading orphaned running entries: {e}")
+            return []
+
     async def load_incomplete_time_entry(self) -> Optional[Dict[str, Any]]:
         """Load the first incomplete time entry (end_time is NULL).
 
@@ -299,25 +321,6 @@ class RecordsMixin:
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading incomplete time entry: {e}")
             return None
-
-    async def get_total_tracked_today(self) -> int:
-        """Get total tracked seconds for today."""
-        try:
-            today = date.today().isoformat()
-            async with self._get_connection() as conn:
-                async with conn.execute(
-                    "SELECT SUM("
-                    "  CASE WHEN end_time IS NOT NULL THEN "
-                    "    (julianday(end_time) - julianday(start_time)) * 86400 "
-                    "  ELSE 0 END"
-                    ") as total FROM time_entries WHERE date(start_time) = ?",
-                    (today,)
-                ) as cursor:
-                    result = await cursor.fetchone()
-                    return int(result[0] or 0)
-        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
-            logger.error(f"Error getting total tracked today: {e}")
-            raise DatabaseError(f"Failed to get total tracked today: {e}") from e
 
     # ========================================================================
     # Daily Notes

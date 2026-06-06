@@ -57,6 +57,10 @@ class TimeEntryService:
         """Delete an entry and recompute its task's spent_seconds. Returns affected."""
         return await db.delete_time_entry_and_recompute(entry_id)
 
+    async def load_orphaned_running(self, keep_id: Optional[int] = None) -> List[dict]:
+        """Stale running entries (end_time NULL) other than keep_id."""
+        return await db.load_orphaned_running_entries(keep_id)
+
     async def add_manual_entry(
         self, task_id: int, start_time: datetime, end_time: datetime
     ) -> Tuple[TimeEntry, Dict[int, int]]:

@@ -355,7 +355,8 @@ class TasksView:
 
                 def _on_pick(ev: ft.ControlEvent) -> None:
                     if ev.control.value:
-                        selected_due["value"] = ev.control.value.date()
+                        value = ev.control.value
+                        selected_due["value"] = value.date() if hasattr(value, "date") else value
                         _rebuild_date_chips()
                         self.page.update()
 

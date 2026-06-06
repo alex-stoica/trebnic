@@ -458,6 +458,34 @@ class TestCanonicalSpent:
         await services.task.uncomplete_task(task)
         assert task.completed_at is None
 
+    async def test_running_entry_excluded_from_spent(self, api: TrebnicAPI, services: ServiceContainer):
+        task = await api.add_task("Mixed")
+        await api.log_time(task, duration_seconds=600)  # completed
+        running = TimeEntry(task_id=task.id, start_time=datetime(2026, 1, 1, 9, 0))  # end_time None
+        await services.time_entry.save_time_entry(running)
+        await db.recompute_spent_seconds(task.id)
+        fresh = await db.load_task_by_id(task.id)
+        assert fresh["spent_seconds"] == 600  # running entry not counted
+
+    async def test_entry_ownership_change_recomputes_both(self, api: TrebnicAPI, services: ServiceContainer):
+        a = await api.add_task("A")
+        b = await api.add_task("B")
+        entry, _ = await services.time_entry.add_manual_entry(
+            a.id, datetime(2026, 1, 1, 9, 0), datetime(2026, 1, 1, 10, 0)
+        )
+        entry.task_id = b.id  # move the entry to B
+        _, affected = await services.time_entry.save_entry_with_recompute(entry)
+        assert affected.get(a.id) == 0
+        assert affected.get(b.id) == 3600
+
+    async def test_fractional_seconds_rounded(self, api: TrebnicAPI, services: ServiceContainer):
+        task = await api.add_task("Frac")
+        start = datetime(2026, 1, 1, 9, 0, 0, 0)
+        end = datetime(2026, 1, 1, 9, 29, 59, 500000)  # 1799.5s
+        await services.time_entry.add_manual_entry(task.id, start, end)
+        fresh = await db.load_task_by_id(task.id)
+        assert fresh["spent_seconds"] == 1800  # integer-safe rounding
+
 
 # ===========================================================================
 # get_tasks / get_done_tasks with due date filters

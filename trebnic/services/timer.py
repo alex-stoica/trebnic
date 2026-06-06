@@ -192,6 +192,34 @@ class TimerService:
         bank_end = entry.heartbeat_at or entry.start_time
         return max(0, int((bank_end - entry.start_time).total_seconds()))
 
+    async def reap_orphaned_entries(self, keep_id: Optional[int] = None) -> None:
+        """Finalize stale running entries left by repeated crashes (excluding keep_id).
+
+        Each is banked at its last heartbeat if that exceeds the minimum, else
+        discarded — same policy as a normal stop — so no phantom 'running' rows
+        linger in a task's timeline. keep_id is the entry being actively recovered.
+        """
+        if self._time_entry_svc is None:
+            return
+        rows = await self._time_entry_svc.load_orphaned_running(keep_id)
+        affected: dict = {}
+        for r in rows:
+            try:
+                start = datetime.fromisoformat(r["start_time"])
+                hb = r.get("heartbeat_at")
+                bank_end = datetime.fromisoformat(hb) if hb else start
+            except (ValueError, TypeError):
+                # A malformed timestamp on one row must not abort cleanup of the rest.
+                continue
+            if int((bank_end - start).total_seconds()) >= MIN_TIMER_SECONDS:
+                entry = TimeEntry(id=r["id"], task_id=r["task_id"], start_time=start, end_time=bank_end)
+                _, aff = await self._time_entry_svc.save_entry_with_recompute(entry)
+            else:
+                aff = await self._time_entry_svc.delete_entry_with_recompute(r["id"])
+            affected.update(aff)
+        if affected and self._task_svc is not None:
+            self._task_svc.apply_spent(affected)
+
     def recover(self, entry: TimeEntry, task: Task) -> None:
         """Recover a running timer from app restart.
 
