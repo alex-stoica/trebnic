@@ -11,6 +11,7 @@ from config import (
     DURATION_SLIDER_MIN,
     DURATION_SLIDER_MAX,
     DIALOG_WIDTH_LG,
+    SPACING_XS,
     SPACING_SM,
     SPACING_MD,
     SPACING_LG,
