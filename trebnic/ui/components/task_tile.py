@@ -234,6 +234,15 @@ class TaskTile:
         ) 
 
         if self.is_done:
+            # Flag a missing completion date so it can be found and fixed from here.
+            missing_completed = self.task.completed_at is None
+            details_btn = ft.IconButton(
+                ft.Icons.EVENT_BUSY if missing_completed else ft.Icons.INFO_OUTLINE,
+                icon_color=COLORS["danger"] if missing_completed else COLORS["grey"],
+                icon_size=18,
+                tooltip=t("missing_completion_date") if missing_completed else t("stats"),
+                on_click=lambda e: event_bus.emit(AppEvent.TASK_STATS_REQUESTED, self.task),
+            )
             return ft.Container(
                 padding=PADDING_2XL,
                 bgcolor=bg,
@@ -249,8 +258,9 @@ class TaskTile:
                         spacing=SPACING_XS,
                     ),
                     time_txt,
+                    details_btn,
                 ]),
-            ) 
+            )
 
         if self.state.is_mobile:
             return ft.Container(

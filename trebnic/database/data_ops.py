@@ -27,7 +27,8 @@ class DataOpsMixin:
                 async with conn.execute(
                     "SELECT id, title, spent_seconds, estimated_seconds, project_id, due_date, is_done, "
                     "recurrent, recurrence_interval, recurrence_frequency, recurrence_weekdays, notes, "
-                    "sort_order, recurrence_end_type, recurrence_end_date, recurrence_from_completion, is_draft "
+                    "sort_order, recurrence_end_type, recurrence_end_date, recurrence_from_completion, "
+                    "is_draft, completed_at "
                     "FROM tasks"
                 ) as cur:
                     for r in await cur.fetchall():
@@ -38,7 +39,9 @@ class DataOpsMixin:
                         tasks.append(row)
 
                 time_entries = []
-                async with conn.execute("SELECT id, task_id, start_time, end_time FROM time_entries") as cur:
+                async with conn.execute(
+                    "SELECT id, task_id, start_time, end_time, heartbeat_at FROM time_entries"
+                ) as cur:
                     time_entries = [dict(r) async for r in cur]
 
                 daily_notes = []
@@ -108,6 +111,7 @@ class DataOpsMixin:
         Uses explicit IDs for tasks and time entries to preserve foreign-key
         relationships across export/import cycles.
         """
+        self._validate_import(tasks, time_entries)
         try:
             async with self._get_connection() as conn:
                 await conn.executescript(
@@ -134,13 +138,16 @@ class DataOpsMixin:
                         rec_end = rec_end.isoformat()
                     title = _encrypt_field(t["title"])
                     notes = _encrypt_field(t.get("notes", ""))
+                    completed_at = t.get("completed_at")
+                    if isinstance(completed_at, (date, datetime)):
+                        completed_at = completed_at.isoformat()
                     await conn.execute(
                         "INSERT INTO tasks "
                         "(id,title,spent_seconds,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date,recurrence_from_completion,is_draft) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "recurrence_end_date,recurrence_from_completion,is_draft,completed_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             t["id"], title, t.get("spent_seconds", 0),
                             t.get("estimated_seconds", 0), t.get("project_id"),
@@ -150,15 +157,17 @@ class DataOpsMixin:
                             weekdays, notes, t.get("sort_order", 0),
                             t.get("recurrence_end_type", "never"), rec_end,
                             t.get("recurrence_from_completion", 0),
-                            t.get("is_draft", 0),
+                            t.get("is_draft", 0), completed_at,
                         ),
                     )
 
                 # Time entries with explicit IDs
                 for e in time_entries:
                     await conn.execute(
-                        "INSERT INTO time_entries (id, task_id, start_time, end_time) VALUES (?, ?, ?, ?)",
-                        (e["id"], e["task_id"], e["start_time"], e["end_time"]),
+                        "INSERT INTO time_entries (id, task_id, start_time, end_time, heartbeat_at) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (e["id"], e["task_id"], e["start_time"], e["end_time"],
+                         e.get("heartbeat_at")),
                     )
 
                 # Daily notes
@@ -180,10 +189,56 @@ class DataOpsMixin:
                         (key, json.dumps(value)),
                     )
 
+                # spent_seconds is canonical: reconcile from imported entries. This
+                # preserves entry-less legacy spent (synthesizes a backing entry)
+                # instead of zeroing it, matching the schema-migration behavior.
+                await self._reconcile_spent_seconds(conn)
                 await conn.commit()
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error importing data: {e}")
             raise DatabaseError(f"Failed to import data: {e}") from e
+
+    @staticmethod
+    def _validate_import(tasks: List[Dict], time_entries: List[Dict]) -> None:
+        """Validate references and datetime shapes BEFORE the destructive replace.
+
+        A malformed backup must be rejected up front, never half-applied after the
+        existing data has already been deleted.
+        """
+        def _parse_dt(value: Any, where: str) -> Optional[datetime]:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, date):
+                return datetime(value.year, value.month, value.day)
+            try:
+                return datetime.fromisoformat(str(value))
+            except (ValueError, TypeError) as exc:
+                raise DatabaseError(f"Invalid datetime in {where}: {value!r}") from exc
+
+        task_ids = set()
+        for t in tasks:
+            if t.get("id") is None:
+                raise DatabaseError("Task without id in import data")
+            task_ids.add(t["id"])
+            _parse_dt(t.get("completed_at"), "task.completed_at")
+        for e in time_entries:
+            if e.get("id") is None:
+                raise DatabaseError("Time entry without id in import data")
+            if e.get("task_id") not in task_ids:
+                raise DatabaseError(
+                    f"Time entry {e.get('id')} references missing task {e.get('task_id')}"
+                )
+            start = _parse_dt(e.get("start_time"), "time_entry.start_time")
+            end = _parse_dt(e.get("end_time"), "time_entry.end_time")
+            _parse_dt(e.get("heartbeat_at"), "time_entry.heartbeat_at")
+            # Completed entries must have a positive interval; running entries (no
+            # end) are allowed. Invalid spans would distort stats/exports later.
+            if start is not None and end is not None and end <= start:
+                raise DatabaseError(
+                    f"Time entry {e.get('id')} has end <= start ({end} <= {start})"
+                )
 
     async def reencrypt_all_data(
         self,

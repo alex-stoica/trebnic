@@ -5,6 +5,7 @@ import sqlite3
 import logging
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Optional, Any, AsyncIterator
 
 import database as _pkg
@@ -110,13 +111,15 @@ class DatabaseCore:
                     sort_order INTEGER DEFAULT 0,
                     recurrence_end_type TEXT DEFAULT 'never',
                     recurrence_end_date TEXT,
-                    is_draft INTEGER DEFAULT 0
+                    is_draft INTEGER DEFAULT 0,
+                    completed_at TEXT
                 );
                 CREATE TABLE IF NOT EXISTS time_entries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_id INTEGER NOT NULL,
                     start_time TEXT NOT NULL,
                     end_time TEXT,
+                    heartbeat_at TEXT,
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS daily_notes (
@@ -126,9 +129,14 @@ class DatabaseCore:
                 );
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks(is_done);
+                CREATE INDEX IF NOT EXISTS idx_tasks_done_due_date ON tasks(is_done, due_date);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_task ON time_entries(task_id);
                 CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time);
+                CREATE INDEX IF NOT EXISTS idx_time_entries_task_end ON time_entries(task_id, end_time);
             """)
+            # idx_tasks_done_completed_at is created in _migrate_schema, AFTER the
+            # completed_at column is guaranteed to exist (it does not on upgrade when
+            # this CREATE-IF-NOT-EXISTS is a no-op on the pre-existing tasks table).
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error initializing database schema: {e}")
             raise DatabaseError(f"Failed to initialize schema: {e}") from e
@@ -159,6 +167,9 @@ class DatabaseCore:
                 await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN is_draft INTEGER DEFAULT 0"
                 )
+            # completed_at: real completion timestamp.
+            if "completed_at" not in cols:
+                await conn.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
 
             async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -172,6 +183,7 @@ class DatabaseCore:
                         task_id INTEGER NOT NULL,
                         start_time TEXT NOT NULL,
                         end_time TEXT,
+                        heartbeat_at TEXT,
                         FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                     )
                 """)
@@ -181,6 +193,26 @@ class DatabaseCore:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_time_entries_start ON time_entries(start_time)"
                 )
+            else:
+                # heartbeat_at: lets a live timer's entry keep end_time NULL while
+                # still persisting liveness for crash recovery.
+                async with conn.execute("PRAGMA table_info(time_entries)") as cursor:
+                    te_cols = [r[1] async for r in cursor]
+                if "heartbeat_at" not in te_cols:
+                    await conn.execute("ALTER TABLE time_entries ADD COLUMN heartbeat_at TEXT")
+
+            # Indexes added alongside completed_at/heartbeat_at (idempotent).
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_done_completed_at "
+                "ON tasks(is_done, completed_at)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_done_due_date ON tasks(is_done, due_date)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_time_entries_task_end "
+                "ON time_entries(task_id, end_time)"
+            )
 
             if "daily_notes" not in tables:
                 await conn.execute("""
@@ -193,9 +225,108 @@ class DatabaseCore:
 
             if "scheduled_notifications" in tables:
                 await conn.execute("DROP TABLE scheduled_notifications")
+
+            # Reconcile cached spent_seconds from canonical entries. Gated on a
+            # one-time settings flag (not "did we just add completed_at") so that
+            # beta DBs which already have the column but stale totals are healed too.
+            # Runs only now that time_entries is guaranteed to exist (older DBs
+            # create it above).
+            async with conn.execute(
+                "SELECT 1 FROM settings WHERE key = 'spent_reconciled_v1'"
+            ) as cursor:
+                already_reconciled = await cursor.fetchone()
+            if not already_reconciled:
+                await self._reconcile_spent_seconds(conn)
+                await conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES ('spent_reconciled_v1', ?)",
+                    (json.dumps(True),),
+                )
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error during schema migration: {e}")
             raise DatabaseError(f"Failed to migrate schema: {e}") from e
+
+    async def _reconcile_spent_seconds(self, conn: aiosqlite.Connection) -> None:
+        """Make task.spent_seconds the canonical sum of completed time entries.
+
+        Robust by design (one-time upgrade step on possibly-messy legacy data):
+        - durations are parsed in Python so a stray datetime format never zeroes a
+          real value via SQL date math;
+        - a task with spent_seconds > 0 but no usable completed entry gets ONE
+          synthetic entry preserving that value (so nothing is silently lost);
+        - before/after totals are logged so any visible shift on upgrade is
+          attributable to healing the original bug, not data loss.
+        """
+        def _parse(value: Optional[str]) -> Optional[datetime]:
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(value)
+            except (ValueError, TypeError):
+                return None
+
+        async with conn.execute("SELECT id, spent_seconds, due_date, completed_at FROM tasks") as cur:
+            tasks = [dict(r) async for r in cur]
+        async with conn.execute(
+            "SELECT task_id, start_time, end_time FROM time_entries WHERE end_time IS NOT NULL"
+        ) as cur:
+            entries = [dict(r) async for r in cur]
+
+        sums: dict = {}
+        for e in entries:
+            start = _parse(e.get("start_time"))
+            end = _parse(e.get("end_time"))
+            if start is None or end is None:
+                continue
+            secs = int(round((end - start).total_seconds()))
+            if secs <= 0:
+                continue
+            sums[e["task_id"]] = sums.get(e["task_id"], 0) + secs
+
+        before_total = sum(int(t.get("spent_seconds") or 0) for t in tasks)
+        synthesized = 0
+        for t in tasks:
+            tid = t["id"]
+            old_spent = int(t.get("spent_seconds") or 0)
+            entry_sum = sums.get(tid, 0)
+            if entry_sum > 0:
+                if entry_sum != old_spent:
+                    if old_spent > entry_sum:
+                        # Entries are canonical, so this is intentional, but log it:
+                        # a legacy cached total exceeded the sum of its entries.
+                        logger.info(
+                            "reconcile: task %s spent %ds -> %ds (cache exceeded entries)",
+                            tid, old_spent, entry_sum,
+                        )
+                    await conn.execute(
+                        "UPDATE tasks SET spent_seconds = ? WHERE id = ?", (entry_sum, tid)
+                    )
+            elif old_spent > 0:
+                # Preserve entry-less spent (legacy update_task_time / imports) by
+                # backing it with one synthetic completed entry.
+                anchor = _parse(t.get("completed_at"))
+                if anchor is None and t.get("due_date"):
+                    try:
+                        anchor = datetime.fromisoformat(t["due_date"])
+                    except (ValueError, TypeError):
+                        anchor = None
+                if anchor is None:
+                    anchor = datetime.now()
+                start = anchor - timedelta(seconds=old_spent)
+                await conn.execute(
+                    "INSERT INTO time_entries (task_id, start_time, end_time) VALUES (?, ?, ?)",
+                    (tid, start.isoformat(), anchor.isoformat()),
+                )
+                synthesized += 1
+
+        async with conn.execute(
+            "SELECT COALESCE(SUM(spent_seconds), 0) FROM tasks"
+        ) as cur:
+            row = await cur.fetchone()
+            after_total = int(row[0] or 0)
+        logger.info(
+            "spent_seconds reconcile: %d tasks, %d synthetic entries, total %ds -> %ds",
+            len(tasks), synthesized, before_total, after_total,
+        )
 
     async def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a setting value. Returns default if not found or on error."""

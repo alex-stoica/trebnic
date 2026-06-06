@@ -57,6 +57,7 @@ class Task:
     recurrence_end_date: Optional[date] = None
     recurrence_from_completion: bool = False
     is_draft: bool = False
+    completed_at: Optional[datetime] = None
 
     def to_dict(self, is_done: bool = False) -> Dict[str, Any]:
         freq_value = (
@@ -82,6 +83,7 @@ class Task:
             "recurrence_end_date": self.recurrence_end_date,
             "recurrence_from_completion": 1 if self.recurrence_from_completion else 0,
             "is_draft": 1 if self.is_draft else 0,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
 
     @classmethod
@@ -91,6 +93,9 @@ class Task:
             frequency = RecurrenceFrequency(freq_str)
         except ValueError:
             frequency = RecurrenceFrequency.WEEKS
+        completed_at = d.get("completed_at")
+        if isinstance(completed_at, str):
+            completed_at = datetime.fromisoformat(completed_at)
         return cls(
             id=d.get("id"),
             title=d["title"],
@@ -108,6 +113,7 @@ class Task:
             recurrence_end_date=d.get("recurrence_end_date"),
             recurrence_from_completion=bool(d.get("recurrence_from_completion", 0)),
             is_draft=bool(d.get("is_draft", 0)),
+            completed_at=completed_at,
         )
 
     def create_next_occurrence(self, next_due_date: date) -> "Task":
@@ -166,6 +172,7 @@ class TimeEntry:
     start_time: datetime
     end_time: Optional[datetime] = None
     id: Optional[int] = None
+    heartbeat_at: Optional[datetime] = None
 
     @property
     def duration_seconds(self) -> int:
@@ -186,6 +193,7 @@ class TimeEntry:
             "task_id": self.task_id,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
+            "heartbeat_at": self.heartbeat_at.isoformat() if self.heartbeat_at else None,
         }
 
     @classmethod
@@ -193,11 +201,13 @@ class TimeEntry:
         """Create TimeEntry from dictionary."""
         start = d.get("start_time")
         end = d.get("end_time")
+        heartbeat = d.get("heartbeat_at")
         return cls(
             id=d.get("id"),
             task_id=d["task_id"],
             start_time=datetime.fromisoformat(start) if start else datetime.now(),
             end_time=datetime.fromisoformat(end) if end else None,
+            heartbeat_at=datetime.fromisoformat(heartbeat) if heartbeat else None,
         )
 
 

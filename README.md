@@ -1,9 +1,9 @@
 # Trebnic - build & deploy
 
 ## Development with hot-reload
+Run from the project root (where `pyproject.toml` lives), not from inside the package:
 ```bash
-cd trebnic
-poetry run flet run main.py
+poetry run flet run trebnic/main.py
 ```
 
 ## Prerequisites
@@ -12,8 +12,8 @@ poetry run flet run main.py
 - `PYTHONUTF8=1` set (Windows - prevents Rich library Unicode crashes)
 
 ## Build
+Always build from the project root (where `pyproject.toml` lives), never from `trebnic/`:
 ```bash
-cd trebnic
 PYTHONUTF8=1 poetry run flet build apk
 ```
 

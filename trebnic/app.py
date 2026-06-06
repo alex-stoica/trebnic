@@ -103,11 +103,11 @@ class TrebnicApp:
 
     def _on_app_lifecycle_state_change(self, e: ft.AppLifecycleStateChangeEvent) -> None:
         """Handle app lifecycle changes - sync timer on resume from background and
-        rebuild the Android digest body so tomorrow's alarm reflects current tasks."""
+        refresh stale Android notification alarms after longer background gaps."""
         if e.state in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
             if self.timer_svc.running:
                 event_bus.emit(AppEvent.TIMER_SYNC)
-            self.page.run_task(notification_service.reschedule_digests)
+            notification_service.request_reschedule_if_stale("app_resume")
 
     def _cleanup(self) -> None:
         """Clean up all resources."""
@@ -155,11 +155,15 @@ class TrebnicApp:
             # Reload data with decryption enabled - use async version
             # This emits REFRESH_UI which triggers UI rebuild with fresh Task objects
             await self.service.reload_state_async()
+            await notification_service.reschedule_digests()
             # Also rebuild sidebar in case project names were encrypted
             self.rebuild_sidebar()
             self.page.update()
 
         self.auth_ctrl.set_unlock_callback(on_unlocked)
+        self.auth_ctrl.set_lock_callback(
+            lambda: notification_service.request_reschedule("lock_state_changed", urgent=True)
+        )
 
         # Show unlock dialog if app is locked
         if self.auth_ctrl.needs_unlock:
@@ -247,6 +251,21 @@ class TrebnicApp:
 
         if action_id == "view_stats":
             self.nav_manager.navigate_to(PageType.STATS)
+            return
+
+        if action_id == "task_start":
+            if task_id is None:
+                self.nav_manager.navigate_to(PageType.TASKS)
+                return
+
+            async def _start_task() -> None:
+                await self.service.refresh_state_tasks()
+                self.nav_manager.navigate_to(PageType.TASKS)
+                task = self.state.get_task_by_id(task_id)
+                if task is not None:
+                    event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, task)
+
+            self.page.run_task(_start_task)
             return
 
         if action_id == "open_task" or payload.get("kind") == "task_nudge":
@@ -405,6 +424,12 @@ class TrebnicApp:
         """Handle add project button click."""
         self.project_dialogs.open()
 
+    def _on_log_time_click(self, e: ft.ControlEvent) -> None:
+        """Global 'Log time': pick a task, then open the manual entry editor for it."""
+        self.task_dialogs.log_time(
+            lambda task: self.time_entries_view.open_entry_editor(task_id=task.id)
+        )
+
     def _build_layout(self) -> None:
         """Build the main application layout."""
         self._build_nav_items()
@@ -525,11 +550,19 @@ class TrebnicApp:
             icon=ft.Icons.SETTINGS, items=self._get_settings_items()
         )
 
+        self.log_time_btn = ft.IconButton(
+            icon=ft.Icons.MORE_TIME,
+            icon_color=COLORS["accent"],
+            tooltip=t("log_time"),
+            on_click=self._on_log_time_click,
+        )
+
         self.header = ft.Row(
             controls=[
                 self.menu_btn,
                 self.timer_widget,
                 ft.Container(expand=True),
+                self.log_time_btn,
                 self.settings_menu,
             ]
         )

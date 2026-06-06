@@ -2,8 +2,8 @@ import asyncio
 import concurrent.futures
 import logging
 import os
-from datetime import date, time, timedelta
-from typing import Any, List, Tuple, Optional
+from datetime import date, datetime, time, timedelta
+from typing import Any, Dict, List, Tuple, Optional
 
 try:
     from credentials import RESEND_API_KEY as _CRED_API_KEY, FEEDBACK_EMAIL as _CRED_EMAIL
@@ -259,13 +259,25 @@ class TaskService:
         return task
 
     async def persist_task(self, task: Task) -> None:
-        """Persist task to database."""
+        """Persist task metadata to database.
+
+        Routes through save_task, whose UPDATE path deliberately excludes
+        spent_seconds (canonical sum of time entries). Safe for rename / due date /
+        project / recurrence / completion edits.
+        """
         is_done = any(t.id == task.id for t in self.state.done_tasks)
         await db.save_task(task.to_dict(is_done=is_done))
 
-    async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:
-        """Atomically increment a task's spent_seconds in the database."""
-        await db.increment_spent_seconds(task_id, seconds)
+    def apply_spent(self, affected: Dict[int, int]) -> None:
+        """Apply recomputed spent_seconds from an entry mutation to in-memory tasks.
+
+        Entry helpers return {task_id: new_spent}; callers MUST funnel that here so
+        the in-memory Task matches the DB without a full reload.
+        """
+        for task_id, new_spent in affected.items():
+            t = self.state.get_task_by_id(task_id)
+            if t is not None:
+                t.spent_seconds = new_spent
 
     async def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task with rollback on failure."""
@@ -287,33 +299,46 @@ class TaskService:
             task.due_date = old_date
             raise
 
-    async def update_task_time(self, task: Task, spent_seconds: int) -> None:
-        """Update task's spent time with rollback on failure."""
-        old_seconds = task.spent_seconds
-        task.spent_seconds = spent_seconds
+    async def set_task_completed_at(self, task: Task, completed_at: Optional[datetime]) -> None:
+        """Set or clear a task's completion timestamp with rollback on failure.
+
+        Clamps to now: a task cannot have been completed in the future.
+        """
+        if completed_at is not None:
+            completed_at = min(completed_at, datetime.now())
+        old = task.completed_at
+        task.completed_at = completed_at
         try:
             await self.persist_task(task)
         except DatabaseError:
-            task.spent_seconds = old_seconds
+            task.completed_at = old
             raise
 
-    async def complete_task(self, task: Task) -> Optional[Task]:
+    async def complete_task(self, task: Task, completed_at: Optional[datetime] = None) -> Optional[Task]:
         """Complete a task and optionally create next recurrence.
 
         DB is the single source of truth. UI should call refresh() after this.
         Returns the next recurring task if one was created, None otherwise.
+
+        completed_at defaults to now; callers may pass an explicit timestamp when
+        logging work done in the past. spent_seconds is never written here — it is
+        the canonical sum of time entries (see database/records.py).
         """
+        # A task cannot be completed in the future (guards API/AI zero-duration paths).
+        now = datetime.now()
+        completed_at = now if completed_at is None else min(completed_at, now)
+
         # Load fresh task by ID — single row, not full table scan
         db_task_dict = await db.load_task_by_id(task.id)
         if db_task_dict is None:
             return None
 
-        # Apply any updates from the passed task (e.g., spent_seconds from timer)
-        db_task_dict["spent_seconds"] = task.spent_seconds
-
-        # Save completed status to DB - single source of truth
+        # Mark done with a real completion timestamp (metadata write; the UPDATE
+        # path deliberately leaves spent_seconds untouched).
         db_task_dict["is_done"] = 1
+        db_task_dict["completed_at"] = completed_at
         await db.save_task(db_task_dict)
+        task.completed_at = completed_at  # keep the in-memory task in sync
 
         # Handle recurrence - create next occurrence if applicable
         completed_task = Task.from_dict(db_task_dict)
@@ -329,7 +354,8 @@ class TaskService:
             return None
 
         if task.recurrence_from_completion:
-            next_date = calculate_next_recurrence_from_date(task, date.today())
+            base_date = task.completed_at.date() if task.completed_at else date.today()
+            next_date = calculate_next_recurrence_from_date(task, base_date)
         else:
             next_date = calculate_next_recurrence(task)
 
@@ -389,7 +415,9 @@ class TaskService:
             return False
 
         db_task_dict["is_done"] = 0
+        db_task_dict["completed_at"] = None
         await db.save_task(db_task_dict)
+        task.completed_at = None
         return True
 
     async def delete_task(self, task: Task) -> None:
@@ -412,6 +440,10 @@ class TaskService:
         new_task = Task.from_dict(task.to_dict())
         new_task.id = None
         new_task.title = f"{task.title} (copy)"
+        # A duplicate starts fresh: never carry over the source's completion stamp,
+        # or a pending copy would look already-completed in stats.
+        new_task.completed_at = None
+        new_task.spent_seconds = 0
         new_task.id = await db.save_task(new_task.to_dict())
         return new_task
 
@@ -479,9 +511,11 @@ class TaskService:
                 pending_kwargs["due_date_gt"] = today
                 done_kwargs["due_date_gt"] = today
             else:
-                # Today: due today or overdue
+                # Today: due today or overdue; Done = completed today (real
+                # completion day, with a due_date fallback for legacy rows).
                 pending_kwargs["due_date_lte"] = today
-                done_kwargs["due_date_eq"] = today
+                done_kwargs.pop("due_date_eq", None)
+                done_kwargs["completed_on"] = today
         elif nav == NavItem.INBOX:
             pending_kwargs["due_date_is_null"] = True
             done_kwargs["due_date_is_null"] = True

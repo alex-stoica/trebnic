@@ -151,20 +151,19 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "no_tracking": {"en": "No tracking", "ro": "Fără urmărire"},
     "tasks_section": {"en": "Tasks", "ro": "Treburi"},
     "tasks_help_1": {
-        "en": "Tap the + button to create a new task. Tap a task to mark it complete. "
-              "Swipe right to start the timer, swipe left to delete.",
-        "ro": "Apasă butonul + pentru a crea o treabă nouă. Apasă o treabă pentru a o marca ca finalizată. "
-              "Glisează la dreapta pentru a porni cronometrul, glisează la stânga pentru a șterge.",
+        "en": "Type in the box and press send to create a task. Tap a task's checkbox to "
+              "mark it complete. Tap the play icon to start its timer.",
+        "ro": "Scrie în casetă și apasă trimite pentru a crea o treabă. Apasă căsuța unei "
+              "treburi pentru a o marca finalizată. Apasă iconița play pentru a porni cronometrul.",
     },
     "tasks_help_2": {
         "en": (
-            "Long-press or tap the menu icon for more options: edit title, set due date, "
-            "configure recurrence, view time stats, or move to a different project."
+            "Tap the menu icon (⋯) on a task for more options: rename, reschedule, "
+            "configure recurrence, view time stats, or delete."
         ),
         "ro": (
-            "Apasă lung sau apasă iconița de meniu pentru mai multe opțiuni: editare titlu, "
-            "setare dată limită, configurare recurență, vizualizare statistici timp, sau "
-            "mutare într-un alt proiect."
+            "Apasă iconița de meniu (⋯) pe o treabă pentru mai multe opțiuni: redenumire, "
+            "reprogramare, configurare recurență, vizualizare statistici timp, sau ștergere."
         ),
     },
     "projects_section": {"en": "Projects", "ro": "Proiecte"},
@@ -230,10 +229,10 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "calendar_section": {"en": "Calendar view", "ro": "Vizualizare calendar"},
     "calendar_help_1": {
-        "en": "View tasks organized by week. Swipe left or right to navigate between weeks. "
+        "en": "View tasks organized by week. Use the arrow buttons to navigate between weeks. "
               "Tasks are shown on their due dates, helping you plan ahead.",
         "ro": (
-            "Vezi treburile organizate pe săptămâni. Glisează la stânga sau la dreapta pentru a "
+            "Vezi treburile organizate pe săptămâni. Folosește butoanele săgeată pentru a "
             "naviga între săptămâni. Treburile sunt afișate la datele lor limită, ajutându-te să "
             "planifici din timp."
         ),
@@ -356,14 +355,39 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "today_label": {"en": "Today", "ro": "Astăzi"},
     "yesterday_label": {"en": "Yesterday", "ro": "Ieri"},
     "cannot_edit_running": {"en": "Cannot edit a running timer", "ro": "Nu poți edita un cronometru în curs"},
-    "duration_clamped": {
-        "en": "Duration adjusted to fit the 5 min – 8h 20min range",
-        "ro": "Durata a fost ajustată la intervalul 5 min – 8h 20min",
-    },
-    "start_time_fixed": {"en": "Start time (fixed)", "ro": "Ora de început (fixată)"},
     "end_time": {"en": "End time", "ro": "Ora de sfârșit"},
     "time_entry_updated": {"en": "Time entry updated", "ro": "Înregistrare actualizată"},
     "edit_time_entry": {"en": "Edit time entry", "ro": "Editează înregistrarea"},
+    "add_time_entry": {"en": "Add time entry", "ro": "Adaugă înregistrare"},
+    "time_entry_added": {"en": "Time entry added", "ro": "Înregistrare adăugată"},
+    "start_label": {"en": "Start", "ro": "Început"},
+    "end_label": {"en": "End", "ro": "Sfârșit"},
+    "duration": {"en": "Duration", "ro": "Durată"},
+    "end_after_start": {"en": "End must be after start", "ro": "Sfârșitul trebuie să fie după început"},
+    "no_future_time": {"en": "Cannot log future time", "ro": "Nu poți înregistra timp viitor"},
+    "when_done": {"en": "When:", "ro": "Când:"},
+    "stop_timer_to_edit": {
+        "en": "Stop the timer before editing this entry",
+        "ro": "Oprește cronometrul înainte de a edita această înregistrare",
+    },
+    "log_time": {"en": "Log time", "ro": "Înregistrează timp"},
+    "log_time_for": {"en": "Log time for a task", "ro": "Înregistrează timp pentru o treabă"},
+    "select_task": {"en": "Select a task", "ro": "Alege o treabă"},
+    "completion_date": {"en": "Completion date", "ro": "Data finalizării"},
+    "set_completion_date": {"en": "Set completion date", "ro": "Setează data finalizării"},
+    "no_completion_date": {"en": "No completion date recorded", "ro": "Nicio dată de finalizare înregistrată"},
+    "missing_completion_date": {"en": "Missing completion date", "ro": "Fără dată de finalizare"},
+    "no_tasks": {"en": "No tasks yet", "ro": "Încă nicio treabă"},
+    "search": {"en": "Search", "ro": "Caută"},
+    "delete_task_title": {"en": "Delete task?", "ro": "Ștergi treaba?"},
+    "delete_task_confirm": {
+        "en": "Delete \"{title}\" and all its tracked time? This cannot be undone.",
+        "ro": "Ștergi „{title}” și tot timpul înregistrat? Această acțiune nu poate fi anulată.",
+    },
+    "delete_entry_confirm": {
+        "en": "Delete this time entry? This cannot be undone.",
+        "ro": "Ștergi această înregistrare de timp? Această acțiune nu poate fi anulată.",
+    },
     "now": {"en": "Now", "ro": "Acum"},
     "no_project": {"en": "No project", "ro": "Fără proiect"},
     "click_to_edit": {"en": "Click to edit", "ro": "Click pentru a edita"},
@@ -374,8 +398,8 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "break_label": {"en": "Break", "ro": "Pauză"},
     "no_time_entries": {"en": "No time entries yet", "ro": "Încă nu există înregistrări de timp"},
     "start_timer_hint": {
-        "en": "Start a timer on this task to track your time",
-        "ro": "Pornește un cronometru pe această treabă pentru a-ți înregistra timpul",
+        "en": "Start a timer, or add time manually with the button above",
+        "ro": "Pornește un cronometru sau adaugă timp manual cu butonul de mai sus",
     },
     "time_entries_title": {"en": "Time entries", "ro": "Înregistrări de timp"},
     "total_label": {"en": "Total", "ro": "Total"},
@@ -501,13 +525,14 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "evening_preview_desc": {"en": "Tomorrow's tasks preview", "ro": "Previzualizare treburi mâine"},
     "overdue_nudge": {"en": "Overdue nudge", "ro": "Memento restante"},
     "overdue_nudge_desc": {"en": "Reminder for overdue tasks", "ro": "Memento pentru treburi restante"},
-    "task_nudges": {"en": "Task nudges", "ro": "Mementouri pe treabă"},
+    "task_nudges": {"en": "Task nudges", "ro": "Notificări treburi"},
     "task_nudges_desc": {
         "en": "Action buttons for due and overdue tasks",
         "ro": "Butoane de acțiune pentru treburi scadente și restante",
     },
     "task_nudge_due_today_body": {"en": "Due today", "ro": "De făcut azi"},
     "task_nudge_overdue_body": {"en": "Overdue since {date}", "ro": "Restantă din {date}"},
+    "task_nudge_count_many": {"en": "{count} tasks to do", "ro": "{count} treburi de făcut"},
     "task_nudges_summary_title": {
         "en": "{count} tasks need attention",
         "ro": "{count} treburi au nevoie de atenție",
@@ -549,7 +574,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "test_notification_failed": {"en": "Notification delivery failed", "ro": "Trimiterea notificării a eșuat"},
     "notification_permission_denied": {"en": "Notification permission denied", "ro": "Permisiune notificări refuzată"},
     "notification_permission_granted": {"en": "Notifications enabled", "ro": "Notificări activate"},
-    "task_reminder": {"en": "Task reminder", "ro": "Memento treabă"},
+    "task_reminder": {"en": "Task to do", "ro": "Treabă de făcut"},
     "unlock_to_see_details": {"en": "Unlock Trebnic to see details", "ro": "Deblochează Trebnic pentru detalii"},
     "timer_complete": {"en": "Timer complete", "ro": "Cronometru finalizat"},
     "tracked_time_on_task": {"en": "Tracked {time} on {task}", "ro": "{time} înregistrat pe {task}"},
@@ -861,6 +886,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "stt_error": {"en": "Voice input error", "ro": "Eroare dictare"},
     "stt_listening": {"en": "Listening...", "ro": "Ascult..."},
     "notif_action_open": {"en": "Open", "ro": "Deschide"},
+    "notif_action_start": {"en": "Start", "ro": "Începe"},
     "notif_action_view_stats": {"en": "View stats", "ro": "Vezi statistici"},
     "notif_action_done": {"en": "Done", "ro": "Gata"},
     "notif_action_postpone": {"en": "Postpone 1 day", "ro": "Amână 1 zi"},

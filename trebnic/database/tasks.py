@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import RecurrenceFrequency
@@ -37,14 +37,20 @@ class TasksMixin:
         recurrence_end_date = t.get("recurrence_end_date")
         if isinstance(recurrence_end_date, date):
             recurrence_end_date = recurrence_end_date.isoformat()
+        completed_at = t.get("completed_at")
+        if isinstance(completed_at, datetime):
+            completed_at = completed_at.isoformat()
 
         # Encrypt sensitive fields
         title = _encrypt_field(t["title"])
         notes = _encrypt_field(t.get("notes", ""))
 
-        params = (
+        # Metadata values, in column order, EXCLUDING spent_seconds. spent_seconds is
+        # canonical (sum of completed time entries) and is only ever written by the
+        # recompute helpers / migration — never by a metadata save, so a stale
+        # in-memory value cannot clobber the cache. See database/records.py.
+        meta = (
             title,
-            t["spent_seconds"],
             t["estimated_seconds"],
             t["project_id"],
             due_date,
@@ -59,47 +65,37 @@ class TasksMixin:
             recurrence_end_date,
             t.get("recurrence_from_completion", 0),
             t.get("is_draft", 0),
+            completed_at,
         )
         try:
             async with self._get_connection() as conn:
                 if t.get("id") is None:
+                    # INSERT sets spent_seconds for the brand-new row (0/known).
                     cursor = await conn.execute(
                         "INSERT INTO tasks "
-                        "(title,spent_seconds,estimated_seconds,project_id,"
+                        "(title,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date,recurrence_from_completion,is_draft)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        params
+                        "recurrence_end_date,recurrence_from_completion,is_draft,completed_at,"
+                        "spent_seconds)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        meta + (t.get("spent_seconds", 0),)
                     )
                     await conn.commit()
                     return cursor.lastrowid
                 await conn.execute(
-                    "UPDATE tasks SET title=?,spent_seconds=?,estimated_seconds=?,"
+                    "UPDATE tasks SET title=?,estimated_seconds=?,"
                     "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
                     "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
                     "recurrence_end_type=?,recurrence_end_date=?,recurrence_from_completion=?,"
-                    "is_draft=? WHERE id=?",
-                    params + (t["id"],)
+                    "is_draft=?,completed_at=? WHERE id=?",
+                    meta + (t["id"],)
                 )
                 await conn.commit()
                 return t["id"]
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving task: {e}")
             raise DatabaseError(f"Failed to save task: {e}") from e
-
-    async def increment_spent_seconds(self, task_id: int, seconds: int) -> None:
-        """Atomically add seconds to a task's spent_seconds."""
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute(
-                    "UPDATE tasks SET spent_seconds = spent_seconds + ? WHERE id = ?",
-                    (seconds, task_id),
-                )
-                await conn.commit()
-        except sqlite3.Error as e:
-            logger.error(f"Error incrementing spent_seconds for task {task_id}: {e}")
-            raise DatabaseError(f"Failed to increment spent_seconds: {e}") from e
 
     async def delete_task(self, task_id: int) -> None:
         try:
@@ -193,11 +189,17 @@ class TasksMixin:
         due_date_gt: Optional[date] = None,
         due_date_eq: Optional[date] = None,
         due_date_is_null: Optional[bool] = None,
+        completed_on: Optional[date] = None,
         project_ids: Optional[List[str]] = None,
         limit: Optional[int] = None,
         is_draft: Optional[bool] = False,
     ) -> List[Dict[str, Any]]:
-        """Load tasks with SQL-level filtering for efficient queries."""
+        """Load tasks with SQL-level filtering for efficient queries.
+
+        completed_on: tasks completed on this calendar day. Uses an index-friendly
+        half-open range on completed_at; legacy rows with NULL completed_at fall
+        back to due_date == that day so pre-upgrade data still appears.
+        """
         try:
             conditions = []
             params: List[Any] = []
@@ -224,6 +226,17 @@ class TasksMixin:
 
             if due_date_is_null is True:
                 conditions.append("due_date IS NULL")
+
+            if completed_on is not None:
+                day_start = datetime.combine(completed_on, datetime.min.time()).isoformat()
+                next_day = datetime.combine(
+                    completed_on + timedelta(days=1), datetime.min.time()
+                ).isoformat()
+                conditions.append(
+                    "((completed_at >= ? AND completed_at < ?) "
+                    "OR (completed_at IS NULL AND due_date = ?))"
+                )
+                params.extend([day_start, next_day, completed_on.isoformat()])
 
             if project_ids is not None and len(project_ids) > 0:
                 placeholders = ",".join("?" * len(project_ids))

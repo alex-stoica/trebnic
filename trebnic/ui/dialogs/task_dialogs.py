@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Callable, Optional, List
 from weakref import WeakKeyDictionary
 
@@ -29,7 +29,7 @@ from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
 from services.time_entry_service import TimeEntryService
 from ui.formatters import TimeFormatter
-from ui.helpers import accent_btn, SnackService
+from ui.helpers import accent_btn, danger_btn, SnackService
 from ui.dialogs.base import open_dialog, create_option_item
 from ui.dialogs.dialog_state import RecurrenceState
 from ui.components.duration_knob import DurationKnob
@@ -791,27 +791,34 @@ class TaskDialogs:
             ink=True,
         )
 
+        # Completion-date editor — only meaningful for done tasks. Persistent (not
+        # just the one-shot completion modal) so legacy/edited completions can be set.
+        is_done = any(td.id == task.id for td in self.state.done_tasks)
+        column_items = [
+            stat_card(
+                ft.Icons.TIMER,
+                t("time_spent"),
+                TimeFormatter.seconds_to_display(task.spent_seconds),
+                COLORS["accent"],
+            ),
+            stat_card(
+                ft.Icons.HOURGLASS_EMPTY,
+                t("remaining"),
+                TimeFormatter.seconds_to_display(remaining),
+                COLORS["orange"],
+            ),
+            estimated_card,
+            progress_card,
+            entries_card,
+            project_row,
+        ]
+        if is_done:
+            column_items.append(self._build_completion_row(task))
+
         content = ft.Container(
             width=DIALOG_WIDTH_MD,
             content=ft.Column(
-                [
-                    stat_card(
-                        ft.Icons.TIMER,
-                        t("time_spent"),
-                        TimeFormatter.seconds_to_display(task.spent_seconds),
-                        COLORS["accent"],
-                    ),
-                    stat_card(
-                        ft.Icons.HOURGLASS_EMPTY,
-                        t("remaining"),
-                        TimeFormatter.seconds_to_display(remaining),
-                        COLORS["orange"],
-                    ),
-                    estimated_card,
-                    progress_card,
-                    entries_card,
-                    project_row,
-                ],
+                column_items,
                 spacing=SPACING_LG,
                 tight=True,
             ),
@@ -822,6 +829,188 @@ class TaskDialogs:
             t("stats_title").replace("{title}", task.title),
             content,
             lambda c: [ft.TextButton(t("close"), on_click=c)],
+        )
+
+    def confirm_delete(self, task: Task, on_confirm: Callable[[], None]) -> None:
+        """Confirm before an irreversible task delete (no undo; cascades to entries)."""
+        def do(e: ft.ControlEvent) -> None:
+            close(e)
+            on_confirm()
+
+        content = ft.Container(
+            width=DIALOG_WIDTH_MD,
+            content=ft.Text(
+                t("delete_task_confirm").replace("{title}", task.title),
+                text_align=ft.TextAlign.CENTER,
+            ),
+        )
+        _, close = open_dialog(
+            self.page,
+            t("delete_task_title"),
+            content,
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), danger_btn(t("delete"), do)],
+        )
+
+    def log_time(self, on_pick: Callable[[Task], None]) -> None:
+        """Pick a task to log past time against (pending + done, drafts excluded).
+
+        Includes a search box so the list stays usable with many tasks; done tasks
+        are visually distinct and sorted after pending ones.
+        """
+        pending = [tk for tk in self.state.tasks if not tk.is_draft]
+        done = [tk for tk in self.state.done_tasks if not tk.is_draft]
+        done_ids = {d.id for d in done}
+        candidates = pending + done
+
+        def choose(tk: Task) -> None:
+            close()
+            on_pick(tk)
+
+        list_col = ft.Column(tight=True, spacing=SPACING_SM, scroll=ft.ScrollMode.AUTO, expand=True)
+
+        def _row(tk: Task) -> ft.Container:
+            project = self.state.get_project_by_id(tk.project_id)
+            is_done = tk.id in done_ids
+            row = ft.Row(
+                [
+                    ft.Text(project.icon if project else "📋", size=16),
+                    ft.Text(
+                        tk.title,
+                        size=14,
+                        expand=True,
+                        color=COLORS["done_text"] if is_done else None,
+                        style=ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH) if is_done else None,
+                    ),
+                    ft.Icon(ft.Icons.CHECK_CIRCLE, size=14, color=COLORS["done_text"]) if is_done else ft.Container(),
+                ],
+                spacing=SPACING_XL,
+            )
+            return ft.Container(
+                content=row,
+                padding=ft.Padding.symmetric(vertical=PADDING_LG, horizontal=PADDING_2XL),
+                border_radius=8,
+                ink=True,
+                on_click=lambda e, picked=tk: choose(picked),
+            )
+
+        def _rebuild(query: str = "") -> None:
+            q = query.strip().lower()
+            matches = [tk for tk in candidates if q in tk.title.lower()] if q else candidates
+            list_col.controls = (
+                [_row(tk) for tk in matches]
+                if matches else [ft.Text(t("no_tasks"), size=13, color=COLORS["done_text"])]
+            )
+
+        search = ft.TextField(
+            hint_text=t("search"),
+            prefix_icon=ft.Icons.SEARCH,
+            border_color=COLORS["border"],
+            bgcolor=COLORS["input_bg"],
+            border_radius=8,
+            dense=True,
+            on_change=lambda e: (_rebuild(e.control.value), self.page.update()),
+        )
+        _rebuild()
+
+        content = ft.Container(
+            width=DIALOG_WIDTH_SM,
+            height=400,
+            content=ft.Column([search, list_col], tight=True, spacing=SPACING_MD, expand=True),
+        )
+        _, close = open_dialog(
+            self.page,
+            t("log_time_for"),
+            content,
+            lambda c: [ft.TextButton(t("cancel"), on_click=c)],
+        )
+
+    def _build_completion_row(self, task: Task) -> ft.Container:
+        """Editable completion-date row for a done task (date + time)."""
+        def _label() -> str:
+            if task.completed_at:
+                return task.completed_at.strftime("%b %d, %Y %H:%M")
+            return t("no_completion_date")
+
+        value_text = ft.Text(_label(), size=12, color=COLORS["accent"])
+
+        def _persist(new_dt: datetime) -> None:
+            # A task cannot have been completed in the future; clamp to now.
+            new_dt = min(new_dt, datetime.now())
+
+            async def _save() -> None:
+                await self.task_service.set_task_completed_at(task, new_dt)
+                value_text.value = _label()
+                self.snack.show(t("completion_date"))
+                self.page.update()
+                event_bus.emit(AppEvent.TASK_UPDATED, task)
+                event_bus.emit(AppEvent.REFRESH_UI)
+            self.page.run_task(_save)
+
+        def edit(e: ft.ControlEvent) -> None:
+            base = task.completed_at or datetime.now()
+            # Dedicated past-capable pickers (not the shared due-date picker).
+            date_picker = ft.DatePicker(
+                first_date=date.today() - timedelta(days=365 * 10),
+                last_date=date.today(),  # a task can't have been completed in the future
+                value=base,
+            )
+
+            def on_date(ev: ft.ControlEvent) -> None:
+                picked = ev.control.value
+                if date_picker in self.page.overlay:
+                    self.page.overlay.remove(date_picker)
+                if picked is None:
+                    return
+                d = picked.date() if hasattr(picked, "date") else picked
+                time_picker = ft.TimePicker(value=base.time())
+
+                def on_time(tev: ft.ControlEvent) -> None:
+                    tm = tev.control.value
+                    if time_picker in self.page.overlay:
+                        self.page.overlay.remove(time_picker)
+                    chosen_time = tm if isinstance(tm, time) else base.time()
+                    _persist(datetime(d.year, d.month, d.day, chosen_time.hour, chosen_time.minute))
+
+                time_picker.on_change = on_time
+                time_picker.on_dismiss = lambda x: (
+                    self.page.overlay.remove(time_picker) if time_picker in self.page.overlay else None
+                )
+                self.page.overlay.append(time_picker)
+                time_picker.open = True
+                self.page.update()
+
+            date_picker.on_change = on_date
+            date_picker.on_dismiss = lambda x: (
+                self.page.overlay.remove(date_picker) if date_picker in self.page.overlay else None
+            )
+            self.page.overlay.append(date_picker)
+            date_picker.open = True
+            self.page.update()
+
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.EVENT_AVAILABLE, size=16, color=COLORS["done_text"]),
+                    ft.Column(
+                        [
+                            ft.Text(t("completion_date"), weight="bold", size=13),
+                            value_text,
+                        ],
+                        spacing=SPACING_XS,
+                        expand=True,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_CALENDAR,
+                        icon_color=COLORS["accent"],
+                        tooltip=t("set_completion_date"),
+                        on_click=edit,
+                    ),
+                ],
+                spacing=SPACING_MD,
+            ),
+            bgcolor=COLORS["card"],
+            padding=PADDING_XL,
+            border_radius=BORDER_RADIUS,
         )
 
     def delete_recurrence(
@@ -890,6 +1079,33 @@ class TaskDialogs:
             lambda c: [ft.TextButton(t("cancel"), on_click=c)],
         )
 
+    def _open_past_date_picker(self, current: date, on_pick: Callable[[date], None]) -> None:
+        """Open a no-future date picker (created on demand, removed on dismiss).
+
+        Shared by the completion-knob and completion-date editors so the
+        'cannot be in the future' policy lives in one place.
+        """
+        picker = ft.DatePicker(
+            first_date=date.today() - timedelta(days=365 * 10),
+            last_date=date.today(),
+            value=datetime.combine(current, time()),
+        )
+
+        def _handle(e: ft.ControlEvent) -> None:
+            value = e.control.value
+            if value is not None:
+                on_pick(value.date() if hasattr(value, "date") else value)
+            if picker in self.page.overlay:
+                self.page.overlay.remove(picker)
+
+        picker.on_change = _handle
+        picker.on_dismiss = lambda e: (
+            self.page.overlay.remove(picker) if picker in self.page.overlay else None
+        )
+        self.page.overlay.append(picker)
+        picker.open = True
+        self.page.update()
+
     def duration_completion(
         self,
         task: Task,
@@ -897,32 +1113,61 @@ class TaskDialogs:
     ) -> None:
         """Show duration knob dialog for completing a task without time entries.
 
+        Supports backdating: pick the day the work was done so both the time entry
+        and the completion timestamp land on the right day (not always 'now').
+
         Args:
             task: The task being completed
-            on_complete: Async callback to finalize completion (awaited inside run_task)
+            on_complete: Async callback ``on_complete(task, completed_at)`` finalizing completion
         """
         # Default to estimated time or 15 minutes
         initial_minutes = task.estimated_seconds // 60 if task.estimated_seconds else 15
 
         knob = DurationKnob(initial_minutes=initial_minutes, size=220)
+        when = {"date": date.today()}
+
+        def _completed_dt() -> datetime:
+            now = datetime.now()
+            if when["date"] >= date.today():
+                return now
+            # Past day: anchor at the same clock time on that day (always < now).
+            return datetime.combine(when["date"], now.time())
+
+        date_btn = ft.TextButton(t("today"), icon=ft.Icons.CALENDAR_TODAY)
+
+        def _refresh_date_label() -> None:
+            date_btn.text = t("today") if when["date"] == date.today() else when["date"].strftime("%b %d, %Y")
+            date_btn.update()
+
+        def pick_when(e: ft.ControlEvent) -> None:
+            def applied(d: date) -> None:
+                when["date"] = d
+                _refresh_date_label()
+            self._open_past_date_picker(when["date"], applied)
+
+        date_btn.on_click = pick_when
 
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
                 duration_seconds = knob.value * 60
-                end_time = datetime.now()
+                end_time = _completed_dt()
                 start_time = end_time - timedelta(seconds=duration_seconds)
-                entry = TimeEntry(task_id=task.id, start_time=start_time, end_time=end_time)
-                await self.time_entry_service.save_time_entry(entry)
-                task.spent_seconds += duration_seconds
-                await self.task_service.persist_task(task)
+                # Canonical: create the entry and recompute (do NOT += and persist —
+                # metadata saves no longer write spent_seconds).
+                _, affected = await self.time_entry_service.add_manual_entry(
+                    task.id, start_time, end_time
+                )
+                if task.id in affected:
+                    task.spent_seconds = affected[task.id]
                 close(None)
-                await on_complete(task)
+                await on_complete(task, end_time)
             self.page.run_task(_save)
 
         def skip(e: ft.ControlEvent) -> None:
             async def _skip() -> None:
+                completed_at = _completed_dt()
                 close(None)
-                await on_complete(task)
+                await on_complete(task, completed_at)
             self.page.run_task(_skip)
 
         content = ft.Container(
@@ -939,6 +1184,14 @@ class TaskDialogs:
                         content=knob,
                         alignment=ft.Alignment(0, 0),
                         padding=ft.Padding.only(top=PADDING_LG, bottom=PADDING_LG),
+                    ),
+                    ft.Row(
+                        [
+                            ft.Text(t("when_done"), size=13, color=COLORS["done_text"]),
+                            date_btn,
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=SPACING_SM,
                     ),
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

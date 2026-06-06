@@ -154,10 +154,21 @@ class TestAddCompletedTask:
         assert collector.count(AppEvent.TASK_COMPLETED) == 1
         collector.cleanup()
 
-    async def test_due_date_set_to_completed_date(self, api: TrebnicAPI):
+    async def test_sets_completed_at_not_due_date(self, api: TrebnicAPI):
+        # completed_at is the real completion timestamp; due_date is no longer
+        # forced to equal it (they are independent).
         completed = datetime(2026, 1, 15, 10, 0, 0)
         task = await api.add_completed_task("Dated", duration_seconds=300, completed_at=completed)
-        assert task.due_date == date(2026, 1, 15)
+        assert task.completed_at == completed
+        assert task.due_date is None
+
+    async def test_due_date_independent_of_completion(self, api: TrebnicAPI):
+        completed = datetime(2026, 1, 15, 10, 0, 0)
+        task = await api.add_completed_task(
+            "Dated", duration_seconds=300, completed_at=completed, due_date=date(2026, 1, 20)
+        )
+        assert task.completed_at == completed
+        assert task.due_date == date(2026, 1, 20)
 
 
 # ===========================================================================
@@ -412,6 +423,40 @@ class TestGetTimeEntries:
             await services.time_entry.save_time_entry(entry)
         entries = await api.get_time_entries(task.id)
         assert len(entries) == 2
+
+
+# ===========================================================================
+# canonical spent_seconds (entries are the source of truth)
+# ===========================================================================
+
+
+class TestCanonicalSpent:
+    async def test_log_time_no_double_count(self, api: TrebnicAPI):
+        task = await api.add_task("Track once")
+        await api.log_time(task, duration_seconds=1200)
+        assert task.spent_seconds == 1200  # not 2400
+
+    async def test_metadata_edit_preserves_spent(self, api: TrebnicAPI):
+        task = await api.add_task("Keep spent")
+        await api.log_time(task, duration_seconds=600)
+        await api.rename_task(task, "Renamed")
+        fresh = await db.load_task_by_id(task.id)
+        assert fresh["spent_seconds"] == 600
+
+    async def test_log_time_backdated_lands_on_day(self, api: TrebnicAPI, services: ServiceContainer):
+        task = await api.add_task("Backdated")
+        ended = datetime(2026, 2, 20, 15, 0, 0)
+        await api.log_time(task, duration_seconds=1800, ended_at=ended)
+        entries = await services.time_entry.load_time_entries_for_task(task.id)
+        assert entries[0].start_time == ended - timedelta(seconds=1800)
+        assert entries[0].end_time == ended
+
+    async def test_uncomplete_clears_completed_at(self, api: TrebnicAPI, services: ServiceContainer):
+        task = await api.add_task("Toggle")
+        await api.complete_task(task)
+        assert task.completed_at is not None
+        await services.task.uncomplete_task(task)
+        assert task.completed_at is None
 
 
 # ===========================================================================

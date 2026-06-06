@@ -39,6 +39,30 @@ class OverallStats:
     # avg_postponements_per_task: float = 0.0
 
 
+def _completion_day(task: Task) -> Optional[date]:
+    """The day a task counts as completed: completed_at, else due_date (legacy)."""
+    if getattr(task, "completed_at", None) is not None:
+        return task.completed_at.date()
+    return task.due_date
+
+
+def _split_seconds_by_day(start_dt: datetime, end_dt: datetime) -> Dict[date, int]:
+    """Allocate an entry's seconds to each local calendar day its span covers.
+
+    Handles past-dated and midnight-crossing entries. Invalid/zero spans yield {}.
+    """
+    if end_dt <= start_dt:
+        return {}
+    result: Dict[date, int] = {}
+    cursor = start_dt
+    while cursor < end_dt:
+        day_end = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time())
+        chunk_end = min(day_end, end_dt)
+        result[cursor.date()] = result.get(cursor.date(), 0) + int((chunk_end - cursor).total_seconds())
+        cursor = chunk_end
+    return result
+
+
 class StatsService:
     """Service for calculating user statistics."""
 
@@ -60,7 +84,9 @@ class StatsService:
             if start and end:
                 start_dt = datetime.fromisoformat(start) if isinstance(start, str) else start
                 end_dt = datetime.fromisoformat(end) if isinstance(end, str) else end
-                total_tracked += int((end_dt - start_dt).total_seconds())
+                secs = int((end_dt - start_dt).total_seconds())
+                if secs > 0:  # ignore zero/negative spans so totals can't be reduced
+                    total_tracked += secs
 
         # Calculate estimation accuracy from COMPLETED tasks only
         # Only consider done tasks that have both estimation and tracked time
@@ -125,26 +151,25 @@ class StatsService:
                 tasks_completed=0,
             )
 
-        # Aggregate time entries by date
+        # Aggregate time entries by date, splitting each entry across the calendar
+        # days it actually spans (correct for past-dated and midnight-crossing rows).
         for entry in time_entries:
             start = entry.get("start_time")
             end = entry.get("end_time")
             if start and end:
                 start_dt = datetime.fromisoformat(start) if isinstance(start, str) else start
                 end_dt = datetime.fromisoformat(end) if isinstance(end, str) else end
-                entry_date = start_dt.date()
+                for day, secs in _split_seconds_by_day(start_dt, end_dt).items():
+                    if day in stats_by_date:
+                        stats_by_date[day].tracked_seconds += secs
 
-                if entry_date in stats_by_date:
-                    duration = int((end_dt - start_dt).total_seconds())
-                    stats_by_date[entry_date].tracked_seconds += duration
-
-        # Count completed tasks by completion date (using due_date as proxy)
-        # and aggregate estimated seconds for done tasks
-        # TODO: Add completed_at field to Task model for accurate tracking
+        # Count completed tasks by their real completion day (completed_at, with a
+        # due_date fallback for legacy rows) and aggregate estimated seconds.
         for task in done_tasks:
-            if task.due_date and task.due_date in stats_by_date:
-                stats_by_date[task.due_date].tasks_completed += 1
-                stats_by_date[task.due_date].estimated_done_seconds += task.estimated_seconds
+            day = _completion_day(task)
+            if day and day in stats_by_date:
+                stats_by_date[day].tasks_completed += 1
+                stats_by_date[day].estimated_done_seconds += task.estimated_seconds
 
         # Add estimated seconds from pending tasks with due dates
         if tasks:
@@ -229,11 +254,12 @@ class StatsService:
         if not done_tasks:
             return 0
 
-        # Collect all completion dates (using due_date as proxy)
+        # Collect all completion dates (completed_at, due_date fallback for legacy)
         completion_dates = set()
         for task in done_tasks:
-            if task.due_date:
-                completion_dates.add(task.due_date)
+            day = _completion_day(task)
+            if day:
+                completion_dates.add(day)
 
         if not completion_dates:
             return 0
@@ -314,6 +340,7 @@ class StatsService:
                     "spent_seconds": t.spent_seconds,
                     "estimated_seconds": t.estimated_seconds,
                     "due_date": t.due_date.isoformat() if t.due_date else None,
+                    "completed_at": t.completed_at.isoformat() if t.completed_at else None,
                     "completed": True,
                 }
                 for t in done_tasks

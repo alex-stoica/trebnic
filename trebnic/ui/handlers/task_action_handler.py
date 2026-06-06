@@ -118,9 +118,13 @@ class TaskActionHandler:
 
         self._page.run_task(_complete)
 
-    async def _do_complete_async(self, task: Task) -> None:
-        """Actually complete the task after any duration entry."""
-        new_task = await self._service.complete_task(task)
+    async def _do_complete_async(self, task: Task, completed_at=None) -> None:
+        """Actually complete the task after any duration entry.
+
+        completed_at lets the duration dialog backdate completion to the day the
+        work was done; defaults to now for the normal (already-timed) path.
+        """
+        new_task = await self._service.complete_task(task, completed_at=completed_at)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
         if new_task:
             self._snack.show(t("next_occurrence_scheduled").format(date=new_task.due_date.strftime("%b %d")))
@@ -152,7 +156,8 @@ class TaskActionHandler:
                 on_delete_all=self._do_delete_all_recurring,
             )
         else:
-            self._do_delete_single_task(task)
+            # Irreversible (cascades to time entries) — confirm first.
+            self._task_dialogs.confirm_delete(task, lambda: self._do_delete_single_task(task))
 
     def _do_delete_single_task(self, task: Task) -> None:
         """Delete a single task instance."""

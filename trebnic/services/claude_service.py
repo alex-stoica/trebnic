@@ -6,7 +6,7 @@ receive a final text response.
 """
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -56,7 +56,7 @@ TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "complete_task",
-        "description": "Mark a task as completed. Optionally log time spent.",
+        "description": "Mark a task as completed. Optionally log time spent and backdate it.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -67,6 +67,14 @@ TOOLS: List[Dict[str, Any]] = [
                 "duration_minutes": {
                     "type": "integer",
                     "description": "Minutes spent (optional, 0 to skip)",
+                },
+                "days_ago": {
+                    "type": "integer",
+                    "description": "Days in the past the work was done/finished (optional, 0 = today)",
+                },
+                "ended_at": {
+                    "type": "string",
+                    "description": "Exact finish time, ISO 'YYYY-MM-DDTHH:MM' (optional; overrides days_ago)",
                 },
             },
             "required": ["task_id"],
@@ -335,7 +343,8 @@ TOOLS: List[Dict[str, Any]] = [
         "name": "log_time",
         "description": (
             "Log time spent on a task without completing it. "
-            "Creates a time entry and updates the task's tracked time."
+            "Creates a time entry and updates the task's tracked time. "
+            "Use days_ago to record work done on a previous day."
         ),
         "input_schema": {
             "type": "object",
@@ -347,6 +356,14 @@ TOOLS: List[Dict[str, Any]] = [
                 "duration_minutes": {
                     "type": "integer",
                     "description": "Minutes spent working on the task",
+                },
+                "days_ago": {
+                    "type": "integer",
+                    "description": "Days in the past the work was done (optional, 0 = today)",
+                },
+                "ended_at": {
+                    "type": "string",
+                    "description": "Exact finish time, ISO 'YYYY-MM-DDTHH:MM' (optional; overrides days_ago)",
                 },
             },
             "required": ["task_id", "duration_minutes"],
@@ -447,6 +464,18 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
     if not s:
         return None
     return date.fromisoformat(s)
+
+
+def _resolve_when(args: Dict[str, Any]) -> Optional[datetime]:
+    """When work ended: explicit ended_at (ISO) wins, else days_ago, else now (None)."""
+    raw = args.get("ended_at")
+    if raw:
+        try:
+            return datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            pass
+    days_ago = args.get("days_ago", 0) or 0
+    return datetime.now() - timedelta(days=days_ago) if days_ago else None
 
 
 def _task_summary(task: Any) -> Dict[str, Any]:
@@ -676,7 +705,8 @@ class ClaudeService:
             if not task:
                 return _not_found(args["task_id"]), None
             dur = args.get("duration_minutes", 0) * 60
-            await self._api.complete_task(task, duration_seconds=dur)
+            ended = _resolve_when(args)
+            await self._api.complete_task(task, duration_seconds=dur, ended_at=ended)
             return (
                 json.dumps({"completed": task.title}),
                 {"action": t("task_completed_chat"), "detail": task.title},
@@ -866,7 +896,8 @@ class ClaudeService:
             if not task:
                 return _not_found(args["task_id"]), None
             dur = args["duration_minutes"] * 60
-            entry = await self._api.log_time(task, duration_seconds=dur)
+            ended = _resolve_when(args)
+            entry = await self._api.log_time(task, duration_seconds=dur, ended_at=ended)
             return (
                 json.dumps({
                     "task": task.title,

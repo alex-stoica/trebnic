@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 ANDROID_13_API_LEVEL = 33
 SCHEDULER_INTERVAL_SECONDS = 60
+RESCHEDULE_DEBOUNCE_SECONDS = 2.0
+RESCHEDULE_STALE_SECONDS = 15 * 60
 
 
 class NotificationBackend(Enum):
@@ -102,6 +104,12 @@ class NotificationService:
         self._running = False
         self._stop_event: asyncio.Event = asyncio.Event()
         self._subscriptions: List[Subscription] = []
+        self._reschedule_task: Optional[Any] = None
+        self._reschedule_worker_active = False
+        self._reschedule_dirty = False
+        self._reschedule_lock: Optional[asyncio.Lock] = None
+        self._reschedule_debounce_seconds = RESCHEDULE_DEBOUNCE_SECONDS
+        self._last_reschedule_at: Optional[datetime] = None
 
         self._initialized = True
 
@@ -167,12 +175,19 @@ class NotificationService:
             self._schedule_async(self._scheduler_loop)
 
         # Schedule digest alarms on startup
-        self._schedule_async(self._schedule_all_digests)
+        self.request_reschedule("startup", urgent=True)
         logger.info("Notification scheduler started")
 
     def stop_scheduler(self) -> None:
         self._running = False
         self._stop_event.set()
+        self._reschedule_dirty = False
+        self._reschedule_worker_active = False
+        if self._reschedule_task is not None:
+            cancel = getattr(self._reschedule_task, "cancel", None)
+            if callable(cancel):
+                cancel()
+        self._reschedule_task = None
         self._unsubscribe_from_events()
         logger.info("Notification scheduler stopped")
 
@@ -198,9 +213,80 @@ class NotificationService:
 
     def _on_task_mutation(self, data: Any) -> None:
         """Reschedule digests so Android alarm body reflects the latest task list."""
+        self.request_reschedule("task_mutation")
+
+    def request_reschedule(self, reason: str = "change", *, urgent: bool = False) -> None:
+        """Queue one coalesced Android alarm rebuild.
+
+        Android notification payloads are baked into AlarmManager entries, so task
+        changes still need a rebuild. The expensive part is repeatedly cancelling
+        and recreating the whole horizon while the user is editing; this method
+        collapses bursts of changes into one worker.
+        """
         if not self._running or self._schedule_async is None:
             return
-        self._schedule_async(self._schedule_all_digests)
+
+        self._reschedule_dirty = True
+        if self._reschedule_worker_active:
+            logger.debug(f"[NOTIF] reschedule already queued; reason={reason}")
+            return
+
+        delay = 0.0 if urgent else self._reschedule_debounce_seconds
+        self._reschedule_worker_active = True
+
+        async def _run() -> None:
+            await self._reschedule_worker(delay, reason)
+
+        try:
+            self._reschedule_task = self._schedule_async(_run)
+        except RuntimeError as e:
+            self._reschedule_task = None
+            self._reschedule_worker_active = False
+            logger.warning(f"[NOTIF] Could not queue reschedule ({reason}): {e}")
+
+    def request_reschedule_if_stale(self, reason: str = "stale") -> bool:
+        """Queue a rebuild only when resume/day rollover could leave alarms stale."""
+        if not self._running:
+            return False
+
+        now = datetime.now()
+        if (
+            self._last_reschedule_at is None
+            or self._last_reschedule_at.date() != now.date()
+            or now - self._last_reschedule_at >= timedelta(seconds=RESCHEDULE_STALE_SECONDS)
+        ):
+            self.request_reschedule(reason, urgent=True)
+            return True
+        return False
+
+    def _get_reschedule_lock(self) -> asyncio.Lock:
+        if self._reschedule_lock is None:
+            self._reschedule_lock = asyncio.Lock()
+        return self._reschedule_lock
+
+    async def _run_reschedule_now(self) -> None:
+        async with self._get_reschedule_lock():
+            self._reschedule_dirty = False
+            await self._schedule_all_digests()
+            self._last_reschedule_at = datetime.now()
+
+    async def _reschedule_worker(self, initial_delay: float, reason: str) -> None:
+        try:
+            if initial_delay > 0:
+                await asyncio.sleep(initial_delay)
+
+            while self._running and self._reschedule_dirty:
+                logger.info(f"[NOTIF] Rebuilding notification schedule: {reason}")
+                await self._run_reschedule_now()
+                if self._running and self._reschedule_dirty:
+                    await asyncio.sleep(self._reschedule_debounce_seconds)
+        except asyncio.CancelledError:
+            logger.info("[NOTIF] Notification reschedule worker cancelled")
+        except (DatabaseError, OSError, RuntimeError) as e:
+            logger.error(f"[NOTIF] Notification reschedule failed: {e}")
+        finally:
+            self._reschedule_worker_active = False
+            self._reschedule_task = None
 
     # ── Desktop polling loop ──────────────────────────────────────────
 
@@ -405,26 +491,31 @@ class NotificationService:
             {
                 "id": "task_done",
                 "title": t("notif_action_done"),
-                "shows_user_interface": True,
+                "shows_user_interface": False,
                 "cancel_notification": True,
             },
             {
                 "id": "task_postpone_1d",
                 "title": t("notif_action_postpone"),
-                "shows_user_interface": True,
+                "shows_user_interface": False,
                 "cancel_notification": True,
             },
             {
-                "id": "open_task",
-                "title": t("notif_action_open"),
+                "id": "task_start",
+                "title": t("notif_action_start"),
                 "shows_user_interface": True,
                 "cancel_notification": True,
             },
         ]
 
+    def _task_count_title(self, count: int) -> str:
+        if count <= 1:
+            return t("task_reminder")
+        return t("task_nudge_count_many").replace("{count}", str(count))
+
     def _task_nudge_text(self, task: Task, target_date: date) -> tuple[str, str]:
         if self._is_app_locked():
-            return t("task_reminder"), t("unlock_to_see_details")
+            return self._task_count_title(1), t("unlock_to_see_details")
 
         title = task.title
         if task.due_date and task.due_date < target_date:
@@ -435,6 +526,9 @@ class NotificationService:
 
     def _task_nudge_summary(self, candidates: List[Task]) -> tuple[str, str, Any]:
         count = len(candidates)
+        if self._is_app_locked():
+            return self._task_count_title(count), t("unlock_to_see_details"), None
+
         title = t("task_nudges_summary_title").replace("{count}", str(count))
         body = t("task_nudges_summary_body")
         style = self._build_inbox_style(candidates)
@@ -442,6 +536,23 @@ class NotificationService:
 
     async def _deliver_task_nudges_now(self, candidates: List[Task], target_date: date) -> None:
         """Deliver today's task nudges immediately for desktop or manual firing."""
+        if self._is_app_locked():
+            title, body, style = self._task_nudge_summary(candidates)
+            await self._deliver_immediate(
+                title,
+                body,
+                payload={"kind": "task_nudge_summary", "target_date": target_date.isoformat()},
+                actions=None,
+                style=style,
+                notification_id=TASK_NUDGE_SUMMARY_NOTIFICATION_ID,
+                channel_id="trebnic_task_nudges",
+                channel_name="Task nudges",
+                group_key="trebnic_task_nudges",
+                visibility="private",
+                category="reminder",
+            )
+            return
+
         shown = candidates[:TASK_NUDGE_MAX_PER_DAY]
         for slot, task in enumerate(shown):
             title, body = self._task_nudge_text(task, target_date)
@@ -591,6 +702,26 @@ class NotificationService:
             if not candidates:
                 continue
 
+            if self._is_app_locked():
+                title, body, style = self._task_nudge_summary(candidates)
+                await self._schedule_extension_notification(
+                    TASK_NUDGE_SUMMARY_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE,
+                    title,
+                    body,
+                    trigger,
+                    None,
+                    actions=None,
+                    style=style,
+                    payload={"kind": "task_nudge_summary", "target_date": target.isoformat()},
+                    channel_id="trebnic_task_nudges",
+                    channel_name="Task nudges",
+                    channel_description="Actionable task nudges from Trebnic",
+                    group_key="trebnic_task_nudges",
+                    visibility="private",
+                    category="reminder",
+                )
+                continue
+
             has_summary = len(candidates) > TASK_NUDGE_MAX_PER_DAY
             group_alert_behavior = "summary" if has_summary else "all"
             day_base = TASK_NUDGE_NOTIFICATION_ID + offset * NOTIFICATION_HORIZON_STRIDE
@@ -646,7 +777,7 @@ class NotificationService:
 
     async def reschedule_digests(self) -> None:
         """Public method to reschedule digests after settings change."""
-        await self._schedule_all_digests()
+        await self._run_reschedule_now()
 
     async def send_overdue_digest_now(self) -> bool:
         """Build and immediately deliver the overdue digest using current state.
@@ -708,9 +839,12 @@ class NotificationService:
         category: Optional[str] = None,
     ) -> None:
         """Deliver a notification immediately, handling encryption state."""
-        if self._is_app_locked():
+        payload_kind = payload.get("kind") if payload else None
+        if self._is_app_locked() and payload_kind != "task_nudge_summary":
             title = t("task_reminder")
             body = t("unlock_to_see_details")
+            actions = None
+            style = None
 
         if self._backend == NotificationBackend.PLYER:
             await self._deliver_plyer_notification(title, body)
@@ -937,7 +1071,7 @@ class NotificationService:
         event_bus.emit(AppEvent.REFRESH_UI)
         await self._cancel_all_task_nudge_alarms()
         if self._running:
-            await self._schedule_all_digests()
+            self.request_reschedule("notification_action", urgent=True)
         return result
 
     def _on_notification_tapped(self, e: Any) -> None:

@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 from registry import registry, Services
@@ -91,4 +91,6 @@ def _deserialize_task_row(row) -> Dict[str, Any]:
         task_dict["due_date"] = date.fromisoformat(task_dict["due_date"])
     if task_dict.get("recurrence_end_date"):
         task_dict["recurrence_end_date"] = date.fromisoformat(task_dict["recurrence_end_date"])
+    if task_dict.get("completed_at"):
+        task_dict["completed_at"] = datetime.fromisoformat(task_dict["completed_at"])
     return task_dict

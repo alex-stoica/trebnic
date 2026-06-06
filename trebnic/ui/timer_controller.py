@@ -85,8 +85,9 @@ class TimerController:
             state.recovered_timer_entry = None
             return
 
+        # Banked (conservative) pre-crash time; the live timer itself resumes from 0.
+        elapsed_str = format_timer_display(self.timer_svc.banked_recovery_seconds(entry))
         self.timer_svc.recover(entry, task)
-        elapsed_str = format_timer_display(self.timer_svc.seconds)
         self.snack.show(
             t("timer_recovered").replace("{title}", task.title).replace("{time}", elapsed_str)
         )

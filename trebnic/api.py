@@ -80,15 +80,13 @@ class TrebnicAPI:
             ended_at = datetime.now()
 
         if duration_seconds > 0:
-            entry = TimeEntry(
-                task_id=task.id,
-                start_time=ended_at - timedelta(seconds=duration_seconds),
-                end_time=ended_at,
+            # Canonical: the entry is the source of truth; recompute updates the cache.
+            _, affected = await self._svc.time_entry.add_manual_entry(
+                task.id, ended_at - timedelta(seconds=duration_seconds), ended_at
             )
-            await self._svc.time_entry.save_time_entry(entry)
-            task.spent_seconds += duration_seconds
+            self._svc.task.apply_spent(affected)
 
-        next_task = await self._svc.task.complete_task(task)
+        next_task = await self._svc.task.complete_task(task, completed_at=ended_at)
 
         self._svc.state_manager.move_to_done(task)
         event_bus.emit(AppEvent.TASK_COMPLETED, task)
@@ -106,11 +104,12 @@ class TrebnicAPI:
         completed_at: Optional[datetime] = None,
         project_id: Optional[str] = None,
         estimated_seconds: Optional[int] = None,
+        due_date: Optional[date] = None,
     ) -> Task:
         """Create a task that was already completed (backdated entry).
 
-        Useful for logging work done outside the app. Creates both the task
-        and a backdated TimeEntry in one operation.
+        Useful for logging work done outside the app. Creates the task, a backdated
+        TimeEntry, and marks it done with a real completion timestamp.
 
         Args:
             title: Task title.
@@ -118,6 +117,7 @@ class TrebnicAPI:
             completed_at: When the work was finished. Defaults to now.
             project_id: Optional project to assign to.
             estimated_seconds: Estimated duration. Defaults to duration_seconds.
+            due_date: Optional, independent of completion (no longer forced equal).
 
         Returns:
             The completed Task.
@@ -131,17 +131,15 @@ class TrebnicAPI:
             title=title,
             project_id=project_id,
             estimated_seconds=estimated_seconds,
-            due_date=completed_at.date(),
+            due_date=due_date,
         )
-        task.spent_seconds = duration_seconds
-        await db.save_task(task.to_dict(is_done=True))
-
-        entry = TimeEntry(
-            task_id=task.id,
-            start_time=completed_at - timedelta(seconds=duration_seconds),
-            end_time=completed_at,
+        # Canonical spent comes from the entry; completion stamped via the service.
+        # The task isn't in AppState yet, so sync its cached total directly.
+        _, affected = await self._svc.time_entry.add_manual_entry(
+            task.id, completed_at - timedelta(seconds=duration_seconds), completed_at
         )
-        await self._svc.time_entry.save_time_entry(entry)
+        task.spent_seconds = affected.get(task.id, task.spent_seconds)
+        await self._svc.task.complete_task(task, completed_at=completed_at)
 
         self._svc.state_manager.add_done_task(task)
         event_bus.emit(AppEvent.TASK_CREATED, task)
@@ -181,16 +179,12 @@ class TrebnicAPI:
         if ended_at is None:
             ended_at = datetime.now()
 
-        entry = TimeEntry(
-            task_id=task.id,
-            start_time=ended_at - timedelta(seconds=duration_seconds),
-            end_time=ended_at,
+        # Canonical: create the entry and recompute spent (no manual increment, so
+        # the same entry is never counted twice).
+        entry, affected = await self._svc.time_entry.add_manual_entry(
+            task.id, ended_at - timedelta(seconds=duration_seconds), ended_at
         )
-        entry_id = await self._svc.time_entry.save_time_entry(entry)
-        entry.id = entry_id
-
-        await db.increment_spent_seconds(task.id, duration_seconds)
-        task.spent_seconds += duration_seconds
+        task.spent_seconds = affected.get(task.id, task.spent_seconds)
 
         return entry
 

@@ -1,7 +1,9 @@
 import sqlite3
 import logging
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+import aiosqlite
 
 from database.helpers import (
     DatabaseError,
@@ -90,22 +92,141 @@ class RecordsMixin:
             async with self._get_connection() as conn:
                 if entry.get("id") is None:
                     cursor = await conn.execute(
-                        "INSERT INTO time_entries (task_id, start_time, end_time) "
-                        "VALUES (?, ?, ?)",
-                        (entry["task_id"], entry["start_time"], entry["end_time"])
+                        "INSERT INTO time_entries (task_id, start_time, end_time, heartbeat_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        (entry["task_id"], entry["start_time"], entry["end_time"],
+                         entry.get("heartbeat_at"))
                     )
                     await conn.commit()
                     return cursor.lastrowid
                 await conn.execute(
-                    "UPDATE time_entries SET task_id=?, start_time=?, end_time=? "
+                    "UPDATE time_entries SET task_id=?, start_time=?, end_time=?, heartbeat_at=? "
                     "WHERE id=?",
-                    (entry["task_id"], entry["start_time"], entry["end_time"], entry["id"])
+                    (entry["task_id"], entry["start_time"], entry["end_time"],
+                     entry.get("heartbeat_at"), entry["id"])
                 )
                 await conn.commit()
                 return entry["id"]
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving time entry: {e}")
             raise DatabaseError(f"Failed to save time entry: {e}") from e
+
+    # -- canonical spent_seconds -------------------------------------------------
+    # task.spent_seconds is a cached sum of completed time entries. Only these
+    # helpers (plus migration/import reconciliation) ever write it, so a metadata
+    # save can never clobber it with a stale in-memory value.
+
+    @staticmethod
+    async def _recompute_spent_in_conn(conn: aiosqlite.Connection, task_id: int) -> int:
+        """Recompute one task's spent_seconds from its completed entries, in-txn.
+
+        Durations are summed in Python (not via SQL julianday) so the result does
+        not depend on the bundled SQLite parsing ISO 'T'/fractional timestamps —
+        the Android build is the real target. Invalid rows (unparseable or
+        zero/negative duration) are ignored. The targeted numeric UPDATE never
+        touches encrypted columns, so it is safe even while the app is locked.
+        """
+        async with conn.execute(
+            "SELECT start_time, end_time FROM time_entries "
+            "WHERE task_id = ? AND end_time IS NOT NULL",
+            (task_id,),
+        ) as cursor:
+            rows = [r async for r in cursor]
+
+        total = 0
+        for r in rows:
+            try:
+                start = datetime.fromisoformat(r["start_time"])
+                end = datetime.fromisoformat(r["end_time"])
+            except (ValueError, TypeError):
+                continue
+            secs = int(round((end - start).total_seconds()))
+            if secs > 0:
+                total += secs
+
+        await conn.execute(
+            "UPDATE tasks SET spent_seconds = ? WHERE id = ?", (total, task_id)
+        )
+        return total
+
+    async def save_time_entry_and_recompute(
+        self, entry: Dict[str, Any]
+    ) -> Tuple[int, Dict[int, int]]:
+        """Upsert a time entry and recompute affected tasks' spent_seconds atomically.
+
+        Ownership-aware: if an existing entry is moved to a different task, both the
+        old and new task are recomputed. Returns (entry_id, {task_id: new_spent}).
+        """
+        try:
+            async with self._get_connection() as conn:
+                affected: set = {entry["task_id"]}
+                entry_id = entry.get("id")
+                if entry_id is None:
+                    cursor = await conn.execute(
+                        "INSERT INTO time_entries (task_id, start_time, end_time, heartbeat_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        (entry["task_id"], entry["start_time"], entry["end_time"],
+                         entry.get("heartbeat_at")),
+                    )
+                    entry_id = cursor.lastrowid
+                else:
+                    async with conn.execute(
+                        "SELECT task_id FROM time_entries WHERE id = ?", (entry_id,)
+                    ) as cursor:
+                        old = await cursor.fetchone()
+                    if old is not None:
+                        affected.add(old["task_id"])
+                    await conn.execute(
+                        "UPDATE time_entries SET task_id=?, start_time=?, end_time=?, "
+                        "heartbeat_at=? WHERE id=?",
+                        (entry["task_id"], entry["start_time"], entry["end_time"],
+                         entry.get("heartbeat_at"), entry_id),
+                    )
+                spents = {tid: await self._recompute_spent_in_conn(conn, tid) for tid in affected}
+                await conn.commit()
+                return entry_id, spents
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error saving time entry with recompute: {e}")
+            raise DatabaseError(f"Failed to save time entry: {e}") from e
+
+    async def delete_time_entry_and_recompute(self, entry_id: int) -> Dict[int, int]:
+        """Delete a time entry and recompute its task's spent_seconds atomically.
+
+        Loads the entry's task inside the transaction (never trusts a caller id).
+        Returns {task_id: new_spent} (empty if the entry did not exist).
+        """
+        try:
+            async with self._get_connection() as conn:
+                async with conn.execute(
+                    "SELECT task_id FROM time_entries WHERE id = ?", (entry_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    return {}
+                task_id = row["task_id"]
+                await conn.execute("DELETE FROM time_entries WHERE id = ?", (entry_id,))
+                new_spent = await self._recompute_spent_in_conn(conn, task_id)
+                await conn.commit()
+                return {task_id: new_spent}
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error deleting time entry with recompute: {e}")
+            raise DatabaseError(f"Failed to delete time entry: {e}") from e
+
+    async def recompute_spent_seconds(self, task_id: Optional[int] = None) -> None:
+        """Recompute spent_seconds for one task, or all tasks when task_id is None."""
+        try:
+            async with self._get_connection() as conn:
+                if task_id is not None:
+                    await self._recompute_spent_in_conn(conn, task_id)
+                else:
+                    async with conn.execute("SELECT id FROM tasks") as cursor:
+                        ids = [r["id"] async for r in cursor]
+                    for tid in ids:
+                        await self._recompute_spent_in_conn(conn, tid)
+                await conn.commit()
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
+            logger.error(f"Error recomputing spent_seconds: {e}")
+            raise DatabaseError(f"Failed to recompute spent_seconds: {e}") from e
 
     async def load_time_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Load time entries from the database, ordered by start time descending."""

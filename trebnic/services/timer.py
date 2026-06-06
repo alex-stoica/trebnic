@@ -112,13 +112,17 @@ class TimerService:
             self.running = False
 
     async def _save_heartbeat(self) -> None:
-        """Save current state to DB for crash recovery."""
+        """Persist liveness for crash recovery.
+
+        Writes heartbeat_at and leaves end_time NULL, so the entry stays "running":
+        recovery can still find it (end_time IS NULL) and it is excluded from the
+        canonical spent_seconds sum until the timer is actually stopped.
+        """
         if not self.current_entry or not self._time_entry_svc:
             return
         try:
-            self.current_entry.end_time = datetime.now()
+            self.current_entry.heartbeat_at = datetime.now()
             await self._time_entry_svc.save_time_entry(self.current_entry)
-            self.current_entry.end_time = None
             logger.debug(f"Heartbeat saved at {self.seconds}s")
         except (DatabaseError, OSError) as e:
             logger.warning(f"Failed to save heartbeat: {e}")
@@ -131,14 +135,13 @@ class TimerService:
         self.running = False
         self._stop_event.set()
 
-        # Capture state before clearing - use wall clock for accuracy (ticks may be lost during screen-off)
+        # Capture state before clearing. End the entry at wall-clock now; its
+        # duration (and the task's spent) is derived canonically from start->end.
         task = self.active_task
-        elapsed = self.seconds
-        if self.start_time:
-            elapsed = max(elapsed, int((datetime.now() - self.start_time).total_seconds()))
-        should_save = elapsed >= MIN_TIMER_SECONDS
         entry = self.current_entry
-        entry_id_to_delete = entry.id if entry and not should_save else None
+        end = datetime.now()
+        elapsed = int((end - self.start_time).total_seconds()) if self.start_time else self.seconds
+        should_save = elapsed >= MIN_TIMER_SECONDS
 
         # Clear state immediately
         self.active_task = None
@@ -149,57 +152,87 @@ class TimerService:
         # Schedule async finalization (wrap in closure - run_task requires function, not coroutine object)
         if self._schedule_async:
             async def _do_finalize():
-                await self._finalize_stop(task, elapsed, should_save, entry, entry_id_to_delete)
+                await self._finalize_stop(task, entry, end, elapsed, should_save)
             self._schedule_async(_do_finalize)
 
     async def _finalize_stop(
         self,
         task: Optional[Task],
+        entry: Optional[TimeEntry],
+        end: datetime,
         elapsed: int,
         should_save: bool,
-        entry: Optional[TimeEntry],
-        entry_id_to_delete: Optional[int],
     ) -> None:
-        """Finalize timer stop - save or delete entry."""
+        """Finalize timer stop - close the entry (canonical recompute) or discard it."""
         try:
-            if should_save:
-                if entry:
-                    entry.end_time = datetime.now()
-                    await self._time_entry_svc.save_time_entry(entry)
-
-                if task and task.id is not None:
-                    await self._task_svc.increment_spent_seconds(task.id, elapsed)
-
+            if should_save and entry:
+                entry.end_time = end
+                entry.heartbeat_at = None
+                _, affected = await self._time_entry_svc.save_entry_with_recompute(entry)
+                if self._task_svc is not None:
+                    self._task_svc.apply_spent(affected)
                 event_bus.emit(AppEvent.TIMER_STOPPED, {"task": task, "elapsed": elapsed})
                 event_bus.emit(AppEvent.REFRESH_UI)
             else:
-                if entry_id_to_delete:
-                    await self._time_entry_svc.delete_time_entry(entry_id_to_delete)
+                if entry and entry.id is not None:
+                    await self._time_entry_svc.delete_time_entry(entry.id)
                 event_bus.emit(AppEvent.TIMER_STOPPED, None)
         except (DatabaseError, OSError) as e:
             logger.error(f"Error finalizing timer stop: {e}")
             # Always emit stop event so UI cleans up
             event_bus.emit(AppEvent.TIMER_STOPPED, None)
 
+    @staticmethod
+    def banked_recovery_seconds(entry: TimeEntry) -> int:
+        """Conservative elapsed for a recovered entry: heartbeat_at - start_time.
+
+        Never counts an offline gap (phone off/asleep), since we only trust time we
+        actually observed via the ~30s heartbeat.
+        """
+        bank_end = entry.heartbeat_at or entry.start_time
+        return max(0, int((bank_end - entry.start_time).total_seconds()))
+
     def recover(self, entry: TimeEntry, task: Task) -> None:
-        """Recover a running timer from app restart."""
+        """Recover a running timer from app restart.
+
+        The pre-crash portion is banked conservatively at the last heartbeat (so an
+        offline gap is never counted), then a fresh running entry resumes from now.
+        This keeps spent canonical: the gap simply becomes a break between entries.
+        """
         if self.running or self._schedule_async is None:
             return
 
-        elapsed = int((datetime.now() - entry.start_time).total_seconds())
+        async def _do_recover():
+            await self._recover_async(entry, task)
+        self._schedule_async(_do_recover)
 
+    async def _recover_async(self, entry: TimeEntry, task: Task) -> None:
+        # Bank the observed pre-crash portion (or discard if below threshold).
+        banked = self.banked_recovery_seconds(entry)
+        if entry.id is not None:
+            if banked >= MIN_TIMER_SECONDS:
+                entry.end_time = entry.heartbeat_at or entry.start_time
+                entry.heartbeat_at = None
+                _, affected = await self._time_entry_svc.save_entry_with_recompute(entry)
+                if self._task_svc is not None:
+                    self._task_svc.apply_spent(affected)
+            else:
+                await self._time_entry_svc.delete_time_entry(entry.id)
+
+        # Resume as a fresh running entry from now.
         self.active_task = task
-        self.seconds = elapsed
+        self.start_time = datetime.now()
+        self.seconds = 0
         self.running = True
-        self.current_entry = entry
-        self.start_time = entry.start_time
         self._stop_event.clear()
-        self._last_heartbeat_seconds = elapsed
-
-        self._schedule_async(self._tick_loop)
+        self._last_heartbeat_seconds = 0
+        self.current_entry = TimeEntry(task_id=task.id, start_time=self.start_time)
+        if task.id is not None:
+            self.current_entry.id = await self._time_entry_svc.save_time_entry(self.current_entry)
 
         event_bus.emit(AppEvent.TIMER_STARTED, task)
-        event_bus.emit(AppEvent.TIMER_TICK, elapsed)
+        event_bus.emit(AppEvent.TIMER_TICK, 0)
+        await self._tick_loop()
 
     def sync_from_wall_clock(self) -> None:
         """Recalculate elapsed seconds from wall clock after app resume."""

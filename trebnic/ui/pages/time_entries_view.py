@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import datetime, date as date_type, timedelta
+from datetime import datetime, date, time, timedelta
 from typing import List, Tuple, Optional, Callable
 
 from config import (
@@ -24,16 +24,15 @@ from config import (
     PADDING_XL,
     DIALOG_WIDTH_MD,
     DURATION_KNOB_MIN_MINUTES,
-    DURATION_KNOB_MAX_MINUTES,
 )
 from i18n import t
 from models.entities import AppState, TimeEntry, Task
 from services.logic import TaskService
 from services.time_entry_service import TimeEntryService
-from ui.components import DurationKnob
 from ui.formatters import TimeFormatter
-from ui.helpers import SnackService, accent_btn
-from ui.dialogs.base import open_dialog 
+from ui.helpers import SnackService, accent_btn, danger_btn
+from ui.dialogs.base import open_dialog
+from events import event_bus, AppEvent
 
 
 class TimelineColors:
@@ -82,7 +81,7 @@ class TimeEntriesView:
 
     def _format_date_header(self, dt: datetime) -> str:
         """Format date for section header."""
-        today = date_type.today()
+        today = date.today()
         entry_date = dt.date()
         if entry_date == today:
             return t("today_label")
@@ -202,127 +201,178 @@ class TimeEntriesView:
             height=8,
         )
 
-    def _edit_entry(self, entry: TimeEntry) -> None:
-        """Open dialog to edit a time entry using DurationKnob."""
+    def _open_log_date_picker(self, current: datetime, on_pick: Callable[[date], None]) -> None:
+        """Open a DEDICATED past-capable date picker (never the shared due-date one).
 
-        if entry.is_running:
-            self.snack.show(t("cannot_edit_running"), COLORS["danger"])
+        Created on demand and removed on dismiss so the reusable due-date picker's
+        first_date=today contract is never mutated for logging.
+        """
+        picker = ft.DatePicker(
+            first_date=date.today() - timedelta(days=365 * 10),
+            last_date=date.today(),  # no future: you cannot have already done future work
+            value=current,
+        )
+
+        def _handle(e: ft.ControlEvent) -> None:
+            value = e.control.value
+            if value is not None:
+                on_pick(value.date() if hasattr(value, "date") else value)
+            if picker in self.page.overlay:
+                self.page.overlay.remove(picker)
+
+        picker.on_change = _handle
+        picker.on_dismiss = lambda e: (
+            self.page.overlay.remove(picker) if picker in self.page.overlay else None
+        )
+        self.page.overlay.append(picker)
+        picker.open = True
+        self.page.update()
+
+    def _open_log_time_picker(self, current: datetime, on_pick: Callable[[time], None]) -> None:
+        """Open a time picker, created on demand and removed on dismiss."""
+        picker = ft.TimePicker(value=current.time())
+
+        def _handle(e: ft.ControlEvent) -> None:
+            value = e.control.value
+            if isinstance(value, time):  # guard mobile TimePicker value typing
+                on_pick(value)
+            if picker in self.page.overlay:
+                self.page.overlay.remove(picker)
+
+        picker.on_change = _handle
+        picker.on_dismiss = lambda e: (
+            self.page.overlay.remove(picker) if picker in self.page.overlay else None
+        )
+        self.page.overlay.append(picker)
+        picker.open = True
+        self.page.update()
+
+    def open_entry_editor(
+        self, entry: Optional[TimeEntry] = None, task_id: Optional[int] = None
+    ) -> None:
+        """Add a new entry (entry=None) or edit an existing one.
+
+        Uses explicit start + end (date + time) so there is no duration clamp:
+        long sessions, cross-midnight spans and "9:15 -> 10:45" all work, and the
+        start day can be moved into the past to log work done earlier. task_id lets
+        the global "Log time" flow target a task without touching viewing_task_id.
+        """
+        is_edit = entry is not None
+        if is_edit:
+            task_id = entry.task_id
+        elif task_id is None:
+            task_id = self.state.viewing_task_id
+        if task_id is None:
             return
- 
-        raw_minutes = entry.duration_seconds // 60
-        current_duration_minutes = max(DURATION_KNOB_MIN_MINUTES, min(DURATION_KNOB_MAX_MINUTES, raw_minutes))
-        if raw_minutes != current_duration_minutes:
-            self.snack.show(t("duration_clamped"), COLORS["orange"])
-         
-        start_time_display = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(t("start_time_fixed"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                    ft.Text(
-                        self._format_time_with_seconds(entry.start_time),
-                        size=FONT_SIZE_XL,
-                        weight="bold",
-                    ),
-                    ft.Text(
-                        self._format_date(entry.start_time),
-                        size=FONT_SIZE_SM,
-                        color=COLORS["done_text"],
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=SPACING_XS,
-            ),
-            bgcolor=COLORS["card"],
-            padding=PADDING_LG,
-            border_radius=BORDER_RADIUS,
-            alignment=ft.Alignment(0, 0),
-        )
-         
-        knob = DurationKnob(
-            initial_minutes=current_duration_minutes,
-            size=180,
-        )
-         
-        end_time_text = ft.Text(
-            self._format_time(
-                entry.start_time + timedelta(minutes=current_duration_minutes)
-            ),
-            size=FONT_SIZE_XL,
-            weight="bold",
-            color=COLORS["accent"],
-        )
-        
-        def on_knob_change(minutes: int) -> None:
-            new_end = entry.start_time + timedelta(minutes=minutes)
-            end_time_text.value = self._format_time(new_end)
-            end_time_text.update()
+        if is_edit and entry.is_running:
+            self.snack.show(t("stop_timer_to_edit"), COLORS["danger"])
+            return
 
-        knob.set_on_change(on_knob_change)
-        
-        end_time_display = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(t("end_time"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
-                    end_time_text,
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=SPACING_XS,
-            ),
-            bgcolor=COLORS["card"],
-            padding=PADDING_LG,
-            border_radius=BORDER_RADIUS,
-            alignment=ft.Alignment(0, 0),
-        )
-        
+        now = datetime.now().replace(second=0, microsecond=0)
+        if is_edit:
+            cur = {"start": entry.start_time, "end": entry.end_time or now}
+        else:
+            default_min = max(DURATION_KNOB_MIN_MINUTES, self.state.default_estimated_minutes or 30)
+            cur = {"start": now - timedelta(minutes=default_min), "end": now}
+
+        duration_text = ft.Text("", weight="bold", size=FONT_SIZE_LG)
         error_text = ft.Text("", color=COLORS["danger"], size=FONT_SIZE_SM, visible=False)
+        save_btn = accent_btn(t("save"), lambda e: None)
+
+        def _refresh() -> None:
+            delta = int((cur["end"] - cur["start"]).total_seconds())
+            future = cur["end"] > datetime.now()
+            valid = delta > 0 and not future
+            duration_text.value = TimeFormatter.seconds_to_display(delta) if delta > 0 else "--"
+            error_text.visible = not valid
+            error_text.value = (
+                t("no_future_time") if future else (t("end_after_start") if delta <= 0 else "")
+            )
+            save_btn.disabled = not valid
+            self.page.update()
+
+        def _field_row(label_key: str, key: str) -> ft.Control:
+            date_btn = ft.TextButton(
+                cur[key].strftime("%b %d, %Y"), icon=ft.Icons.CALENDAR_TODAY
+            )
+            time_btn = ft.TextButton(cur[key].strftime("%H:%M"), icon=ft.Icons.SCHEDULE)
+
+            def pick_date(e: ft.ControlEvent) -> None:
+                def applied(d: date) -> None:
+                    cur[key] = cur[key].replace(year=d.year, month=d.month, day=d.day)
+                    date_btn.text = cur[key].strftime("%b %d, %Y")
+                    _refresh()
+                self._open_log_date_picker(cur[key], applied)
+
+            def pick_time(e: ft.ControlEvent) -> None:
+                def applied(tm: time) -> None:
+                    cur[key] = cur[key].replace(hour=tm.hour, minute=tm.minute, second=0)
+                    time_btn.text = cur[key].strftime("%H:%M")
+                    _refresh()
+                self._open_log_time_picker(cur[key], applied)
+
+            date_btn.on_click = pick_date
+            time_btn.on_click = pick_time
+            return ft.Column(
+                [
+                    ft.Text(t(label_key), size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                    ft.Row([date_btn, time_btn], spacing=SPACING_SM),
+                ],
+                spacing=SPACING_XS,
+            )
 
         async def save_async() -> None:
-            duration_minutes = knob.value
-            new_end = entry.start_time + timedelta(minutes=duration_minutes)
-
-            entry.end_time = new_end
-
-            task = self._get_task_for_entry(entry)
-            await self.time_entry_service.save_time_entry(entry)
-            # Recalculate task spent_seconds from time entries
-            if task and task.id is not None:
-                entries = await self.time_entry_service.load_time_entries_for_task(task.id)
-                task.spent_seconds = sum(e.duration_seconds for e in entries if e.end_time)
-                await self.task_service.persist_task(task)
-
+            if cur["end"] <= cur["start"] or cur["end"] > datetime.now():
+                return
+            if is_edit:
+                entry.start_time = cur["start"]
+                entry.end_time = cur["end"]
+                _, affected = await self.time_entry_service.save_entry_with_recompute(entry)
+            else:
+                _, affected = await self.time_entry_service.add_manual_entry(
+                    task_id, cur["start"], cur["end"]
+                )
+            self.task_service.apply_spent(affected)
             close(None)
-            self.snack.show(t("time_entry_updated"))
-            await self._refresh_async()
+            self.snack.show(t("time_entry_updated") if is_edit else t("time_entry_added"))
+            # Refresh task lists/stats regardless of which page is showing.
+            event_bus.emit(AppEvent.REFRESH_UI)
+            # Only rebuild this timeline when it's actually the task being viewed
+            # (the global "Log time" flow targets a task that isn't on screen).
+            if task_id == self.state.viewing_task_id:
+                await self._refresh_async()
 
-        def save(e: ft.ControlEvent) -> None:
-            self.page.run_task(save_async)
+        save_btn.on_click = lambda e: self.page.run_task(save_async)
 
         content = ft.Container(
-            width=DIALOG_WIDTH_MD + 50,
+            width=DIALOG_WIDTH_MD,
             content=ft.Column(
                 [
-                    start_time_display,
-                    ft.Divider(height=SPACING_LG, color="transparent"),
-                    ft.Container(
-                        content=knob,
-                        alignment=ft.Alignment(0, 0),
+                    _field_row("start_label", "start"),
+                    _field_row("end_label", "end"),
+                    ft.Divider(height=SPACING_SM, color="transparent"),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.TIMER, size=18, color=COLORS["accent"]),
+                            ft.Text(t("duration"), size=FONT_SIZE_SM, color=COLORS["done_text"]),
+                            duration_text,
+                        ],
+                        spacing=SPACING_SM,
                     ),
-                    ft.Divider(height=SPACING_LG, color="transparent"),
-                    end_time_display,
                     error_text,
                 ],
-                spacing=SPACING_MD,
                 tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=SPACING_MD,
             ),
         )
 
         _, close = open_dialog(
             self.page,
-            t("edit_time_entry"),
+            t("edit_time_entry") if is_edit else t("add_time_entry"),
             content,
-            lambda c: [ft.TextButton(t("cancel"), on_click=c), accent_btn(t("save"), save)],
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), save_btn],
         )
+        _refresh()
 
     def _build_entry_row(
         self, 
@@ -392,7 +442,7 @@ class TimeEntriesView:
                 horizontal_alignment=ft.CrossAxisAlignment.END,
             ),
             width=55,
-            on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
+            on_click=lambda e, ent=entry: self.open_entry_editor(ent) if not ent.is_running else None,
             ink=not is_running,
             border_radius=4,
             padding=PADDING_SM,
@@ -466,7 +516,7 @@ class TimeEntriesView:
             padding=ft.Padding.symmetric(horizontal=PADDING_LG, vertical=PADDING_MD),
             border_radius=BORDER_RADIUS,
             border=None if is_running else ft.Border.all(1, COLORS["border"]),
-            on_click=lambda e, ent=entry: self._edit_entry(ent) if not ent.is_running else None,
+            on_click=lambda e, ent=entry: self.open_entry_editor(ent) if not ent.is_running else None,
             ink=not is_running,
             tooltip=t("click_to_edit") if not is_running else None,
         )
@@ -667,26 +717,30 @@ class TimeEntriesView:
         )
 
     def _delete_entry(self, entry_id: int) -> None:
-        """Delete a time entry."""
+        """Confirm, then delete a time entry and recompute the task's canonical spent."""
+        def confirm(e: ft.ControlEvent) -> None:
+            close(e)
+            self.page.run_task(_delete_async)
+
         async def _delete_async() -> None:
-            entries = []
-            task_id = self.state.viewing_task_id
-            if task_id:
-                entries = await self.time_entry_service.load_time_entries_for_task(task_id)
-
-            await self.time_entry_service.delete_time_entry(entry_id)
-
-            if task_id:
-                task = self.state.get_task_by_id(task_id)
-                if task:
-                    remaining_entries = [e for e in entries if e.id != entry_id]
-                    task.spent_seconds = sum(e.duration_seconds for e in remaining_entries if e.end_time)
-                    await self.task_service.persist_task(task)
+            # Recompute in one transaction; persist_task no longer writes spent.
+            affected = await self.time_entry_service.delete_entry_with_recompute(entry_id)
+            self.task_service.apply_spent(affected)
 
             self.snack.show(t("time_entry_deleted"), COLORS["danger"])
+            event_bus.emit(AppEvent.REFRESH_UI)
             await self._refresh_async()
 
-        self.page.run_task(_delete_async)
+        content = ft.Container(
+            width=DIALOG_WIDTH_MD,
+            content=ft.Text(t("delete_entry_confirm"), text_align=ft.TextAlign.CENTER),
+        )
+        _, close = open_dialog(
+            self.page,
+            t("delete_entry"),
+            content,
+            lambda c: [ft.TextButton(t("cancel"), on_click=c), danger_btn(t("delete"), confirm)],
+        )
 
     def _go_back(self, e: ft.ControlEvent) -> None:
         """Navigate back to tasks."""
@@ -736,6 +790,13 @@ class TimeEntriesView:
                                 t("start_timer_hint"),
                                 size=FONT_SIZE_MD,
                                 color=COLORS["done_text"],
+                            ),
+                            ft.Button(
+                                t("add_time_entry"),
+                                icon=ft.Icons.ADD,
+                                on_click=lambda e: self.open_entry_editor(),
+                                bgcolor=COLORS["accent"],
+                                color=COLORS["bg"],
                             ),
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -875,6 +936,13 @@ class TimeEntriesView:
                         color=COLORS["done_text"],
                         italic=True,
                         visible=not self.state.is_mobile,
+                    ),
+                    ft.Button(
+                        t("add_time_entry"),
+                        icon=ft.Icons.ADD,
+                        on_click=lambda e: self.open_entry_editor(),
+                        bgcolor=COLORS["accent"],
+                        color=COLORS["bg"],
                     ),
                 ],
                 spacing=SPACING_MD,
