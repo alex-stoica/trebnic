@@ -298,6 +298,16 @@ class TaskService:
             task.due_date = old_date
             raise
 
+    async def set_task_estimate(self, task: Task, estimated_seconds: int) -> None:
+        """Set a task's estimated time with rollback on failure."""
+        old = task.estimated_seconds
+        task.estimated_seconds = estimated_seconds
+        try:
+            await self.persist_task(task)
+        except DatabaseError:
+            task.estimated_seconds = old
+            raise
+
     async def set_task_completed_at(self, task: Task, completed_at: Optional[datetime]) -> None:
         """Set or clear a task's completion timestamp with rollback on failure.
 
@@ -573,18 +583,6 @@ class TaskService:
         except DatabaseError:
             task.project_id = old_project_id
             raise
-
-    async def persist_task_order(self) -> None:
-        """Persist sort order for all tasks in state using batch update."""
-        task_orders = [(task.id, i) for i, task in enumerate(self.state.tasks) if task.id is not None]
-        if task_orders:
-            await db.update_task_sort_orders(task_orders)
-
-    async def persist_reordered_tasks(self, tasks: List[Task]) -> None:
-        """Persist sort_order for a list of tasks using efficient batch update."""
-        task_orders = [(task.id, task.sort_order) for task in tasks if task.id is not None]
-        if task_orders:
-            await db.update_task_sort_orders(task_orders)
 
     async def reorder_visible_tasks(self, ordered_visible_ids: List[int]) -> None:
         """Apply a reorder of the visible set without colliding with hidden tasks.

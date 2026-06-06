@@ -110,11 +110,25 @@ class TaskActionHandler:
         offer a non-blocking 'Add time' action to log it via the manual editor.
         """
         async def _complete() -> None:
-            had_time = bool(task.spent_seconds)
+            # If a timer is running on THIS task, stop it first — don't leave it
+            # ticking on a completed task. stop() banks or discards per policy.
+            ts = self._timer_ctrl.timer_svc
+            timer_was_running = (
+                ts.running and ts.active_task is not None and ts.active_task.id == task.id
+            )
+            if timer_was_running:
+                self._timer_ctrl.stop_timer()
+
+            # "Had time" counts only COMPLETED entries; a running entry doesn't.
+            had_time = task.spent_seconds > 0
             if not had_time and task.id:
                 entries = await self._time_entry_svc.load_time_entries_for_task(task.id)
-                had_time = len(entries) > 0
-            await self._do_complete_async(task, offer_add_time=not had_time)
+                had_time = any(not e.is_running for e in entries)
+
+            # Offer manual logging only when nothing was tracked and no timer just ran.
+            await self._do_complete_async(
+                task, offer_add_time=not had_time and not timer_was_running
+            )
 
         self._page.run_task(_complete)
 

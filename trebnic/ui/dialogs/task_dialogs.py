@@ -25,6 +25,7 @@ from config import (
     RecurrenceFrequency,
     NavItem,
 )
+from database import DatabaseError
 from models.entities import Task, AppState, TimeEntry
 from services.logic import TaskService
 from services.time_entry_service import TimeEntryService
@@ -1115,8 +1116,12 @@ class TaskDialogs:
 
         def save(e: ft.ControlEvent) -> None:
             async def _save() -> None:
-                task.estimated_seconds = knob.value * 60
-                await self.task_service.persist_task(task)  # metadata path; spent untouched
+                # Rollback-safe: don't leave the in-memory task dirty if the save fails.
+                try:
+                    await self.task_service.set_task_estimate(task, knob.value * 60)
+                except DatabaseError as ex:
+                    self.snack.show(f"{t('failed')}: {ex}", COLORS["danger"])
+                    return
                 close(None)
                 self.snack.show(t("estimate_updated"))
                 event_bus.emit(AppEvent.TASK_UPDATED, task)
