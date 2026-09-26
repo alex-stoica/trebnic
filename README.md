@@ -1,31 +1,21 @@
-# Trebnic - build & deploy
+# Trebnic development
 
-## Development with hot-reload
-Run from the project root (where `pyproject.toml` lives), not from inside the package:
-```bash
-poetry run flet run trebnic/main.py
+From the repository root: `poetry install`, then
+`poetry run flet run trebnic/main.py`.
+
+## Android
+
+Enable USB debugging; `adb devices` must show an authorized device.
+On Windows, set `PYTHONIOENCODING=utf-8`. With Flutter on PATH:
+
+```sh
+poetry run flet build apk
+poetry run flet-android-notifications-patch --project-root build/flutter
+cd build/flutter
+flutter build apk --release
+adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-## Prerequisites
-- USB Debugging enabled on phone (Settings → Developer Options → USB Debugging)
-- Phone connected via USB
-- `PYTHONUTF8=1` set (Windows - prevents Rich library Unicode crashes)
-
-## Build
-Always build from the project root (where `pyproject.toml` lives), never from `trebnic/`:
-```bash
-PYTHONUTF8=1 poetry run flet build apk
-```
-
-## Check device is ready
-```bash
-D:\Android\Sdk\platform-tools\adb.exe devices
-```
-Should show device (not `unauthorized`)
-
-## Install
-Full uninstall first (cached Python env persists with `-r`, see `insights/flet_mobile_build.md`):
-```bash
-D:\Android\Sdk\platform-tools\adb.exe uninstall ai.stoica.trebnic
-D:\Android\Sdk\platform-tools\adb.exe install build\apk\trebnic.apk
-```
+Continue after a missing-desugaring failure only; fix other build errors first.
+Reapply patches after regeneration. Export data before upgrading older builds;
+import afterward. New builds use persistent storage. Don't uninstall.

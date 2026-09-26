@@ -39,6 +39,7 @@ ANDROID_13_API_LEVEL = 33
 SCHEDULER_INTERVAL_SECONDS = 60
 RESCHEDULE_DEBOUNCE_SECONDS = 2.0
 RESCHEDULE_STALE_SECONDS = 15 * 60
+_LEGACY_TASK_NUDGE_IDS = (10000, 10001, 10002, 10099)
 
 
 class NotificationBackend(Enum):
@@ -99,6 +100,7 @@ class NotificationService:
         self._page = None
         self._schedule_async: Optional[Callable[..., asyncio.Task]] = None
         self._get_state: Optional[Callable[[], Any]] = None
+        self._lock_state_provider: Optional[Callable[[], bool]] = None
 
         self._flet_notifications = None
         self._running = False
@@ -617,12 +619,11 @@ class NotificationService:
             )
 
     async def _schedule_all_digests(self) -> None:
-        """Cancel any prior schedule, then re-schedule if notifications are enabled.
-
-        The cancel step runs unconditionally so toggling notifications off
-        actually silences the device — previously it short-circuited before
-        cancellation, leaving stale alarms armed.
-        """
+        """Clear legacy/current alarms; rebuild only when enabled."""
+        if self._backend == NotificationBackend.FLET_EXTENSION:
+            for base_nid in _LEGACY_TASK_NUDGE_IDS:
+                for offset in range(NOTIFICATION_HORIZON_DAYS):
+                    await self._cancel_extension_notification(base_nid + offset * NOTIFICATION_HORIZON_STRIDE)
         await self._cancel_all_digest_alarms()
         await self._cancel_all_task_nudge_alarms()
 
@@ -867,7 +868,13 @@ class NotificationService:
                 category=category,
             )
 
+    def set_lock_state_provider(self, provider: Callable[[], bool]) -> None:
+        self._lock_state_provider = provider
+        self.request_reschedule("auth_initialized", urgent=True)
+
     def _is_app_locked(self) -> bool:
+        if self._lock_state_provider is not None:
+            return self._lock_state_provider()
         crypto = registry.get(Services.CRYPTO)
         if crypto is None:
             return False
@@ -1097,6 +1104,7 @@ class NotificationService:
         logger.info("Cleaning up notification service")
         self.stop_scheduler()
         self._flet_notifications = None
+        self._lock_state_provider = None
 
     # ── Utility ───────────────────────────────────────────────────────
 

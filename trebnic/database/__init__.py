@@ -1,11 +1,8 @@
-"""Database package - async SQLite with mixin-based composition.
-
-Public API is unchanged: ``from database import db, DatabaseError`` continues
-to work exactly as before the refactor.
-"""
+"""Async SQLite database and path configuration."""
 from pathlib import Path
+import os
 
-_DEFAULT_DB_PATH = Path("trebnic.db")
+_DEFAULT_DB_PATH = Path(os.environ.get("FLET_APP_STORAGE_DATA") or ".") / "trebnic.db"
 DB_PATH: Path = _DEFAULT_DB_PATH
 
 # Re-export helpers so consumer code doesn't need to change imports

@@ -152,6 +152,9 @@ class TrebnicApp:
             return
 
         await self.auth_ctrl.initialize()
+        notification_service.set_lock_state_provider(
+            lambda: self.auth_ctrl.is_encryption_enabled and not self.auth_ctrl.is_unlocked
+        )
 
         # Set up callback for when app is unlocked
         async def on_unlocked() -> None:

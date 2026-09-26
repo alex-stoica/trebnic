@@ -435,18 +435,19 @@ web = ["flet-web (==0.82.2)", "flet-web (==0.82.2)"]
 
 [[package]]
 name = "flet-android-notifications"
-version = "0.7.9"
+version = "0.11.2"
 description = "Native local notifications for Flet apps (Android)"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_android_notifications-0.7.9-py3-none-any.whl", hash = "sha256:88f11ad119cac209464bc339b30374661df900cbb9b5586ae9baca5cdbf0cada"},
-    {file = "flet_android_notifications-0.7.9.tar.gz", hash = "sha256:756b8ef4ef35ad4e32868413a133b95eb78db7c28fef399f2f38526e9063ba7b"},
+    {file = "flet_android_notifications-0.11.2-py3-none-any.whl", hash = "sha256:f9f9f083252e0978c6f050a35853867252b98cd84ef4b8e77cb73f659ba5d2f8"},
+    {file = "flet_android_notifications-0.11.2.tar.gz", hash = "sha256:9d0959414848750d1cc28f6bfd2a62341b8f43103472cad6aa89718bbd3b2b4d"},
 ]
 
 [package.dependencies]
 flet = ">=0.82.0"
+tzdata = "*"
 
 [[package]]
 name = "flet-circular-slider"
@@ -465,14 +466,14 @@ flet = ">=0.80.5"
 
 [[package]]
 name = "flet-stt"
-version = "0.1.5"
+version = "0.2.0"
 description = "Speech-to-text for Flet apps via OS-native recognition (Android/iOS)"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "flet_stt-0.1.5-py3-none-any.whl", hash = "sha256:97384dcb271fa7d30551df10106a7e22b6e6356b0a138446462783d08be1a425"},
-    {file = "flet_stt-0.1.5.tar.gz", hash = "sha256:8cfbe3c6e858476bf09fe9caf28d39f95fdae1a5f31cf0f629fcbca1f11fb9e6"},
+    {file = "flet_stt-0.2.0-py3-none-any.whl", hash = "sha256:a98402e3c7ccfe4d08f5cb7498a55ca5be9ace9a76adbe1c7e8904a26ef0e108"},
+    {file = "flet_stt-0.2.0.tar.gz", hash = "sha256:b554214a766336ca049a6a7997796a7953c3f3fa0bbb6e6fa8b3e918b45806c9"},
 ]
 
 [package.dependencies]
@@ -854,6 +855,18 @@ files = [
 ]
 
 [[package]]
+name = "tzdata"
+version = "2026.4"
+description = "Provider of IANA time zone data"
+optional = false
+python-versions = ">=2"
+groups = ["main"]
+files = [
+    {file = "tzdata-2026.4-py2.py3-none-any.whl", hash = "sha256:c2169a8b0a7a5e9674da5a135ccdfb2b3e671b333ed9fed17b41f73c34476e81"},
+    {file = "tzdata-2026.4.tar.gz", hash = "sha256:f1b8bd365d8d210c55353f4d7f8d6d8561c0ba50d704b700d195a9424bba0d79"},
+]
+
+[[package]]
 name = "urllib3"
 version = "2.6.3"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
@@ -877,4 +890,4 @@ dev = ["pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "185b66020bf5165a8cd5032c7e37fc8946910ad4e6eb6a5404ec5a91c1ccdd29"
+content-hash = "ab78447ca34aa06dbb25de0ac1e56e5feb32061a66d6987c341a834795850735"
