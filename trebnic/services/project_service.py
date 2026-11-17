@@ -4,6 +4,7 @@ from typing import Optional
 from database import db
 from i18n import t
 from models.entities import AppState, Project
+from registry import registry, Services
 
 
 class ProjectService:
@@ -41,6 +42,9 @@ class ProjectService:
 
         Returns count of tasks deleted.
         """
+        timer = registry.get(Services.TIMER)
+        if timer is not None:
+            await timer.finish_matching(lambda active: active.project_id == project_id)
         count = await db.delete_project(project_id)
         self.state.projects = [p for p in self.state.projects if p.id != project_id]
         return count

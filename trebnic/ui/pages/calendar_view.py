@@ -102,7 +102,8 @@ class CalendarView:
 
     def _get_tasks_for_date(self, d: date) -> Tuple[List[Task], List[Task]]:
         pending = [task for task in self.state.tasks if task.due_date == d]
-        done = [task for task in self.state.done_tasks if task.due_date == d]
+        done = [task for task in self.state.done_tasks
+                if (task.completed_at.date() if task.completed_at else task.due_date) == d]
         return pending, done
 
     def _create_chip(self, task: Task, is_done: bool = False, is_mobile: bool = False) -> ft.Container:
@@ -199,7 +200,7 @@ class CalendarView:
         )
 
         content_control = (
-            ft.Column(items, scroll=ft.ScrollMode.AUTO, spacing=SPACING_XS)
+            ft.ListView(items, expand=True, spacing=SPACING_XS)
             if items
             else ft.Text(
                 "\u2014",
@@ -214,8 +215,6 @@ class CalendarView:
             padding=PADDING_SM,
             expand=True,
             alignment=ft.Alignment(0, -1),
-            on_click=lambda e, day=d: self._open_daily_note(day),
-            ink=True,
         )
 
         # Weekend columns get a slightly lighter border
@@ -296,7 +295,8 @@ class CalendarView:
         calendar_row = ft.Row(
             day_columns,
             spacing=SPACING_SM,
-            vertical_alignment=ft.CrossAxisAlignment.START,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+            expand=True,
         )
 
         calendar_container = ft.Container(

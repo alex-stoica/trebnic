@@ -58,6 +58,13 @@ class Task:
     recurrence_from_completion: bool = False
     is_draft: bool = False
     completed_at: Optional[datetime] = None
+    reminder_time: Optional[str] = None
+    reminder_weekdays: List[int] = field(default_factory=list)
+    initial_estimated_seconds: Optional[int] = None
+    postponements: int = 0
+    is_failed: bool = False
+    points_time_baseline_seconds: int = 0
+    points_excluded: bool = False
 
     def to_dict(self, is_done: bool = False) -> Dict[str, Any]:
         freq_value = (
@@ -84,6 +91,13 @@ class Task:
             "recurrence_from_completion": 1 if self.recurrence_from_completion else 0,
             "is_draft": 1 if self.is_draft else 0,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "reminder_time": self.reminder_time,
+            "reminder_weekdays": self.reminder_weekdays,
+            "initial_estimated_seconds": self.initial_estimated_seconds,
+            "postponements": self.postponements,
+            "is_failed": int(self.is_failed),
+            "points_time_baseline_seconds": self.points_time_baseline_seconds,
+            "points_excluded": int(self.points_excluded),
         }
 
     @classmethod
@@ -114,6 +128,13 @@ class Task:
             recurrence_from_completion=bool(d.get("recurrence_from_completion", 0)),
             is_draft=bool(d.get("is_draft", 0)),
             completed_at=completed_at,
+            reminder_time=d.get("reminder_time"),
+            reminder_weekdays=d.get("reminder_weekdays", []),
+            initial_estimated_seconds=d.get("initial_estimated_seconds"),
+            postponements=d.get("postponements", 0),
+            is_failed=bool(d.get("is_failed", False)),
+            points_time_baseline_seconds=d.get("points_time_baseline_seconds", 0),
+            points_excluded=bool(d.get("points_excluded", False)),
         )
 
     def create_next_occurrence(self, next_due_date: date) -> "Task":
@@ -137,6 +158,8 @@ class Task:
             recurrence_end_type=self.recurrence_end_type,
             recurrence_end_date=self.recurrence_end_date,
             recurrence_from_completion=self.recurrence_from_completion,
+            reminder_time=self.reminder_time,
+            reminder_weekdays=list(self.reminder_weekdays),
         )
 
 

@@ -73,6 +73,7 @@ class StatsService:
         time_entries: List[Dict],
     ) -> OverallStats:
         """Calculate overall statistics across all tasks."""
+        done_tasks = [task for task in done_tasks if not task.is_failed]
         total_completed = len(done_tasks)
         total_pending = len(tasks)
 
@@ -166,6 +167,8 @@ class StatsService:
         # Count completed tasks by their real completion day (completed_at, with a
         # due_date fallback for legacy rows) and aggregate estimated seconds.
         for task in done_tasks:
+            if task.is_failed:
+                continue
             day = _completion_day(task)
             if day and day in stats_by_date:
                 stats_by_date[day].tasks_completed += 1
@@ -210,6 +213,8 @@ class StatsService:
 
         # Count completed vs pending
         for task in done_tasks:
+            if task.is_failed:
+                continue
             pid = task.project_id
             if pid in stats_by_project:
                 stats_by_project[pid].tasks_completed += 1
@@ -251,6 +256,7 @@ class StatsService:
         Returns the number of consecutive days where at least one task was completed.
         Uses task due_date as a proxy for completion date.
         """
+        done_tasks = [task for task in done_tasks if not task.is_failed]
         if not done_tasks:
             return 0
 
@@ -341,7 +347,8 @@ class StatsService:
                     "estimated_seconds": t.estimated_seconds,
                     "due_date": t.due_date.isoformat() if t.due_date else None,
                     "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-                    "completed": True,
+                    "completed": not t.is_failed,
+                    "failed": t.is_failed,
                 }
                 for t in done_tasks
             ],

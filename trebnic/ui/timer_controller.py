@@ -1,9 +1,8 @@
 import flet as ft
 import logging
-from datetime import datetime
 from typing import List, Optional
 
-from config import COLORS, MIN_TIMER_SECONDS
+from config import COLORS
 from i18n import t
 from models.entities import Task, AppState
 from services.notification_service import notification_service
@@ -49,14 +48,20 @@ class TimerController:
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TIMER_SYNC, self._on_sync)
         )
+        self._subscriptions.append(
+            event_bus.subscribe(AppEvent.TIMER_STOPPING, self._hide_stopped_timer)
+        )
+        self._subscriptions.append(
+            event_bus.subscribe(AppEvent.TIMER_FAILED, self._on_failed)
+        )
 
     def start_timer(self, task: Task) -> None:
         """Start the timer for a task."""
         if self.timer_svc.running:
             self.snack.show(t("stop_current_timer_first"), COLORS["danger"])
             return
-        self.timer_svc.start(task)
-        self.snack.show(t("timer_started_for").replace("{title}", task.title))
+        if self.timer_svc.start(task):
+            self.snack.show(t("timer_started_for").replace("{title}", task.title))
 
     def on_timer_stop(self, e: ft.ControlEvent) -> None:
         """Handle timer stop button click."""
@@ -67,35 +72,17 @@ class TimerController:
         self.timer_svc.stop()
 
     def recover_timer(self, state: AppState) -> None:
-        """Recover a running timer from app restart."""
-        # Finalize any stale running entries from earlier crashes (keep the one we
-        # are about to recover, if any) so they don't linger as phantom rows.
-        keep_id = state.recovered_timer_entry.id if state.recovered_timer_entry else None
-        self.page.run_task(self.timer_svc.reap_orphaned_entries, keep_id)
-
-        if state.recovered_timer_entry is None:
-            return
-
+        """Recover observed time, then resume."""
         entry = state.recovered_timer_entry
-        task = state.get_task_by_id(entry.task_id)
-
-        if task is None:
-            # Task was deleted, complete the orphaned entry async
-            entry.end_time = datetime.now()
-
-            async def save_orphaned_entry():
-                await self.timer_svc._time_entry_svc.save_time_entry(entry)
-
-            self.page.run_task(save_orphaned_entry)
-            state.recovered_timer_entry = None
-            return
-
-        # Banked (conservative) pre-crash time; the live timer itself resumes from 0.
-        elapsed_str = format_timer_display(self.timer_svc.banked_recovery_seconds(entry))
-        self.timer_svc.recover(entry, task)
-        self.snack.show(
-            t("timer_recovered").replace("{title}", task.title).replace("{time}", elapsed_str)
-        )
+        task = state.get_task_by_id(entry.task_id) if entry else None
+        if task is not None:
+            elapsed_str = format_timer_display(self.timer_svc.banked_recovery_seconds(entry))
+            if self.timer_svc.recover(entry, task):
+                self.snack.show(
+                    t("timer_recovered").replace("{title}", task.title).replace("{time}", elapsed_str)
+                )
+        else:
+            self.page.run_task(self.timer_svc.reap_orphaned_entries)
         state.recovered_timer_entry = None
 
     def cleanup(self) -> None:
@@ -109,7 +96,7 @@ class TimerController:
         """Handle timer tick event - update UI."""
         self.timer_widget.update_time(seconds)
         try:
-            self.timer_widget.update()
+            self.timer_widget.display.update()
         except RuntimeError:
             pass  # Widget disposed, service keeps running
 
@@ -125,19 +112,25 @@ class TimerController:
         """Handle timer sync event - recalculate from wall clock."""
         self.timer_svc.sync_from_wall_clock()
 
-    def _on_stopped(self, data: Optional[dict]) -> None:
-        """Handle timer stopped event - update UI, show message, and notification."""
+    def _hide_stopped_timer(self, data=None) -> None:
+        if self.timer_svc.running:
+            return
         self.timer_widget.stop()
         try:
             self.page.update()
         except RuntimeError:
             pass
 
+    def _on_failed(self, data) -> None:
+        self._hide_stopped_timer()
+        self.snack.show(t("timer_save_failed"), COLORS["danger"])
+
+    def _on_stopped(self, data: Optional[dict]) -> None:
+        """Report saved time or a discarded short session."""
+        self._hide_stopped_timer()
         if data is None:
-            min_minutes = MIN_TIMER_SECONDS // 60
             self.snack.show(
-                t("timer_discarded").replace("{minutes}", str(min_minutes)),
-                COLORS["danger"],
+                t("timer_discarded"),
             )
         else:
             time_display = format_timer_display(data['elapsed'])

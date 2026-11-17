@@ -1,7 +1,8 @@
 import flet as ft
 from typing import Optional
+from datetime import date
 
-from config import COLORS, BORDER_RADIUS, SPACING_XS, SPACING_SM, SPACING_MD, PADDING_MD, PADDING_2XL
+from config import NavItem, TaskFilter, COLORS, BORDER_RADIUS, SPACING_XS, SPACING_SM, SPACING_MD, PADDING_MD, PADDING_2XL
 from events import event_bus, AppEvent
 from i18n import t
 from models.entities import Task, Project, AppState
@@ -90,23 +91,12 @@ class TaskTile:
                 ink=True,
             )
             tags.append(project_tag)
-        else:
-            unassigned_tag = ft.Container(
-                content=ft.Text(
-                    t("unassigned"),
-                    size=10,
-                    color=COLORS["unassigned"],
-                ),
-                bgcolor=COLORS["input_bg"],
-                border=ft.Border.all(1, COLORS["border"]),
-                padding=ft.Padding.symmetric(horizontal=8, vertical=2),
-                border_radius=5,
-                on_click=lambda e: event_bus.emit(AppEvent.TASK_ASSIGN_PROJECT_REQUESTED, self.task),
-                ink=True,
-            )
-            tags.append(unassigned_tag)
-
-        if self.display.due_date_display:
+        redundant_today = (
+            self.state.selected_nav == NavItem.TODAY
+            and self.state.task_filter == TaskFilter.TODAY
+            and self.task.due_date == date.today()
+        )
+        if self.display.due_date_display and not redundant_today:
             due_tag = ft.Container(
                 content=ft.Text(
                     self.display.due_date_display,
@@ -121,47 +111,21 @@ class TaskTile:
             )
             tags.append(due_tag)
 
-        return ft.Row(tags, spacing=SPACING_MD, tight=True, wrap=True)
+        return ft.Row(tags, spacing=SPACING_MD, tight=True, wrap=True, visible=bool(tags))
 
     def _menu(self) -> ft.PopupMenuButton:
         items = []
-        if self.state.is_mobile:
-            items.append(create_option_item(
-                ft.Icons.TIMER_OUTLINED,
-                t("start_timer"),
-                lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
-                as_popup=True,
-            ))
-
+        if not self.is_done:
+            items.append(create_option_item(ft.Icons.CANCEL_OUTLINED, t("score_mark_failed"),
+                lambda e: event_bus.emit(AppEvent.TASK_FAIL_REQUESTED, self.task),
+                color=COLORS["danger"], as_popup=True))
+        items.append(create_option_item(ft.Icons.EDIT_OUTLINED, t("task_details"),
+            lambda e: event_bus.emit(AppEvent.TASK_DETAILS_REQUESTED, self.task), as_popup=True))
         items.extend([
-            create_option_item(
-                ft.Icons.EDIT_OUTLINED,
-                t("rename"),
-                lambda e: event_bus.emit(AppEvent.TASK_RENAME_REQUESTED, self.task),
-                as_popup=True,
-            ),
-            create_option_item(
-                ft.Icons.SCHEDULE_OUTLINED,
-                t("reschedule"),
-                lambda e: event_bus.emit(AppEvent.TASK_DATE_PICKER_REQUESTED, self.task),
-                as_popup=True,
-            ),
             create_option_item(
                 ft.Icons.NEXT_PLAN_OUTLINED,
                 t("postpone_by_1_day"),
                 lambda e: event_bus.emit(AppEvent.TASK_POSTPONE_REQUESTED, self.task),
-                as_popup=True,
-            ),
-            create_option_item(
-                ft.Icons.REPEAT,
-                t("set_recurrence"),
-                lambda e: event_bus.emit(AppEvent.TASK_RECURRENCE_REQUESTED, self.task),
-                as_popup=True,
-            ),
-            create_option_item(
-                ft.Icons.HOURGLASS_EMPTY,
-                t("set_estimate"),
-                lambda e: event_bus.emit(AppEvent.TASK_ESTIMATE_REQUESTED, self.task),
                 as_popup=True,
             ),
             create_option_item(
@@ -189,6 +153,9 @@ class TaskTile:
         ])
 
         return ft.PopupMenuButton(
+            width=36 if self.state.is_mobile else None,
+            height=40 if self.state.is_mobile else None,
+            padding=0 if self.state.is_mobile else None,
             icon=ft.Icons.MORE_HORIZ, 
             icon_color=COLORS["grey"], 
             tooltip=t("task_options"),
@@ -214,17 +181,26 @@ class TaskTile:
                 spacing=SPACING_SM,
                 tight=True,
             )
-        return ft.Text(
-            self.display.title,
-            weight="bold",
-            color=title_color,
-            style=title_style,
-            size=size,
-            expand=True if size else False,
-        )
+        return ft.Container(content=ft.Text(
+            self.display.title, weight="bold", color=title_color, style=title_style, size=size,
+            max_lines=2 if self.state.is_mobile else None,
+            overflow=ft.TextOverflow.ELLIPSIS if self.state.is_mobile else None,
+        ), expand=True if size else False, ink=True, border_radius=6,
+            tooltip=t("task_details"),
+            on_click=lambda e: event_bus.emit(AppEvent.TASK_DETAILS_REQUESTED, self.task))
+
+    def _time_summary(self):
+        estimate = t("details_estimated").format(time=self.display.estimated_display) if self.task.estimated_seconds else t("not_estimated")
+        status = (t("score_failed") + " · ") if self.task.is_failed else ""
+        return ft.Text(status + t("details_worked").format(time=self.display.spent_display) + " · " + estimate,
+            size=13, color="#B8C0CC")
 
     def build(self) -> ft.Container:
         cb = ft.Checkbox(value=self.is_done, on_change=self._on_check)
+        if self.task.is_failed:
+            cb = ft.IconButton(ft.Icons.UNDO, tooltip=t("score_reopen"),
+                on_click=lambda e: event_bus.emit(AppEvent.TASK_UNCOMPLETE_REQUESTED, self.task),
+                icon_color=COLORS["danger"])
         title_style = (
             ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH)
             if self.is_done else None
@@ -232,12 +208,7 @@ class TaskTile:
         title_color = COLORS["done_text"] if self.is_done else None
         bg = COLORS["done_bg"] if self.is_done else COLORS["card"]
 
-        time_txt = ft.Text(
-            f"{self.display.spent_display} / {self.display.estimated_display}",
-            font_family="monospace",
-            color=COLORS["done_text"],
-            visible=not self.state.is_mobile,
-        ) 
+        time_txt = self._time_summary()
 
         if self.is_done:
             # Flag a missing completion date so it can be found and fixed from here.
@@ -259,18 +230,31 @@ class TaskTile:
                         [
                             self._build_title_row(title_color, title_style),
                             self._tags(),
+                            self._time_summary(),
                         ],
                         expand=True,
                         spacing=SPACING_XS,
                     ),
-                    time_txt,
                     details_btn,
                 ]),
             )
 
         if self.state.is_mobile:
+            cb.width = 36
+            cb.height = 40
+            summary = self._time_summary()
+            summary.size = 12
+            parts = []
+            redundant_today = (self.state.selected_nav == NavItem.TODAY
+                and self.state.task_filter == TaskFilter.TODAY and self.task.due_date == date.today())
+            if self.display.due_date_display and not redundant_today:
+                parts.append(self.display.due_date_display)
+            if self.display.project_name:
+                parts.append(t("encrypted") if self.display.project_name == LOCKED_PLACEHOLDER else self.display.project_name)
+            parts.append(summary.value)
+            summary.value = " · ".join(parts)
             return ft.Container(
-                padding=PADDING_MD,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 bgcolor=bg,
                 border_radius=BORDER_RADIUS,
                 data=self.task,
@@ -279,11 +263,18 @@ class TaskTile:
                         ft.Row([
                             cb,
                             self._build_title_row(title_color, title_style, size=14),
+                            ft.IconButton(
+                                ft.Icons.PLAY_ARROW,
+                                width=36, height=40, padding=0, icon_size=22,
+                                icon_color=COLORS["accent"],
+                                tooltip=t("start_timer"),
+                                on_click=lambda e: event_bus.emit(AppEvent.TASK_START_TIMER_REQUESTED, self.task),
+                            ),
                             self._menu(),
-                        ]),
-                        self._tags(),
+                        ], spacing=2),
+                        summary,
                     ],
-                    spacing=SPACING_XS,
+                    spacing=2,
                     tight=True,
                 ),
             )

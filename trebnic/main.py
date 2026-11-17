@@ -52,8 +52,8 @@ def _android_log(msg: str) -> None:
     subprocess.run(["log", "-t", "TREBNIC", msg[:1000]])
 
 
-def main(page: ft.Page) -> None:
-    """Main entry point for the Trebnic application."""
+async def main(page: ft.Page) -> None:
+    """Start Trebnic."""
     if os.environ.get("FLET_PLATFORM") == "android":
         import logging
         import traceback
@@ -76,7 +76,7 @@ def main(page: ft.Page) -> None:
 
         sys.excepthook = _logcat_excepthook
 
-    create_app(page)
+    await create_app(page)
 
 
 if __name__ == "__main__":

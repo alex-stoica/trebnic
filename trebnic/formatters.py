@@ -23,6 +23,8 @@ class TimeFormatter:
     @staticmethod
     def seconds_to_display(seconds: int) -> str:
         """Convert seconds to display format like '5 min' or '1h 30m'."""
+        if 0 < seconds < 60:
+            return f"{seconds} s"
         minutes = seconds // 60
         if minutes < 60:
             return f"{minutes} min"

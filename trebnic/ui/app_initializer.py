@@ -29,6 +29,7 @@ from ui.handlers import TaskActionHandler
 from api import TrebnicAPI
 from core import ServiceContainer
 from services.claude_service import ClaudeService
+from services.chatgpt_bridge import ChatGPTBridge
 
 
 class AppComponents:
@@ -89,12 +90,12 @@ class AppInitializer:
         self.page = page
         self.components = AppComponents()
     
-    def initialize(self) -> AppComponents:
-        """Initialize all application components and return them."""
+    async def initialize(self) -> AppComponents:
+        """Initialize application components."""
         self._register_core_services()
         self._setup_page()
         self._init_auth()
-        self._init_services()
+        await self._init_services()
         self._init_navigation()
         self._init_ui_components()
         self._init_timer_controller()
@@ -125,10 +126,10 @@ class AppInitializer:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.page.padding = 0
     
-    def _init_services(self) -> None:
-        """Initialize application services."""
+    async def _init_services(self) -> None:
+        """Initialize services."""
         try:
-            self.components.state = TaskService.load_state()
+            self.components.state = await TaskService.load_state_async()
         except (DatabaseError, ValueError) as e:
             self.components.state = TaskService.create_empty_state()
             self.components.pending_error = f"Failed to load data: {e}"
@@ -250,6 +251,10 @@ class AppInitializer:
             daily_notes=self.components.daily_notes_service,
         )
         trebnic_api = TrebnicAPI(svc_container)
+        self.components.chatgpt_bridge = ChatGPTBridge(
+            self.page, trebnic_api,
+            lambda: self.components.auth_ctrl.is_encryption_enabled and not self.components.auth_ctrl.is_unlocked,
+        )
         self.components.claude_service = ClaudeService(trebnic_api)
         self.components.chat_view = ChatView(
             self.page, state, self.components.claude_service, snack, nav_manager.navigate_to,

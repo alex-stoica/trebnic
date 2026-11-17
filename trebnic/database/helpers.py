@@ -85,6 +85,7 @@ def _deserialize_task_row(row) -> Dict[str, Any]:
     task_dict["title"] = _decrypt_field(task_dict.get("title", ""))
     task_dict["notes"] = _decrypt_field(task_dict.get("notes", ""))
     task_dict["recurrence_weekdays"] = json.loads(task_dict.get("recurrence_weekdays", "[]"))
+    task_dict["reminder_weekdays"] = json.loads(task_dict.get("reminder_weekdays") or "[]")
     task_dict["recurrence_end_type"] = task_dict.get("recurrence_end_type", "never")
     task_dict["recurrence_from_completion"] = task_dict.get("recurrence_from_completion", 0)
     if task_dict.get("due_date"):

@@ -21,6 +21,7 @@ class AppEvent(Enum):
 
     # Task action requests (emitted by UI, handled by app layer)
     TASK_COMPLETE_REQUESTED = auto()
+    TASK_FAIL_REQUESTED = auto()
     TASK_UNCOMPLETE_REQUESTED = auto()
     TASK_DELETE_REQUESTED = auto()
     TASK_DUPLICATE_REQUESTED = auto()
@@ -32,6 +33,7 @@ class AppEvent(Enum):
     TASK_RECURRENCE_REQUESTED = auto()
     TASK_STATS_REQUESTED = auto()
     TASK_ESTIMATE_REQUESTED = auto()
+    TASK_DETAILS_REQUESTED = auto()
     LOG_TIME_REQUESTED = auto()
 
     # Project events
@@ -42,6 +44,8 @@ class AppEvent(Enum):
     # Timer events
     TIMER_STARTED = auto()
     TIMER_STOPPED = auto()
+    TIMER_STOPPING = auto()
+    TIMER_FAILED = auto()
     TIMER_TICK = auto()
     TIMER_SYNC = auto()
 

@@ -66,9 +66,25 @@ class TasksMixin:
             t.get("recurrence_from_completion", 0),
             t.get("is_draft", 0),
             completed_at,
+            t.get("reminder_time"),
+            json.dumps(t.get("reminder_weekdays", [])),
         )
         try:
             async with self._get_connection() as conn:
+                previous = None
+                if t.get("id") is not None:
+                    async with conn.execute("SELECT * FROM tasks WHERE id=?", (t["id"],)) as cur:
+                        previous = await cur.fetchone()
+                baseline = previous["initial_estimated_seconds"] if previous else None
+                count = previous["postponements"] if previous else 0
+                if previous and baseline is not None and baseline > 0 and not previous["is_done"] and not previous["is_draft"]:
+                    old_due = previous["due_date"]
+                    if old_due and (due_date is None or due_date > old_due):
+                        count += 1
+                if baseline is None and not t.get("is_draft"):
+                    if t["estimated_seconds"] > 0 or t.get("is_done"):
+                        baseline = max(0, t["estimated_seconds"])
+                failed = int(bool(t.get("is_failed")) and bool(t.get("is_done")))
                 if t.get("id") is None:
                     # INSERT sets spent_seconds for the brand-new row (0/known).
                     cursor = await conn.execute(
@@ -77,21 +93,27 @@ class TasksMixin:
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
                         "recurrence_end_date,recurrence_from_completion,is_draft,completed_at,"
-                        "spent_seconds)"
-                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "reminder_time,reminder_weekdays,spent_seconds)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         meta + (t.get("spent_seconds", 0),)
                     )
+                    await conn.execute("UPDATE tasks SET initial_estimated_seconds=?,postponements=?,is_failed=? WHERE id=?",
+                                       (baseline, count, failed, cursor.lastrowid))
                     await conn.commit()
+                    t.update(initial_estimated_seconds=baseline, postponements=count, is_failed=failed)
                     return cursor.lastrowid
                 await conn.execute(
                     "UPDATE tasks SET title=?,estimated_seconds=?,"
                     "project_id=?,due_date=?,is_done=?,recurrent=?,recurrence_interval=?,"
                     "recurrence_frequency=?,recurrence_weekdays=?,notes=?,sort_order=?,"
                     "recurrence_end_type=?,recurrence_end_date=?,recurrence_from_completion=?,"
-                    "is_draft=?,completed_at=? WHERE id=?",
+                    "is_draft=?,completed_at=?,reminder_time=?,reminder_weekdays=? WHERE id=?",
                     meta + (t["id"],)
                 )
+                await conn.execute("UPDATE tasks SET initial_estimated_seconds=?,postponements=?,is_failed=? WHERE id=?",
+                                   (baseline, count, failed, t["id"]))
                 await conn.commit()
+                t.update(initial_estimated_seconds=baseline, postponements=count, is_failed=failed)
                 return t["id"]
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error saving task: {e}")

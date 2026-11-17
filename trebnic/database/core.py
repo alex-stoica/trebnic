@@ -65,14 +65,14 @@ class DatabaseCore:
             yield conn
 
     async def close(self) -> None:
-        """Close the persistent connection."""
-        if self._conn is not None:
-            try:
-                await self._conn.close()
-            except (sqlite3.Error, OSError) as e:
-                logger.warning(f"Error closing database connection: {e}")
-            finally:
-                self._conn = None
+        """Close storage safely."""
+        async with await self._get_lock():
+            conn, self._conn = self._conn, None
+            if conn is not None:
+                try:
+                    await conn.close()
+                except (sqlite3.Error, OSError) as e:
+                    logger.warning(f"Error closing database connection: {e}")
 
     async def _get_init_lock(self) -> asyncio.Lock:
         """Get or create the async lock for init serialization."""
@@ -87,7 +87,21 @@ class DatabaseCore:
             if self._initialized:
                 return
             async with self._get_connection() as conn:
+                # Snapshot the existing database before adding reminder columns.
+                # SQLite backup includes committed WAL data; never copy only .db.
+                async with conn.execute("PRAGMA table_info(tasks)") as cur:
+                    existing_columns = [row[1] async for row in cur]
+                if existing_columns and "reminder_time" not in existing_columns and str(_pkg.DB_PATH) != ":memory:":
+                    backup_path = _pkg.DB_PATH.with_name("trebnic-before-reminders.db")
+                    if not backup_path.exists():
+                        with sqlite3.connect(backup_path) as backup:
+                            await conn.backup(backup)
                 await self._init_schema(conn)
+                if existing_columns and "postponements" not in existing_columns and str(_pkg.DB_PATH) != ":memory:":
+                    backup_path = _pkg.DB_PATH.with_name("trebnic-before-points.db")
+                    if not backup_path.exists():
+                        with sqlite3.connect(backup_path) as backup:
+                            await conn.backup(backup)
                 await self._migrate_schema(conn)
                 await conn.commit()
             self._initialized = True
@@ -147,6 +161,14 @@ class DatabaseCore:
             async with conn.execute("PRAGMA table_info(tasks)") as cursor:
                 cols = [r[1] async for r in cursor]
 
+            if "postponements" not in cols:
+                await conn.execute("ALTER TABLE tasks ADD COLUMN initial_estimated_seconds INTEGER")
+                await conn.execute("ALTER TABLE tasks ADD COLUMN postponements INTEGER NOT NULL DEFAULT 0")
+                await conn.execute("ALTER TABLE tasks ADD COLUMN is_failed INTEGER NOT NULL DEFAULT 0")
+            if "reminder_time" not in cols:
+                await conn.execute("ALTER TABLE tasks ADD COLUMN reminder_time TEXT")
+            if "reminder_weekdays" not in cols:
+                await conn.execute("ALTER TABLE tasks ADD COLUMN reminder_weekdays TEXT DEFAULT '[]'")
             if "sort_order" not in cols:
                 await conn.execute(
                     "ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0"
@@ -170,6 +192,14 @@ class DatabaseCore:
             # completed_at: real completion timestamp.
             if "completed_at" not in cols:
                 await conn.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT")
+            if "postponements" not in cols:
+                await conn.execute("UPDATE tasks SET initial_estimated_seconds=estimated_seconds WHERE is_draft=0 AND (estimated_seconds>0 OR is_done=1)")
+            if "points_time_baseline_seconds" not in cols:
+                await conn.execute("ALTER TABLE tasks ADD COLUMN points_time_baseline_seconds INTEGER NOT NULL DEFAULT 0")
+                await conn.execute("ALTER TABLE tasks ADD COLUMN points_excluded INTEGER NOT NULL DEFAULT 0")
+                # Start at level one on upgrade. Preserve existing time/history,
+                # but award points only for work and outcomes after this baseline.
+                await conn.execute("UPDATE tasks SET points_time_baseline_seconds=MAX(0,spent_seconds),points_excluded=is_done")
 
             async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"

@@ -1,7 +1,9 @@
 import asyncio
 import concurrent.futures
 import logging
+import hashlib
 import os
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Tuple, Optional
 
@@ -11,7 +13,7 @@ except ImportError:
     _CRED_API_KEY = ""
     _CRED_EMAIL = ""
 
-from config import NavItem, TaskFilter
+from config import NavItem, TaskFilter, RecurrenceFrequency
 from database import db, DatabaseError
 from events import AppEvent
 from i18n import set_language
@@ -60,15 +62,15 @@ class TaskService:
         Replaces revoked keys automatically so users don't get stuck with dead keys.
         Called from both load_state_async() and reset().
         """
-        _REVOKED_KEYS = {
-            "re_HnHAZnqJ_2UmbtCVJDF8ChFmTfj8WTJU3",
-            "re_LVAviERE_8xQcuJ836TxSSRxsN8KnDoRp",
+        _REVOKED_KEY_HASHES = {
+            "b3bbc58fb13c858c4c2324751535efe5c65b8c5c85f5bfce3813d71b641fb9cf",
+            "2701cbb77fe832a5a46693c808b53c91a581ce2d5ffeb6ae46aa5eeb6b51070f",
         }
         current_key = await db.get_setting("resend_api_key", "")
-        if not current_key or current_key in _REVOKED_KEYS:
+        if not current_key or hashlib.sha256(current_key.encode()).hexdigest() in _REVOKED_KEY_HASHES:
             env_key = os.getenv("RESEND_API_KEY", "")
             # Priority: env var (if not revoked) > credentials.py > empty
-            api_key = env_key if env_key and env_key not in _REVOKED_KEYS else _CRED_API_KEY
+            api_key = env_key if env_key and hashlib.sha256(env_key.encode()).hexdigest() not in _REVOKED_KEY_HASHES else _CRED_API_KEY
             if api_key:
                 await db.set_setting("resend_api_key", api_key)
         if not await db.get_setting("feedback_email"):
@@ -229,7 +231,7 @@ class TaskService:
         self,
         title: str,
         project_id: Optional[str] = None,
-        estimated_seconds: int = 900,
+        estimated_seconds: int = 0,
         due_date: Optional[date] = None,
     ) -> Task:
         """Add a new task.
@@ -237,7 +239,7 @@ class TaskService:
         Args:
             title: Task title.
             project_id: Optional project ID to assign the task to.
-            estimated_seconds: Estimated duration in seconds (default 15 min).
+            estimated_seconds: Estimated seconds; zero means not estimated.
             due_date: Optional due date. Caller should determine appropriate date
                       based on context (e.g., UI navigation state).
 
@@ -265,7 +267,69 @@ class TaskService:
         project / recurrence / completion edits.
         """
         is_done = any(t.id == task.id for t in self.state.done_tasks)
-        await db.save_task(task.to_dict(is_done=is_done))
+        data = task.to_dict(is_done=is_done)
+        await db.save_task(data)
+        task.initial_estimated_seconds = data["initial_estimated_seconds"]
+        task.postponements = data["postponements"]
+        task.is_failed = bool(data["is_failed"])
+
+    async def update_task_details(self, task: Task, *, title: str,
+                                  estimated_seconds: int, due_date: Optional[date],
+                                  project_id: Optional[str], notes: str,
+                                  recurrent: bool, frequency: str, interval: int,
+                                  weekdays: List[int], from_completion: bool,
+                                  until: Optional[date], reminder_time: Optional[str] = None,
+                                  reminder_weekdays: Optional[List[int]] = None) -> None:
+        """Validate and persist one metadata edit without altering tracked time."""
+        if not title.strip() or len(title.strip()) > 500:
+            raise ValueError("details_invalid_title")
+        if type(estimated_seconds) is not int or not 0 <= estimated_seconds <= 604800:
+            raise ValueError("details_invalid_estimate")
+        if project_id is not None and not any(p.id == project_id for p in self.state.projects):
+            raise ValueError("details_invalid_project")
+        frequency_value = RecurrenceFrequency(frequency)
+        if recurrent and (type(interval) is not int or not 1 <= interval <= 1000):
+            raise ValueError("details_invalid_interval")
+        if any(type(day) is not int or not 0 <= day <= 6 for day in weekdays):
+            raise ValueError("details_invalid_interval")
+        reminder_days = sorted(set(reminder_weekdays or []))
+        if reminder_time:
+            from datetime import time as clock_time
+            try:
+                parsed = clock_time.fromisoformat(reminder_time)
+                if parsed.tzinfo or parsed.second or parsed.microsecond:
+                    raise ValueError()
+                reminder_time = parsed.strftime("%H:%M")
+            except ValueError:
+                raise ValueError("details_invalid_reminder")
+            if any(type(day) is not int or not 0 <= day <= 6 for day in reminder_days):
+                raise ValueError("details_invalid_reminder")
+            if not due_date:
+                raise ValueError("details_reminder_needs_date")
+        else:
+            reminder_days = []
+        candidate = replace(task, reminder_time=reminder_time or None,
+                            reminder_weekdays=reminder_days, title=title.strip(), estimated_seconds=estimated_seconds,
+                            due_date=due_date, project_id=project_id, notes=notes,
+                            recurrent=recurrent, recurrence_frequency=frequency_value,
+                            recurrence_interval=interval if recurrent else 1,
+                            recurrence_weekdays=sorted(set(weekdays)) if recurrent and frequency == "weeks" else [],
+                            recurrence_from_completion=from_completion if recurrent else False,
+                            recurrence_end_type="on_date" if recurrent and until else "never",
+                            recurrence_end_date=until if recurrent else None)
+        if recurrent and candidate.due_date is None:
+            candidate.due_date = calculate_next_recurrence_from_date(candidate, date.today() - timedelta(days=1))
+            if candidate.due_date is None:
+                raise ValueError("details_invalid_until")
+        if recurrent and until and until < candidate.due_date:
+            raise ValueError("details_invalid_until")
+        await self.persist_task(candidate)
+        # Metadata only: a timer may update spent_seconds while the write awaits.
+        for field in ("title", "estimated_seconds", "due_date", "project_id", "notes", "recurrent",
+                      "recurrence_frequency", "recurrence_interval", "recurrence_weekdays",
+                      "recurrence_from_completion", "recurrence_end_type", "recurrence_end_date",
+                      "reminder_time", "reminder_weekdays", "initial_estimated_seconds", "postponements"):
+            setattr(task, field, getattr(candidate, field))
 
     def apply_spent(self, affected: Dict[int, int]) -> None:
         """Apply recomputed spent_seconds from an entry mutation to in-memory tasks.
@@ -323,7 +387,7 @@ class TaskService:
             task.completed_at = old
             raise
 
-    async def complete_task(self, task: Task, completed_at: Optional[datetime] = None) -> Optional[Task]:
+    async def complete_task(self, task: Task, completed_at: Optional[datetime] = None, *, failed: bool = False) -> Optional[Task]:
         """Complete a task and optionally create next recurrence.
 
         DB is the single source of truth. UI should call refresh() after this.
@@ -341,13 +405,19 @@ class TaskService:
         db_task_dict = await db.load_task_by_id(task.id)
         if db_task_dict is None:
             return None
+        if db_task_dict.get("is_done"):
+            return None
 
         # Mark done with a real completion timestamp (metadata write; the UPDATE
         # path deliberately leaves spent_seconds untouched).
         db_task_dict["is_done"] = 1
+        db_task_dict["is_failed"] = int(failed)
         db_task_dict["completed_at"] = completed_at
         await db.save_task(db_task_dict)
         task.completed_at = completed_at  # keep the in-memory task in sync
+        task.is_failed = failed
+        task.initial_estimated_seconds = db_task_dict["initial_estimated_seconds"]
+        task.postponements = db_task_dict["postponements"]
 
         # Handle recurrence - create next occurrence if applicable
         completed_task = Task.from_dict(db_task_dict)
@@ -424,14 +494,19 @@ class TaskService:
             return False
 
         db_task_dict["is_done"] = 0
+        db_task_dict["is_failed"] = 0
         db_task_dict["completed_at"] = None
         await db.save_task(db_task_dict)
         task.completed_at = None
+        task.is_failed = False
         return True
 
     async def delete_task(self, task: Task) -> None:
         """Delete a task from the database. UI should call refresh() after this."""
         if task.id:
+            timer = registry.get(Services.TIMER)
+            if timer is not None:
+                await timer.finish_matching(lambda active: active.id == task.id)
             await db.delete_task(task.id)
 
     async def delete_all_recurring_tasks(self, task: Task) -> int:
@@ -442,6 +517,9 @@ class TaskService:
         if not task.recurrent:
             await self.delete_task(task)
             return 1
+        timer = registry.get(Services.TIMER)
+        if timer is not None:
+            await timer.finish_matching(lambda active: active.recurrent and active.title == task.title)
         return await db.delete_recurring_tasks_by_title(task.title)
 
     async def duplicate_task(self, task: Task) -> Task:
@@ -453,6 +531,11 @@ class TaskService:
         # or a pending copy would look already-completed in stats.
         new_task.completed_at = None
         new_task.spent_seconds = 0
+        new_task.initial_estimated_seconds = None
+        new_task.postponements = 0
+        new_task.is_failed = False
+        new_task.points_time_baseline_seconds = 0
+        new_task.points_excluded = False
         new_task.id = await db.save_task(new_task.to_dict())
         return new_task
 

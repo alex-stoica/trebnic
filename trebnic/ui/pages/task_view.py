@@ -29,6 +29,9 @@ from ui.dialogs.task_dialogs import get_date_picker
 from events import event_bus, AppEvent
 
 
+_UNSET = object()
+
+
 class TasksView:
     """Main task list view that displays pending and completed tasks.
 
@@ -50,9 +53,9 @@ class TasksView:
         self.snack = snack
         self._on_open_notes = on_open_notes
         self.pending_details: Dict[str, Any] = {
-            "estimated_minutes": state.default_estimated_minutes,
-            "due_date": None,       # None = use nav-based default at submit time
-            "project_id": None,     # None = use sidebar-based default at submit time
+            "estimated_minutes": 0,
+            "due_date": _UNSET,
+            "project_id": _UNSET,
         }
         self._section_label: ft.Text = None  # Will be set in _build_controls
         self._done_section: ft.Column = None  # Will be set in _build_controls
@@ -122,29 +125,15 @@ class TasksView:
         self.done_list = ft.Column(controls=[], spacing=SPACING_MD)
         self.overdue_list = ft.Column(controls=[], spacing=SPACING_MD)
 
-        self._details_text = ft.Text(t("add_details"), size=13, color=COLORS["accent"])
-        self.details_btn = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Icon(ft.Icons.TUNE, size=16, color=COLORS["accent"]),
-                    self._details_text,
-                    ft.Icon(
-                        ft.Icons.KEYBOARD_ARROW_RIGHT,
-                        size=16,
-                        color=COLORS["accent"],
-                    ),
-                ],
-                spacing=SPACING_SM,
-            ),
-            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            border_radius=BORDER_RADIUS,
-            bgcolor=COLORS["card"],
-            visible=False,
-            tooltip=t("add_details_tooltip"),
+        self.details_btn = ft.IconButton(
+            icon=ft.Icons.TUNE,
+            tooltip=t("add_details"),
             on_click=self._open_details,
-        ) 
+            visible=False,
+        )
 
         self.task_input = ft.TextField(
+            dense=self.state.is_mobile,
             hint_text=t("add_new_task"),
             border_color=COLORS["border"],
             bgcolor=COLORS["input_bg"],
@@ -190,6 +179,7 @@ class TasksView:
         else:
             self.state.task_filter = TaskFilter.TODAY
         self._update_chip_styles()
+        self._refresh_quick_labels()
         self.refresh()
 
     def _update_chip_styles(self) -> None:
@@ -208,11 +198,7 @@ class TasksView:
             self._on_open_notes()
 
     def _get_default_due_date(self) -> Optional[date]:
-        """Determine default due date based on current navigation view."""
-        if self.state.selected_nav == NavItem.TODAY:
-            if self.state.task_filter == TaskFilter.NEXT:
-                return date.today() + timedelta(days=7)
-            return date.today()
+        """Capturing a title does not silently schedule it."""
         return None
 
     async def _on_submit(self, e: ft.ControlEvent) -> None:
@@ -221,16 +207,8 @@ class TasksView:
         if not title:
             return
 
-        project_id = self.pending_details.get("project_id")
-        if project_id is None:
-            project_id = (
-                list(self.state.selected_projects)[0]
-                if len(self.state.selected_projects) == 1 else None
-            )
-
-        due_date = self.pending_details.get("due_date")
-        if due_date is None:
-            due_date = self._get_default_due_date()
+        project_id = self._resolved_project()
+        due_date = self._resolved_due_date()
 
         task = await self.service.add_task(
             title=title,
@@ -239,17 +217,19 @@ class TasksView:
             due_date=due_date,
         )
         event_bus.emit(AppEvent.TASK_CREATED, task)
+        if due_date is None and self.state.selected_nav != NavItem.INBOX:
+            self.snack.show(t("task_moved_to_draft"))
 
         self.pending_details = {
-            "estimated_minutes": self.state.default_estimated_minutes,
-            "due_date": None,
-            "project_id": None,
+            "estimated_minutes": 0,
+            "due_date": _UNSET,
+            "project_id": _UNSET,
         }
-        self._details_text.value = t("add_details")
         self.task_input.value = ""
         self.details_btn.visible = False
         if self._quick_chips is not None:
             self._quick_chips.visible = False
+            self._capture_options.visible = False
         self._refresh_quick_labels()
         self.refresh()
 
@@ -258,13 +238,24 @@ class TasksView:
         self.details_btn.visible = has_text
         if self._quick_chips is not None:
             self._quick_chips.visible = has_text
+            self._capture_options.visible = has_text
         self.page.update()
 
     # ── Inline quick chips (Due / Project) on the add bar ────────────────────
+    def _resolved_due_date(self):
+        value = self.pending_details.get("due_date", _UNSET)
+        return self._get_default_due_date() if value is _UNSET else value
+
+    def _resolved_project(self):
+        value = self.pending_details.get("project_id", _UNSET)
+        if value is _UNSET:
+            return next(iter(self.state.selected_projects), None)
+        return value
+
     def _quick_due_label(self) -> str:
-        d = self.pending_details.get("due_date")
+        d = self._resolved_due_date()
         if d is None:
-            return t("quick_due")
+            return t("none_date")
         today = date.today()
         if d == today:
             return t("today")
@@ -275,9 +266,9 @@ class TasksView:
         return d.strftime("%b %d")
 
     def _quick_project_label(self) -> str:
-        pid = self.pending_details.get("project_id")
+        pid = self._resolved_project()
         if pid is None:
-            return t("quick_project")
+            return t("no_project")
         p = self.state.get_project_by_id(pid)
         return p.name if p else t("quick_project")
 
@@ -290,7 +281,7 @@ class TasksView:
     def _set_quick_due(self, value: Any) -> None:
         if value == "custom":
             picker = get_date_picker(self.page)
-            picker.value = self.pending_details.get("due_date") or date.today()
+            picker.value = self._resolved_due_date() or date.today()
 
             def _on_pick(ev: ft.ControlEvent) -> None:
                 v = ev.control.value
@@ -351,8 +342,9 @@ class TasksView:
 
         return ft.Row(
             [self._chip(ft.Icons.EVENT, self._quick_due_text, due_items),
-             self._chip(ft.Icons.FOLDER_OUTLINED, self._quick_project_text, proj_items)],
-            spacing=SPACING_SM,
+             self._chip(ft.Icons.FOLDER_OUTLINED, self._quick_project_text, proj_items),
+             self.details_btn],
+            spacing=SPACING_SM, wrap=True,
         )
 
     async def _on_reorder(self, e: ft.OnReorderEvent) -> None:
@@ -383,8 +375,8 @@ class TasksView:
 
     def _open_details(self, e: ft.ControlEvent) -> None:
         # --- State for selections within dialog ---
-        selected_due: Dict[str, Any] = {"value": self.pending_details.get("due_date")}
-        selected_proj: Dict[str, Any] = {"value": self.pending_details.get("project_id")}
+        selected_due: Dict[str, Any] = {"value": self._resolved_due_date()}
+        selected_proj: Dict[str, Any] = {"value": self._resolved_project()}
 
         # ── Due date section ──────────────────────────────────────────────
         date_chips_row = ft.Row(wrap=True, spacing=SPACING_SM, run_spacing=SPACING_SM)
@@ -505,26 +497,23 @@ class TasksView:
             _rebuild_project_chips()
             self.page.update()
 
-        # Pre-select: explicit pending value, else sidebar default
-        if selected_proj["value"] is None and len(self.state.selected_projects) == 1:
-            selected_proj["value"] = list(self.state.selected_projects)[0]
         _rebuild_project_chips()
 
         # ── Estimated time section (unchanged logic) ──────────────────────
         time_label = ft.Text(
-            format_duration(self.pending_details["estimated_minutes"]),
+            format_duration(self.pending_details["estimated_minutes"]) if self.pending_details["estimated_minutes"] else t("not_estimated"),
             size=16,
             weight="bold",
         )
 
         def on_slider(ev: ft.ControlEvent) -> None:
-            time_label.value = format_duration(int(ev.control.value) * DURATION_SLIDER_STEP)
+            time_label.value = format_duration(int(ev.control.value) * DURATION_SLIDER_STEP) if ev.control.value else t("not_estimated")
             time_label.update()
 
         slider = ft.Slider(
-            min=DURATION_SLIDER_MIN,
+            min=0,
             max=DURATION_SLIDER_MAX,
-            divisions=DURATION_SLIDER_MAX - DURATION_SLIDER_MIN,
+            divisions=DURATION_SLIDER_MAX,
             value=self.pending_details["estimated_minutes"] // DURATION_SLIDER_STEP,
             on_change=on_slider,
         )
@@ -534,7 +523,7 @@ class TasksView:
             self.pending_details["due_date"] = selected_due["value"]
             self.pending_details["project_id"] = selected_proj["value"]
             self.pending_details["estimated_minutes"] = int(slider.value) * DURATION_SLIDER_STEP
-            self._details_text.value = t("add_details")
+            self._refresh_quick_labels()
             close()
             self.page.update()
 
@@ -584,14 +573,16 @@ class TasksView:
     async def _refresh_async(self) -> None:
         """Async implementation of refresh - queries DB directly."""
         pending, done = await self.service.get_filtered_tasks()
+        self._refresh_quick_labels()
 
         # Update section label based on current navigation
         if self._section_label is not None:
             self._section_label.value = self._get_section_label()
+            self._clear_filter_button.visible = bool(self.state.selected_projects)
 
         # Update done section visibility
         if self._done_section is not None:
-            self._done_section.visible = self._should_show_done_section()
+            self._done_section.visible = bool(done)
 
         # Partition overdue tasks only for TODAY filter
         is_today_view = (
@@ -660,7 +651,6 @@ class TasksView:
         self.task_input.hint_text = t("add_new_task")
 
         # Update details button text and tooltip
-        self._details_text.value = t("add_details")
         self.details_btn.tooltip = t("add_details_tooltip")
 
         # Update empty state text (context-dependent, refresh will set the right values)
@@ -691,25 +681,31 @@ class TasksView:
         return ft.Icons.CHECK_CIRCLE_OUTLINE, t("all_caught_up"), t("enjoy_your_day")
 
     def _get_section_label(self) -> str:
-        """Get the appropriate section label based on current navigation."""
-        nav = self.state.selected_nav
-        if nav == NavItem.TODAY:
-            if self.state.task_filter == TaskFilter.NEXT:
-                return t("section_next")
-            return t("section_today")
-        elif nav == NavItem.INBOX:
-            return t("section_inbox")
-        elif nav == NavItem.PROJECTS:
-            return t("section_tasks")
-        return t("section_tasks")
+        if self.state.selected_nav == NavItem.TODAY:
+            label = t("section_next") if self.state.task_filter == TaskFilter.NEXT else t("section_today")
+        elif self.state.selected_nav == NavItem.INBOX:
+            label = t("section_inbox")
+        else:
+            label = t("section_tasks")
+        projects = [p.name for p in self.state.projects if p.id in self.state.selected_projects]
+        return " · ".join([label, *projects])
 
     def _should_show_done_section(self) -> bool:
-        """Determine if the done section should be visible."""
-        # Show done section for all task views
-        return True
+        """Hide empty completion sections."""
+        return bool(self.done_list.controls)
+
+    def _clear_project_filter(self, e=None) -> None:
+        self.state.selected_projects.clear()
+        event_bus.emit(AppEvent.SIDEBAR_REBUILD)
+        self.refresh()
 
     def build(self) -> ft.Column:
         self._section_label = ft.Text(self._get_section_label(), color=COLORS["grey"], weight="bold")
+        self._clear_filter_button = ft.IconButton(
+            ft.Icons.CLOSE, tooltip=t("clear_project_filter"),
+            on_click=self._clear_project_filter,
+            visible=bool(self.state.selected_projects),
+        )
 
         # Sync chip styles with current state
         self._update_chip_styles()
@@ -768,8 +764,9 @@ class TasksView:
         # Inline quick chips (Due / Project), shown only while typing a new task.
         self._quick_chips = self._build_quick_chips()
         self._quick_chips.visible = bool(self.task_input.value.strip())
-        quick_chips_row = ft.Container(
+        self._capture_options = ft.Container(
             content=self._quick_chips,
+            visible=bool(self.task_input.value.strip()),
             padding=ft.Padding.only(top=6, bottom=2),
         )
 
@@ -777,18 +774,21 @@ class TasksView:
             alignment=ft.MainAxisAlignment.START,
             controls=[
                 ft.Row(
-                    controls=[self.task_input, self.details_btn, self.submit_btn],
+                    controls=[self.task_input, self.submit_btn],
                     spacing=SPACING_LG,
                 ),
-                quick_chips_row,
+                self._capture_options,
                 self._filter_row,
-                ft.Divider(height=SPACING_2XL, color="transparent"),
+                ft.Divider(height=SPACING_XS, color="transparent"),
                 self._overdue_section,
-                self._section_label,
+                ft.Row([self._section_label, self._clear_filter_button],
+                    visible=not (self.state.is_mobile and show_toggle)),
                 self.empty_state,
                 self.task_list,
-                ft.Divider(height=SPACING_3XL, color="transparent"),
+                ft.Divider(height=SPACING_SM, color="transparent"),
                 self._done_section,
             ],
             scroll=ft.ScrollMode.AUTO,
+            spacing=6 if self.state.is_mobile else 10,
+            expand=True,
         )

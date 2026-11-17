@@ -74,8 +74,8 @@ class PageType(Enum):
     CHAT = "chat"
     NOTE_EDITOR = "note_editor"
 
-DEFAULT_ESTIMATED_SECONDS = 900
-MIN_TIMER_SECONDS = 300  # Minimum time entry is 5 minutes
+DEFAULT_ESTIMATED_SECONDS = 0  # No estimate yet; distinct from tracked time.
+MIN_TIMER_SECONDS = 60
 GAP_THRESHOLD_SECONDS = 60
 
 DURATION_SLIDER_STEP = 5

@@ -343,6 +343,71 @@ class NotificationService:
         # Actionable per-task nudges
         if state.task_nudges_enabled:
             await self._fire_task_nudges_if_due(state.task_nudge_time, today_str, now)
+        await self._fire_custom_reminders(now)
+
+    @staticmethod
+    def _custom_reminder_trigger(task: Task, target: date) -> Optional[datetime]:
+        """Explicit reminders leave the deadline and tracked time unchanged."""
+        if not task.reminder_time or not task.due_date or target > task.due_date:
+            return None
+        if task.reminder_weekdays:
+            # Completing this week's goal early must not start next week's
+            # reminders immediately. Anchor the window to its own deadline.
+            if task.recurrent and task.recurrence_frequency.value == "weeks":
+                window_start = task.due_date - timedelta(days=7 * task.recurrence_interval - 1)
+                if target < window_start:
+                    return None
+            if target.weekday() not in task.reminder_weekdays:
+                return None
+        elif target != task.due_date:
+            return None
+        try:
+            return datetime.combine(target, time.fromisoformat(task.reminder_time))
+        except ValueError:
+            return None
+
+    async def _custom_reminder_tasks(self) -> List[Task]:
+        rows = await db.load_tasks_filtered(is_done=False)
+        return [Task.from_dict(row) for row in rows if row.get("reminder_time")]
+
+    async def _fire_custom_reminders(self, now: datetime) -> None:
+        if self._is_in_quiet_hours():
+            return
+        for task in await self._custom_reminder_tasks():
+            trigger = self._custom_reminder_trigger(task, now.date())
+            key = f"last_custom_reminder_{task.id}"
+            if trigger is None or trigger > now or await db.get_setting(key, "") == now.date().isoformat():
+                continue
+            title, body = self._task_nudge_text(task, now.date())
+            await self._deliver_immediate(title, body, task_id=task.id,
+                actions=None if self._is_app_locked() else self._task_nudge_actions(),
+                payload=self._task_nudge_payload(task, now.date()))
+            await db.set_setting(key, now.date().isoformat())
+
+    async def _cancel_custom_reminders(self) -> None:
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            return
+        for nid in await db.get_setting("custom_reminder_alarm_ids", []):
+            await self._cancel_extension_notification(nid)
+        await db.set_setting("custom_reminder_alarm_ids", [])
+
+    async def _schedule_custom_reminders(self) -> None:
+        now = datetime.now()
+        planned = []
+        for task in await self._custom_reminder_tasks():
+            for offset in range(NOTIFICATION_HORIZON_DAYS + 1):
+                target = now.date() + timedelta(days=offset)
+                trigger = self._custom_reminder_trigger(task, target)
+                if trigger is not None and trigger > now:
+                    planned.append((1000000 + task.id * 8 + offset, task, target, trigger))
+        # Save IDs before scheduling so an interrupted rebuild can be cancelled.
+        await db.set_setting("custom_reminder_alarm_ids", [item[0] for item in planned])
+        for nid, task, target, trigger in planned:
+            title, body = self._task_nudge_text(task, target)
+            await self._schedule_extension_notification(nid, title, body, trigger, task.id,
+                actions=None if self._is_app_locked() else self._task_nudge_actions(),
+                payload=self._task_nudge_payload(task, target),
+                visibility="private", category="reminder", schedule_mode="exact_allow_while_idle")
 
     async def _fire_digest_if_due(
         self,
@@ -477,7 +542,7 @@ class NotificationService:
         except DatabaseError:
             return []
 
-        tasks = [Task.from_dict(r) for r in rows if r.get("due_date") is not None]
+        tasks = [Task.from_dict(r) for r in rows if r.get("due_date") is not None and not r.get("reminder_time")]
         tasks.sort(key=lambda task: (task.due_date or date.max, task.sort_order, task.id or 0))
         return tasks[:limit] if limit is not None else tasks
 
@@ -522,6 +587,8 @@ class NotificationService:
         title = task.title
         if task.due_date and task.due_date < target_date:
             body = t("task_nudge_overdue_body").replace("{date}", task.due_date.strftime("%b %d"))
+        elif task.due_date and task.due_date > target_date:
+            body = t("task_reminder_before_due").format(date=task.due_date.strftime("%d.%m"))
         else:
             body = t("task_nudge_due_today_body")
         return title, body
@@ -626,6 +693,7 @@ class NotificationService:
                     await self._cancel_extension_notification(base_nid + offset * NOTIFICATION_HORIZON_STRIDE)
         await self._cancel_all_digest_alarms()
         await self._cancel_all_task_nudge_alarms()
+        await self._cancel_custom_reminders()
 
         if not self._is_notifications_enabled():
             return
@@ -689,6 +757,7 @@ class NotificationService:
             state.overdue_nudge_time, self._build_overdue_nudge,
         )
         await self._schedule_android_task_nudges(state)
+        await self._schedule_custom_reminders()
 
     async def _schedule_android_task_nudges(self, state: Any) -> None:
         """Schedule actionable per-task nudges across the Android horizon."""
@@ -952,6 +1021,7 @@ class NotificationService:
         task_id: Optional[int],
         *,
         match_date_time_components: Optional[str] = None,
+        schedule_mode: str = "inexact_allow_while_idle",
         actions: Optional[List[Dict[str, Any]]] = None,
         style: Optional[Any] = None,
         payload: Optional[Dict[str, Any]] = None,
@@ -983,7 +1053,7 @@ class NotificationService:
                 "channel_id": channel_id,
                 "channel_name": channel_name,
                 "channel_description": channel_description,
-                "schedule_mode": "inexact_allow_while_idle",
+                "schedule_mode": schedule_mode,
                 "group_key": group_key,
                 "set_as_group_summary": set_as_group_summary,
                 "group_alert_behavior": group_alert_behavior,
@@ -1005,6 +1075,15 @@ class NotificationService:
             return success
         except NotificationError as e:
             logger.error(f"[NOTIF] schedule_notification failed: {e}")
+            if schedule_mode == "exact_allow_while_idle":
+                # Android may revoke exact-alarm access. Keep a best-effort
+                # reminder instead of silently dropping it altogether.
+                kwargs["schedule_mode"] = "inexact_allow_while_idle"
+                try:
+                    result = await self._flet_notifications.schedule_notification(**kwargs)
+                    return str(result).lower() == "ok"
+                except NotificationError:
+                    logger.exception("[NOTIF] Reminder fallback also failed")
             return False
 
     async def _cancel_extension_notification(self, notification_id: int) -> None:

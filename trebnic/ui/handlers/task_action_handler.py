@@ -8,7 +8,8 @@ import flet as ft
 import asyncio
 import logging
 from typing import List, Callable, Optional
-from datetime import date as date_type
+from datetime import date as date_type, datetime, timedelta
+from ui.dialogs.base import open_dialog
 
 from config import COLORS, ANIMATION_DELAY, NavItem
 from database import DatabaseError
@@ -58,6 +59,8 @@ class TaskActionHandler:
 
     def _subscribe(self) -> None:
         """Subscribe to task action events."""
+        self._subscriptions.append(event_bus.subscribe(AppEvent.TASK_DETAILS_REQUESTED, self._on_details))
+        self._subscriptions.append(event_bus.subscribe(AppEvent.TASK_FAIL_REQUESTED, self._on_fail))
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TASK_COMPLETE_REQUESTED, self._on_complete)
         )
@@ -106,8 +109,7 @@ class TaskActionHandler:
     def _on_complete(self, task: Task) -> None:
         """Handle task completion request.
 
-        Completing is instant (no blocking modal). If the task had no tracked time,
-        offer a non-blocking 'Add time' action to log it via the manual editor.
+        Ask for actual duration when nothing was tracked; otherwise complete directly.
         """
         async def _complete() -> None:
             # If a timer is running on THIS task, stop it first — don't leave it
@@ -125,12 +127,68 @@ class TaskActionHandler:
                 entries = await self._time_entry_svc.load_time_entries_for_task(task.id)
                 had_time = any(not e.is_running for e in entries)
 
-            # Offer manual logging only when nothing was tracked and no timer just ran.
-            await self._do_complete_async(
-                task, offer_add_time=not had_time and not timer_was_running
-            )
+            if not had_time and not timer_was_running:
+                self._show_completion_time(task)
+            else:
+                await self._do_complete_async(task)
 
         self._page.run_task(_complete)
+
+    def _show_completion_time(self, task: Task) -> None:
+        """Ask for actual work in quarter hours, without assuming the estimate."""
+        self._refresh_ui()
+        duration = ft.Text("15 min", size=28)
+        error = ft.Text(color=COLORS["danger"])
+        busy = False
+        recorded = False
+
+        def changed(e):
+            minutes = int(round(float(e.control.value) / 15)) * 15
+            duration.value = f"{minutes} min"
+            duration.update()
+
+        slider = ft.Slider(min=15, max=240, divisions=15, value=15,
+                           label="{value} min", on_change=changed)
+
+        async def finish(minutes):
+            nonlocal busy, recorded
+            if busy:
+                return
+            busy = True
+            for action in dialog.actions:
+                action.disabled = True
+            dialog.update()
+            try:
+                if minutes and not recorded:
+                    ended = datetime.now()
+                    _, affected = await self._time_entry_svc.add_manual_entry(
+                        task.id, ended - timedelta(minutes=minutes), ended)
+                    self._service.apply_spent(affected)
+                    recorded = True
+                await self._do_complete_async(task)
+            except Exception:
+                logger.exception("Failed to complete task with duration")
+                error.value = t("completion_save_failed")
+                busy = False
+                for action in dialog.actions:
+                    action.disabled = False
+                dialog.update()
+                return
+            close()
+
+        dialog, close = open_dialog(
+            self._page, t("completion_duration"),
+            ft.Container(width=360, content=ft.Column([
+                ft.Text(task.title), duration, slider, error,
+            ], tight=True)),
+            lambda c: [
+                ft.TextButton(t("cancel"), on_click=c),
+                ft.TextButton(t("completion_without_time"),
+                              on_click=lambda e: self._page.run_task(finish, 0)),
+                ft.FilledButton(t("complete"), on_click=lambda e: self._page.run_task(
+                    finish, int(round(slider.value / 15)) * 15)),
+            ],
+        )
 
     async def _do_complete_async(self, task: Task, completed_at=None, offer_add_time: bool = False) -> None:
         """Complete the task. completed_at defaults to now.
@@ -162,6 +220,36 @@ class TaskActionHandler:
                 self._refresh_ui()
 
         self._page.run_task(_uncomplete)
+
+    def _on_fail(self, task: Task) -> None:
+        from services.scoring import base_points
+        busy = False
+
+        async def fail(e):
+            nonlocal busy
+            if busy:
+                return
+            busy = True
+            try:
+                await self._timer_ctrl.timer_svc.finish_matching(lambda active: active.id == task.id)
+                next_task = await self._service.complete_task(task, failed=True)
+                event_bus.emit(AppEvent.TASK_COMPLETED, task)
+                if next_task:
+                    event_bus.emit(AppEvent.TASK_CREATED, next_task)
+                close()
+                self._snack.show(t("score_failed_saved"))
+                if self._refresh_ui_async:
+                    await self._refresh_ui_async()
+                else:
+                    self._refresh_ui()
+            except DatabaseError as ex:
+                busy = False
+                self._snack.show(str(ex), COLORS["danger"])
+
+        _, close = open_dialog(self._page, t("score_mark_failed"),
+            ft.Text(t("score_fail_confirm").format(points=f"{.9 * base_points(task):g}")),
+            lambda c: [ft.TextButton(t("cancel"), on_click=c),
+                       ft.FilledButton(t("score_mark_failed"), on_click=fail)])
 
     def _on_delete(self, task: Task) -> None:
         """Handle task delete request.
@@ -238,15 +326,19 @@ class TaskActionHandler:
 
     def _on_rename(self, task: Task) -> None:
         """Handle task rename request."""
-        self._task_dialogs.rename(task)
+        self._on_details(task)
+
+    def _on_details(self, task: Task) -> None:
+        from ui.dialogs.task_details import TaskDetailsPanel
+        TaskDetailsPanel(self._page, self._state, self._service, task, self._snack).open()
 
     def _on_assign_project(self, task: Task) -> None:
         """Handle task assign project request."""
-        self._task_dialogs.assign_project(task)
+        self._on_details(task)
 
     def _on_date_picker(self, task: Task) -> None:
         """Handle task date picker request."""
-        self._task_dialogs.date_picker(task)
+        self._on_details(task)
 
     def _on_start_timer(self, task: Task) -> None:
         """Handle task start timer request."""
@@ -282,7 +374,7 @@ class TaskActionHandler:
 
     def _on_recurrence(self, task: Task) -> None:
         """Handle task recurrence request."""
-        self._task_dialogs.recurrence(task)
+        self._on_details(task)
 
     def _on_stats(self, task: Task) -> None:
         """Handle task stats request."""
@@ -290,5 +382,5 @@ class TaskActionHandler:
 
     def _on_estimate(self, task: Task) -> None:
         """Handle set-estimate request."""
-        self._task_dialogs.set_estimate(task)
+        self._on_details(task)
 

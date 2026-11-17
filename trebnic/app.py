@@ -1,9 +1,11 @@
 import flet as ft
 import logging
+import asyncio
 
 from typing import Optional, Any, List
 
 logger = logging.getLogger(__name__)
+_pending_cleanup = None
 
 from config import (
     COLORS, MOBILE_BREAKPOINT, NavItem, PageType, FONT_SIZE_LG,
@@ -20,13 +22,12 @@ from ui.app_initializer import AppInitializer
 class TrebnicApp:
     """Main application class orchestrating the Trebnic task manager."""
 
-    def __init__(self, page: ft.Page) -> None:
+    def __init__(self, page: ft.Page, components) -> None:
         self.page = page
         self.event_bus = event_bus
         self._subscriptions: List[Subscription] = []
 
-        initializer = AppInitializer(page)
-        self._components = initializer.initialize()
+        self._components = components
 
         self._pending_error = self._components.pending_error
 
@@ -128,9 +129,10 @@ class TrebnicApp:
         if self.stats_page:
             self.stats_page.cleanup()
 
-        # Clean up notification service and database sequentially
-        # Must be in single async function to ensure notifications finish before db closes
+        # Finish writes before releasing shared services.
         async def cleanup_all() -> None:
+            await self.chatgpt_bridge.close()
+            await self.timer_svc.wait_closed()
             try:
                 await notification_service.cleanup()
             except Exception as e:  # Intentionally broad: cleanup must complete even if one step fails
@@ -141,7 +143,8 @@ class TrebnicApp:
                 logger.warning(f"Error closing database on cleanup: {e}")
 
         try:
-            self.page.run_task(cleanup_all)
+            global _pending_cleanup
+            _pending_cleanup = self.page.run_task(cleanup_all)
         except RuntimeError as e:
             # Page may be closing or event loop unavailable - expected during shutdown
             logger.debug(f"Could not schedule cleanup (page closing): {e}")
@@ -345,6 +348,11 @@ class TrebnicApp:
         else:
             self.page_content.content = self.tasks_view.build()
 
+        # Keep one bounded scroll viewport per page. The former scrolling outer
+        # Column gave its children infinite height and swallowed long histories.
+        if self.state.current_page in (PageType.PROFILE, PageType.STATS):
+            self.page_content.content.scroll = ft.ScrollMode.AUTO
+            self.page_content.content.expand = True
         self.page.update()
 
     async def _refresh_state_and_build_calendar(self) -> None:
@@ -378,6 +386,8 @@ class TrebnicApp:
     def _get_settings_items(self) -> list:
         """Get the settings menu items."""
         items = [
+            ft.PopupMenuItem(content="ChatGPT connection", icon=ft.Icons.LINK,
+                             on_click=self.chatgpt_bridge.show),
             ft.PopupMenuItem(
                 content=t("profile"),
                 icon=ft.Icons.PERSON,
@@ -555,7 +565,7 @@ class TrebnicApp:
         )
 
     def _build_header(self) -> None:
-        """Build the header row with menu, timer, and settings."""
+        """Build header actions."""
         self.settings_menu = ft.PopupMenuButton(
             icon=ft.Icons.SETTINGS, items=self._get_settings_items()
         )
@@ -568,9 +578,9 @@ class TrebnicApp:
         )
 
         self.header = ft.Row(
+            spacing=SPACING_XS,
             controls=[
                 self.menu_btn,
-                self.timer_widget,
                 ft.Container(expand=True),
                 self.log_time_btn,
                 self.settings_menu,
@@ -593,7 +603,6 @@ class TrebnicApp:
                     ft.Divider(height=SPACING_LG, color="transparent"),
                     self.page_content,
                 ],
-                scroll=ft.ScrollMode.AUTO,
                 expand=True,
             ),
         )
@@ -631,8 +640,8 @@ class TrebnicApp:
             controls=[self.sidebar, self.main_area],
         )
 
-        self.page.on_resized = self._handle_resize
-        self.page.add(main_row)
+        self.page.on_resize = self._handle_resize
+        self.page.add(ft.Stack([main_row, self.timer_widget], expand=True))
         self._handle_resize()
         self.page.run_task(self.update_content)
         self.tasks_view.refresh()
@@ -652,6 +661,9 @@ class TrebnicApp:
         self.page.update()
 
 
-def create_app(page: ft.Page) -> TrebnicApp:
-    """Factory function to create the application."""
-    return TrebnicApp(page)
+async def create_app(page: ft.Page) -> TrebnicApp:
+    """Initialize after prior cleanup finishes."""
+    if _pending_cleanup is not None:
+        await asyncio.wrap_future(_pending_cleanup)
+    components = await AppInitializer(page).initialize()
+    return TrebnicApp(page, components)

@@ -35,6 +35,7 @@ from ui.helpers import format_duration, danger_btn, SnackService
 from ui.dialogs.base import open_dialog
 from events import event_bus, AppEvent
 from i18n import set_language, t, get_language
+from ui.components.progress_card import progress_card
 
 
 class ProfilePage:
@@ -206,11 +207,10 @@ class ProfilePage:
                 file_name=filename,
                 file_type=ft.FilePickerFileType.CUSTOM,
                 allowed_extensions=["json"],
+                src_bytes=json_data.encode("utf-8"),
             )
             if result:
                 try:
-                    with open(result, "w", encoding="utf-8") as f:
-                        f.write(json_data)
                     self.snack.show(f"{t('exported_to')} {result}")
                 except OSError as ex:
                     self.snack.show(f"{t('export_failed')}: {ex}", COLORS["danger"])
@@ -396,7 +396,7 @@ class ProfilePage:
             new_value = int(e.control.value) * DURATION_SLIDER_STEP
             self.state.default_estimated_minutes = new_value
             if self.tasks_view:
-                self.tasks_view.pending_details["estimated_minutes"] = new_value
+                self.tasks_view.pending_details["estimated_minutes"] = 0
                 self.tasks_view._details_text.value = t("add_details")
 
             async def _do() -> None:
@@ -577,7 +577,7 @@ class ProfilePage:
             self.state.default_estimated_minutes = 15
             self.state.email_weekly_stats = False
             if self.tasks_view:
-                self.tasks_view.pending_details["estimated_minutes"] = 15
+                self.tasks_view.pending_details["estimated_minutes"] = 0
                 self.tasks_view._details_text.value = t("add_details")
             if get_language() != "en":
                 self.state.language = "en"
@@ -599,14 +599,7 @@ class ProfilePage:
                 [
                     ft.Text(t("preferences"), weight="bold", size=16),
                     ft.Divider(height=SPACING_LG, color=COLORS["border"]),
-                    ft.Text(t("default_estimated_time"), size=13),
-                    ft.Row([ft.Icon(ft.Icons.TIMER, size=18), duration_label], spacing=SPACING_MD),
-                    slider,
-                    ft.Text(
-                        t("time_range_hint"),
-                        size=11,
-                        color=COLORS["done_text"],
-                    ),
+                    ft.Text(t("details_estimate_hint"), size=13, color=COLORS["done_text"]),
                     ft.Divider(height=SPACING_LG, color="transparent"),
                     ft.Text(t("notifications"), size=13),
                     email_cb,
@@ -744,7 +737,7 @@ class ProfilePage:
                         [
                             ft.Text(t("tasks_completed"), weight="bold", size=13),
                             ft.Text(
-                                f"{len(self.state.done_tasks)} {t('total')}",
+                                f"{sum(not task.is_failed for task in self.state.done_tasks)} {t('total')}",
                                 color=COLORS["done_text"],
                                 size=12,
                             ),
@@ -800,6 +793,7 @@ class ProfilePage:
         return ft.Column(
             [
                 header,
+                progress_card(self.state.tasks, self.state.done_tasks),
                 avatar_section,
                 ft.Divider(height=SPACING_LG, color=COLORS["border"]),
                 account_age_card,

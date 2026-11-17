@@ -28,11 +28,12 @@ class DataOpsMixin:
                     "SELECT id, title, spent_seconds, estimated_seconds, project_id, due_date, is_done, "
                     "recurrent, recurrence_interval, recurrence_frequency, recurrence_weekdays, notes, "
                     "sort_order, recurrence_end_type, recurrence_end_date, recurrence_from_completion, "
-                    "is_draft, completed_at "
+                    "is_draft, completed_at, reminder_time, reminder_weekdays, initial_estimated_seconds, postponements, is_failed, points_time_baseline_seconds, points_excluded "
                     "FROM tasks"
                 ) as cur:
                     for r in await cur.fetchall():
                         row = dict(r)
+                        row["reminder_weekdays"] = json.loads(row.get("reminder_weekdays") or "[]")
                         weekdays = row.get("recurrence_weekdays", "[]")
                         if isinstance(weekdays, str):
                             row["recurrence_weekdays"] = json.loads(weekdays)
@@ -146,8 +147,8 @@ class DataOpsMixin:
                         "(id,title,spent_seconds,estimated_seconds,project_id,"
                         "due_date,is_done,recurrent,recurrence_interval,recurrence_frequency,"
                         "recurrence_weekdays,notes,sort_order,recurrence_end_type,"
-                        "recurrence_end_date,recurrence_from_completion,is_draft,completed_at) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "recurrence_end_date,recurrence_from_completion,is_draft,completed_at,reminder_time,reminder_weekdays) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             t["id"], title, t.get("spent_seconds", 0),
                             t.get("estimated_seconds", 0), t.get("project_id"),
@@ -158,8 +159,18 @@ class DataOpsMixin:
                             t.get("recurrence_end_type", "never"), rec_end,
                             t.get("recurrence_from_completion", 0),
                             t.get("is_draft", 0), completed_at,
+                            t.get("reminder_time"), json.dumps(t.get("reminder_weekdays", [])),
                         ),
                     )
+
+                    baseline = t.get("initial_estimated_seconds")
+                    if baseline is None and not t.get("is_draft") and (t.get("estimated_seconds", 0) > 0 or t.get("is_done")):
+                        baseline = t.get("estimated_seconds", 0)
+                    await conn.execute("UPDATE tasks SET initial_estimated_seconds=?,postponements=?,is_failed=? WHERE id=?",
+                        (baseline, t.get("postponements", 0), int(bool(t.get("is_failed")) and bool(t.get("is_done"))), t["id"]))
+                    await conn.execute("UPDATE tasks SET points_time_baseline_seconds=?,points_excluded=? WHERE id=?",
+                        (t.get("points_time_baseline_seconds", t.get("spent_seconds", 0)),
+                         t.get("points_excluded", t.get("is_done", 0)), t["id"]))
 
                 # Time entries with explicit IDs
                 for e in time_entries:
@@ -222,6 +233,10 @@ class DataOpsMixin:
             if t.get("id") is None:
                 raise DatabaseError("Task without id in import data")
             task_ids.add(t["id"])
+            for field in ("initial_estimated_seconds", "postponements", "points_time_baseline_seconds"):
+                value = t.get(field)
+                if value is not None and (type(value) is not int or value < 0):
+                    raise DatabaseError(f"Invalid task {field}")
             _parse_dt(t.get("completed_at"), "task.completed_at")
         for e in time_entries:
             if e.get("id") is None:

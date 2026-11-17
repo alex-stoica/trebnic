@@ -97,7 +97,7 @@ class TaskPresenter:
             due_date_display=cls.format_due_date(task.due_date),
             is_overdue=cls.is_overdue(task.due_date),
             spent_display=cls.seconds_to_display(task.spent_seconds),
-            estimated_display=cls.seconds_to_display(task.estimated_seconds),
+            estimated_display=cls.seconds_to_display(task.estimated_seconds) if task.estimated_seconds else t("not_estimated"),
             progress_percent=cls.calculate_progress(
                 task.spent_seconds, task.estimated_seconds
             ),

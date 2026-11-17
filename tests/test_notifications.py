@@ -94,18 +94,17 @@ def test_locked_task_nudge_summary_uses_count(svc: NotificationService, monkeypa
     assert style is None
 
 
-def test_next_trigger_time_today_when_target_after_now(svc: NotificationService) -> None:
-    now = datetime.now()
-    target = (now + timedelta(hours=1)).time().replace(microsecond=0)
+@pytest.mark.parametrize("hour, offset, day_delta", [(12, 1, 0), (12, -1, 1), (23, 1, 1), (0, -1, 0)])
+def test_next_trigger_time(svc: NotificationService, monkeypatch, hour, offset, day_delta) -> None:
+    now = datetime(2026, 11, 1, hour, 30)
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls):
+            return now
+    monkeypatch.setattr("services.notification_service.datetime", FixedDateTime)
+    target = (now + timedelta(hours=offset)).time()
     trigger = svc._next_trigger_time(target)
-    assert trigger.date() == now.date()
-
-
-def test_next_trigger_time_tomorrow_when_target_before_now(svc: NotificationService) -> None:
-    now = datetime.now()
-    target = (now - timedelta(hours=1)).time().replace(microsecond=0)
-    trigger = svc._next_trigger_time(target)
-    assert trigger.date() == (now + timedelta(days=1)).date()
+    assert trigger == datetime.combine(now.date() + timedelta(days=day_delta), target)
 
 
 @pytest.mark.asyncio
@@ -260,8 +259,16 @@ async def test_native_failure_is_not_reported_as_delivery(svc, bridge):
     assert not await svc._deliver_extension_notification("Trebnic", "Test")
 
 
+async def test_exact_reminder_falls_back_if_android_revokes_permission(svc, bridge):
+    bridge.side_effect = ["error:exact_alarms_not_permitted", "ok"]
+    assert await svc._schedule_extension_notification(1000001, "IP", "Reminder",
+        datetime.now() + timedelta(days=1), 1, schedule_mode="exact_allow_while_idle")
+    assert bridge.call_args_list[0].kwargs["arguments"]["schedule_mode"] == "exact_allow_while_idle"
+    assert bridge.call_args_list[1].kwargs["arguments"]["schedule_mode"] == "inexact_allow_while_idle"
+
+
 @pytest.mark.asyncio
-async def test_disabling_notifications_cancels_the_entire_horizon(svc, bridge, monkeypatch):
+async def test_disabling_notifications_cancels_the_entire_horizon(svc, bridge, monkeypatch, services):
     monkeypatch.setattr(svc, "_is_notifications_enabled", lambda: False)
     await svc._schedule_all_digests()
     calls = bridge.call_args_list
@@ -276,7 +283,7 @@ async def test_disabling_notifications_cancels_the_entire_horizon(svc, bridge, m
 
 
 @pytest.mark.asyncio
-async def test_digest_and_task_alarms_never_replace_each_other(svc, bridge, monkeypatch):
+async def test_digest_and_task_alarms_never_replace_each_other(svc, bridge, monkeypatch, services):
     state = SimpleNamespace()
     for name in ("daily_digest", "evening_preview", "overdue_nudge", "task_nudge"):
         setattr(state, name + "_time", time(9))

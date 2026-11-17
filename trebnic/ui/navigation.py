@@ -59,9 +59,9 @@ class NavigationManager:
         self._get_settings_items = get_settings_items
 
     def select_nav(self, name: NavItem) -> None:
-        """Select a navigation item (keeps project selection for filtering)."""
+        """Open an unfiltered navigation view."""
         self.state.selected_nav = name
-        # Don't clear selected_projects - allow combining nav + project filter
+        self.state.selected_projects.clear()
         if name == NavItem.NOTES:
             self.state.current_page = PageType.NOTES
         else:

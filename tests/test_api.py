@@ -47,7 +47,7 @@ class TestAddTask:
         task = await api.add_task("Buy milk")
         assert task.id is not None
         assert task.title == "Buy milk"
-        assert task.estimated_seconds == 900
+        assert task.estimated_seconds == 0
         assert task.spent_seconds == 0
 
     async def test_task_appears_in_state(self, api: TrebnicAPI):

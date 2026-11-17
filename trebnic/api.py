@@ -43,7 +43,7 @@ class TrebnicAPI:
         self,
         title: str,
         project_id: Optional[str] = None,
-        estimated_seconds: int = 900,
+        estimated_seconds: int = 0,
         due_date: Optional[date] = None,
     ) -> Task:
         """Create a new pending task.
@@ -157,6 +157,15 @@ class TrebnicAPI:
         self._svc.state_manager.remove_task_from_any(task)
 
         event_bus.emit(AppEvent.TASK_DELETED, task)
+
+    async def add_task_note(self, task: Task, note: str) -> None:
+        previous = task.notes
+        task.notes = previous + "\n\n" + note if previous else note
+        try:
+            await self._svc.task.persist_task(task)
+        except Exception:
+            task.notes = previous
+            raise
 
     async def log_time(
         self,

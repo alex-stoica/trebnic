@@ -13,6 +13,49 @@ LANGUAGES: Dict[str, Dict[str, str]] = {
 }
  
 _TRANSLATIONS: Dict[str, Dict[str, str]] = { 
+    "score_level": {"en": "Level {level}", "ro": "Nivelul {level}"},
+    "score_next_level": {"en": "{points} XP to level {level}", "ro": "Încă {points} XP până la nivelul {level}"},
+    "score_balance": {"en": "Your score", "ro": "Scorul tău"},
+    "score_breakdown": {"en": "Completed +{done} p\nTime worked +{effort} p\nFailed −{failed} p", "ro": "Finalizări +{done} p\nTimp lucrat +{effort} p\nEșecuri −{failed} p"},
+    "score_rules": {"en": "1 p / 15 min initially estimated · 1 p / hour worked. Postponing reduces the completion reward by 10%, up to 50%. Failure deducts 90% of base points. Every 50 XP unlocks a level; failure penalties do not reduce XP.", "ro": "1 p / 15 min estimate inițial · 1 p / oră lucrată. Amânarea reduce recompensa cu 10%, până la 50%. Eșecul scade 90% din punctajul de bază. Fiecare 50 XP aduc un nivel; penalizările pentru eșec nu scad XP."},
+    "score_mark_failed": {"en": "Mark as failed", "ro": "Marchează ca eșuat"},
+    "score_failed": {"en": "Failed", "ro": "Eșuat"},
+    "score_reopen": {"en": "Reopen task", "ro": "Redeschide taskul"},
+    "score_fail_confirm": {"en": "Deduct {points} points? Points for recorded work are kept. A repeating task schedules its next occurrence. You can reopen this task from history to undo the failure.", "ro": "Scazi {points} puncte? Punctele pentru timpul lucrat rămân. Un task recurent programează următoarea apariție. Poți redeschide taskul din istoric pentru a anula eșecul."},
+    "score_failed_saved": {"en": "Marked as failed. Recorded work is kept.", "ro": "Marcat ca eșuat. Timpul lucrat este păstrat."},
+    "score_task_reward": {"en": "Completion: +{points} p · {count} postponements\nRecorded work: +1 p/hour. Moving a set deadline later or removing it counts as postponing. Initial scheduling does not.", "ro": "La finalizare: +{points} p · {count} amânări\nTimp lucrat: +1 p/oră. Mutarea unui termen mai târziu sau eliminarea lui contează ca amânare. Prima programare nu se penalizează."},
+    "completion_duration": {"en": "How long did it take?", "ro": "Cât ți-a luat?"},
+    "completion_without_time": {"en": "Without time", "ro": "Fără timp"},
+    "completion_save_failed": {"en": "Could not finish saving. Retry; saved time will not be added twice.", "ro": "Salvarea nu s-a încheiat. Reîncearcă; timpul salvat nu va fi dublat."},
+    "not_estimated": {"en": "Not estimated", "ro": "Neestimat"},
+    "details_title": {"en": "What needs doing?", "ro": "Ce ai de făcut?"},
+    "details_estimate": {"en": "Estimate (minutes)", "ro": "Estimare (minute)"},
+    "details_estimate_hint": {"en": "Leave empty if you don't know yet.", "ro": "Lasă gol dacă nu știi încă."},
+    "details_no_date": {"en": "No due date", "ro": "Fără termen"},
+    "details_notes": {"en": "Task notes", "ro": "Notițele taskului"},
+    "details_notes_hint": {"en": "Ideas, context, next steps…", "ro": "Idei, context, pașii următori…"},
+    "details_repeat": {"en": "Repeat this task", "ro": "Repetă acest task"},
+    "details_days": {"en": "Days", "ro": "Zile"},
+    "details_weeks": {"en": "Weeks", "ro": "Săptămâni"},
+    "details_months": {"en": "Months", "ro": "Luni"},
+    "details_from_completion": {"en": "Count from completion", "ro": "Calculează de la finalizare"},
+    "details_until": {"en": "Repeat until (optional)", "ro": "Repetă până la (opțional)"},
+    "details_until_hint": {"en": "YYYY-MM-DD · empty means no end", "ro": "AAAA-LL-ZZ · gol înseamnă fără sfârșit"},
+    "details_recurrence_hint": {"en": "Without a due date, the first occurrence is calculated when you save.", "ro": "Fără termen, prima apariție se calculează la salvare."},
+    "details_worked": {"en": "Worked {time}", "ro": "Lucrat {time}"},
+    "details_estimated": {"en": "Estimated {time}", "ro": "Estimat {time}"},
+    "details_invalid_title": {"en": "Enter a title of 1–500 characters.", "ro": "Introdu un titlu de 1–500 de caractere."},
+    "details_invalid_estimate": {"en": "Enter a positive duration up to 10080 minutes, or leave empty.", "ro": "Introdu o durată pozitivă de cel mult 10080 de minute sau lasă gol."},
+    "details_invalid_project": {"en": "Choose an existing project.", "ro": "Alege un proiect existent."},
+    "details_invalid_interval": {"en": "Enter a repeat interval from 1 to 1000.", "ro": "Introdu un interval de repetare între 1 și 1000."},
+    "details_invalid_until": {"en": "Enter an end date on or after the first occurrence (YYYY-MM-DD).", "ro": "Introdu o dată de încheiere cel puțin egală cu prima apariție (AAAA-LL-ZZ)."},
+    "details_save_failed": {"en": "Could not save. Your edits are still here; try again.", "ro": "Salvarea a eșuat. Modificările sunt aici; încearcă din nou."},
+    "details_saved": {"en": "Task updated", "ro": "Task actualizat"},
+    "clear_project_filter": {"en": "Clear project filter", "ro": "Șterge filtrul de proiect"},
+    "timer_save_failed": {
+        "en": "Timer could not save. Restart the app to recover saved time.",
+        "ro": "Cronometrul nu a putut salva. Repornește aplicația pentru a recupera timpul salvat.",
+    },
     "profile": {"en": "Profile", "ro": "Profil"},
     "user": {"en": "User", "ro": "Utilizator"},
     "tap_photo_to_change": {"en": "Tap photo to change", "ro": "Atinge fotografia pentru a schimba"},
@@ -24,6 +67,11 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "none": {"en": "None", "ro": "Niciunul"},
     "preferences": {"en": "Preferences", "ro": "Preferințe"},
     "default_estimated_time": {"en": "Default estimated time", "ro": "Timp estimat implicit"},
+    "task_reminder_before_due": {"en": "Make some progress. Due {date}.", "ro": "E timp să mai avansezi. Termen: {date}."},
+    "details_reminder_time": {"en": "Reminder time (optional)", "ro": "Ora reamintirii (opțional)"},
+    "details_reminder_hint": {"en": "No days selected: remind on the due date. Select days for reminders before the deadline too. Clear the time to disable.", "ro": "Fără zile selectate: reamintire la termen. Alege zile pentru reamintiri și înainte de termen. Șterge ora pentru dezactivare."},
+    "details_invalid_reminder": {"en": "Enter a time such as 19:00.", "ro": "Introdu o oră precum 19:00."},
+    "details_reminder_needs_date": {"en": "Set a due date for the reminder.", "ro": "Stabilește un termen pentru reamintire."},
     "notifications": {"en": "Notifications", "ro": "Notificări"},
     "email_weekly_stats": {"en": "Email weekly stats", "ro": "Statistici săptămânale pe email"},
     "save_preferences": {"en": "Save preferences", "ro": "Salvează preferințele"},
@@ -78,7 +126,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "inbox": {"en": "Draft", "ro": "La dospit"},
     "today": {"en": "Today", "ro": "Astăzi"},
     "tasks_nav": {"en": "Tasks", "ro": "Treburi"},
-    "next": {"en": "Next", "ro": "Viitoare"},
+    "next": {"en": "Upcoming", "ro": "Viitoare"},
     "calendar": {"en": "Calendar", "ro": "Calendar"},
     "upcoming": {"en": "Upcoming", "ro": "Viitoare"},
     "notes": {"en": "Notes", "ro": "Notițe"},
@@ -186,16 +234,12 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     "time_tracking_section": {"en": "Time tracking", "ro": "Înregistrarea timpului"},
     "time_tracking_help_1": {
-        "en": "Track how much time you spend on each task. Start the timer by swiping right on a task "
-              "or from the task menu.",
-        "ro": "Vezi cât timp petreci în fiecare treabă. Pornește cronometrul glisând la dreapta pe o treabă "
-              "sau din meniul ei.",
+        "en": "Tap play beside a task to start tracking time, including short sessions.",
+        "ro": "Apasă play lângă o treabă pentru a înregistra timpul, inclusiv sesiunile scurte.",
     },
     "time_tracking_help_2": {
-        "en": "The active timer appears in the header showing elapsed time and task name. Tap the timer "
-              "to stop it or switch to a different task. You can only have one timer running at a time.",
-        "ro": "Cronometrul activ apare în antet arătând timpul scurs și numele trebii. Apasă cronometrul "
-              "pentru a-l opri sau a trece la altă treabă. Poți avea un singur cronometru activ la un moment dat.",
+        "en": "The header shows your active task and elapsed time. Use its stop button to save. Only one timer runs at a time.",
+        "ro": "Antetul arată treaba activă și timpul scurs. Folosește butonul de oprire pentru a salva. Rulează un singur cronometru.",
     },
     "time_tracking_help_3": {
         "en": "View your time history for any task from the task menu. All time entries are stored locally "
@@ -336,9 +380,9 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "section_today": {"en": "TODAY", "ro": "ASTĂZI"},
     "section_inbox": {"en": "DRAFT", "ro": "LA DOSPIT"},
     "section_upcoming": {"en": "UPCOMING", "ro": "VIITOARE"},
-    "section_next": {"en": "NEXT", "ro": "VIITOARE"},
+    "section_next": {"en": "UPCOMING", "ro": "VIITOARE"},
     "section_tasks": {"en": "TASKS", "ro": "TREBURI"},
-    "section_done": {"en": "DONE", "ro": "GATA"},
+    "section_done": {"en": "HISTORY", "ro": "ISTORIC"},
     "section_overdue": {"en": "OVERDUE", "ro": "RESTANTE"},
     "section_overdue_count": {"en": "OVERDUE ({count})", "ro": "RESTANTE ({count})"},
 
@@ -596,8 +640,8 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ro": "Cronometru recuperat pentru '{title}' ({time} scurs)",
     },
     "timer_discarded": {
-        "en": "Timer discarded - minimum recorded time is {minutes} minutes",
-        "ro": "Cronometru anulat - timpul minim înregistrat este de {minutes} minute",
+        "en": "Under 1 minute: time was not counted.",
+        "ro": "Sub 1 minut: timpul nu a fost contorizat.",
     },
     "time_added_to_task": {
         "en": "Added {time} to '{title}'",
@@ -653,6 +697,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # Task tile - menu items and labels
     "encrypted": {"en": "Encrypted", "ro": "Criptat"},
     "unassigned": {"en": "Unassigned", "ro": "Neatribuit"},
+    "stop_timer": {"en": "Stop timer", "ro": "Oprește cronometrul"},
     "start_timer": {"en": "Start timer", "ro": "Pornește cronometru"},
     "rename": {"en": "Rename", "ro": "Redenumește"},
     "reschedule": {"en": "Reschedule", "ro": "Reprogramează"},
@@ -839,7 +884,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # Task details dialog (add details before submit)
     "due_date": {"en": "Due date", "ro": "Dată scadentă"},
     "custom_date": {"en": "Custom...", "ro": "Personalizat..."},
-    "none_date": {"en": "None", "ro": "Fără"},
+    "none_date": {"en": "No date", "ro": "Fără dată"},
 
     # Task dialogs - Duration completion
     "drag_to_adjust": {"en": "drag to adjust", "ro": "trage pentru a ajusta"},
