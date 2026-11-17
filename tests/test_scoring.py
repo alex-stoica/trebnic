@@ -109,7 +109,7 @@ def test_levels_and_failure_do_not_reduce_xp():
 
 
 def test_starting_baseline_keeps_old_work_without_awarding_retroactive_points():
-    pending = Task("IP", 2837, 0, None, None, id=1, points_time_baseline_seconds=2837)
+    pending = Task("Example task", 2700, 0, None, None, id=1, points_time_baseline_seconds=2700)
     old = Task("Old", 3600, 3600, None, None, id=2,
                points_time_baseline_seconds=3600, points_excluded=True)
     p = progress([pending], [old])

@@ -641,7 +641,12 @@ class TrebnicApp:
         )
 
         self.page.on_resize = self._handle_resize
-        self.page.add(ft.Stack([main_row, self.timer_widget], expand=True))
+        self.page.add(
+            ft.SafeArea(
+                content=ft.Stack([main_row, self.timer_widget], expand=True),
+                expand=True,
+            )
+        )
         self._handle_resize()
         self.page.run_task(self.update_content)
         self.tasks_view.refresh()

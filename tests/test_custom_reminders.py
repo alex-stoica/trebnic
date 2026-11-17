@@ -13,7 +13,7 @@ from tests.test_task_details import changes
 
 async def test_reminder_survives_edits_export_and_next_occurrence(services):
     api = TrebnicAPI(services)
-    task = await api.add_task("Coursera")
+    task = await api.add_task("Example course")
     edit = changes()
     edit.update(due_date=date(2026, 11, 22), recurrent=True,
                 reminder_time="19:00", reminder_weekdays=[1, 3, 5])
@@ -37,7 +37,7 @@ async def test_reminder_survives_edits_export_and_next_occurrence(services):
 
 
 def test_evening_and_weekday_schedule():
-    task = Task("IP", 0, 0, None, date(2026, 11, 16), reminder_time="19:00")
+    task = Task("Example task", 0, 0, None, date(2026, 11, 16), reminder_time="19:00")
     trigger = NotificationService._custom_reminder_trigger
     assert trigger(task, date(2026, 11, 16)) == datetime(2026, 11, 16, 19)
     assert trigger(task, date(2026, 11, 15)) is None
@@ -56,7 +56,7 @@ async def test_custom_alarms_cancel_after_completion_or_disabling(services, monk
     monkeypatch.setattr(svc, "_schedule_extension_notification", schedule)
     monkeypatch.setattr(svc, "_cancel_extension_notification", cancel)
     api = TrebnicAPI(services)
-    task = await api.add_task("IP")
+    task = await api.add_task("Example task")
     edit = changes()
     edit.update(due_date=date.today()+timedelta(days=1), reminder_time="19:00")
     await services.task.update_task_details(task, **edit)

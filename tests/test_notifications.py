@@ -261,7 +261,7 @@ async def test_native_failure_is_not_reported_as_delivery(svc, bridge):
 
 async def test_exact_reminder_falls_back_if_android_revokes_permission(svc, bridge):
     bridge.side_effect = ["error:exact_alarms_not_permitted", "ok"]
-    assert await svc._schedule_extension_notification(1000001, "IP", "Reminder",
+    assert await svc._schedule_extension_notification(1000001, "Example task", "Reminder",
         datetime.now() + timedelta(days=1), 1, schedule_mode="exact_allow_while_idle")
     assert bridge.call_args_list[0].kwargs["arguments"]["schedule_mode"] == "exact_allow_while_idle"
     assert bridge.call_args_list[1].kwargs["arguments"]["schedule_mode"] == "inexact_allow_while_idle"
