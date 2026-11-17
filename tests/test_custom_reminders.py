@@ -97,3 +97,54 @@ async def test_invalid_reminder_cannot_change_task(services, value):
     with pytest.raises(ValueError):
         await services.task.update_task_details(task, **changes(reminder_time=value))
     assert task.to_dict() == before
+
+
+async def test_undated_reminders_group_without_deadlines_and_stop_when_done(services, monkeypatch):
+    api = TrebnicAPI(services)
+    books = []
+    for title in ("Book one", "Book two"):
+        book = await api.add_task(title, estimated_seconds=18000)
+        edit = changes()
+        edit.update(
+            title=title, estimated_seconds=18000, due_date=None, recurrent=False,
+            reminder_time="20:00", reminder_weekdays=[6])
+        await services.task.update_task_details(book, **edit)
+        books.append(book)
+    trigger = NotificationService._custom_reminder_trigger
+    assert trigger(books[0], date(2026, 11, 22)) == datetime(2026, 11, 22, 20)
+    assert trigger(books[0], date(2026, 11, 23)) is None
+    svc = NotificationService()
+    schedule = AsyncMock()
+    monkeypatch.setattr(svc, "_schedule_extension_notification", schedule)
+    await svc._schedule_custom_reminders()
+    assert 5 <= schedule.await_count <= 6
+    for call in schedule.call_args_list:
+        assert "Book one" in call.args[2] and "Book two" in call.args[2]
+        assert call.kwargs["actions"] is None
+    ids = await db.get_setting("custom_reminder_alarm_ids", [])
+    assert len(ids) == len(set(ids)) == schedule.await_count
+    await api.complete_task(books[0])
+    assert trigger(books[0], date(2026, 11, 22)) is None
+    schedule.reset_mock()
+    await svc._schedule_custom_reminders()
+    assert all("Book one" not in c.args[2] for c in schedule.call_args_list)
+    row = await db.load_task_by_id(books[1].id)
+    assert row["due_date"] is None and not row["recurrent"]
+    assert row["estimated_seconds"] == 18000 and row["postponements"] == 0
+
+    deliver = AsyncMock()
+    monkeypatch.setattr(svc, "_deliver_immediate", deliver)
+    monkeypatch.setattr(svc, "_is_in_quiet_hours", lambda: False)
+    await svc._fire_custom_reminders(datetime(2026, 11, 22, 20, 1))
+    await svc._fire_custom_reminders(datetime(2026, 11, 22, 20, 2))
+    assert deliver.await_count == 1
+    assert "Book two" in deliver.call_args.args[1]
+    assert "Book one" not in deliver.call_args.args[1]
+
+
+async def test_undated_reminder_requires_explicit_weekday(services):
+    book = await TrebnicAPI(services).add_task("Book")
+    with pytest.raises(ValueError, match="details_reminder_needs_date"):
+        edit = changes()
+        edit.update(due_date=None, recurrent=False, reminder_time="20:00", reminder_weekdays=[])
+        await services.task.update_task_details(book, **edit)

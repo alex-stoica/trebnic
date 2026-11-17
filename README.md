@@ -58,6 +58,13 @@ next seven days and refreshes them when tasks change or the app resumes. Exact
 timing requires Android's Alarms and reminders permission. Custom reminders
 replace the individual morning nudge; daily and overdue summaries still apply.
 
+Tasks without deadlines can also have reminders: select a time and at least
+one weekday in task details. They remain non-recurring tasks without deadlines.
+Undated tasks sharing a reminder time are grouped into one notification, without
+completion/postponement action buttons. These reminders are scheduled five weeks
+ahead and refreshed when the app resumes or tasks change; completed tasks drop
+out of the group. They never create overdue tasks or postponement penalties.
+
 The reminder migration only adds columns. Existing file databases are first
 snapshotted with SQLite's backup API to `trebnic-before-reminders.db` alongside
 the live database. Export includes reminders and works on Android via the

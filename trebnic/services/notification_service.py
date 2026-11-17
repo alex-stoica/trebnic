@@ -348,12 +348,12 @@ class NotificationService:
     @staticmethod
     def _custom_reminder_trigger(task: Task, target: date) -> Optional[datetime]:
         """Explicit reminders leave the deadline and tracked time unchanged."""
-        if not task.reminder_time or not task.due_date or target > task.due_date:
+        if task.completed_at or not task.reminder_time or (task.due_date and target > task.due_date):
             return None
         if task.reminder_weekdays:
             # Completing this week's goal early must not start next week's
             # reminders immediately. Anchor the window to its own deadline.
-            if task.recurrent and task.recurrence_frequency.value == "weeks":
+            if task.due_date and task.recurrent and task.recurrence_frequency.value == "weeks":
                 window_start = task.due_date - timedelta(days=7 * task.recurrence_interval - 1)
                 if target < window_start:
                     return None
@@ -373,16 +373,35 @@ class NotificationService:
     async def _fire_custom_reminders(self, now: datetime) -> None:
         if self._is_in_quiet_hours():
             return
+        ready = []
         for task in await self._custom_reminder_tasks():
             trigger = self._custom_reminder_trigger(task, now.date())
             key = f"last_custom_reminder_{task.id}"
             if trigger is None or trigger > now or await db.get_setting(key, "") == now.date().isoformat():
                 continue
-            title, body = self._task_nudge_text(task, now.date())
+            ready.append((task, trigger))
+        for group in self._group_custom_reminders(ready):
+            task = group[0][0]
+            title, body = self._custom_reminder_text(group, now.date())
             await self._deliver_immediate(title, body, task_id=task.id,
-                actions=None if self._is_app_locked() else self._task_nudge_actions(),
+                actions=None if not task.due_date or self._is_app_locked() else self._task_nudge_actions(),
                 payload=self._task_nudge_payload(task, now.date()))
-            await db.set_setting(key, now.date().isoformat())
+            for member, _ in group:
+                await db.set_setting(f"last_custom_reminder_{member.id}", now.date().isoformat())
+
+    @staticmethod
+    def _group_custom_reminders(items):
+        groups = {}
+        for task, trigger in items:
+            key = (trigger, task.id if task.due_date else None)
+            groups.setdefault(key, []).append((task, trigger))
+        return list(groups.values())
+
+    def _custom_reminder_text(self, group, target):
+        if group[0][0].due_date:
+            return self._task_nudge_text(group[0][0], target)
+        body = t("unlock_to_see_details") if self._is_app_locked() else "\n".join(task.title for task, _ in group)
+        return t("undated_reminder_title"), body
 
     async def _cancel_custom_reminders(self) -> None:
         if self._backend != NotificationBackend.FLET_EXTENSION:
@@ -395,17 +414,23 @@ class NotificationService:
         now = datetime.now()
         planned = []
         for task in await self._custom_reminder_tasks():
-            for offset in range(NOTIFICATION_HORIZON_DAYS + 1):
+            horizon = NOTIFICATION_HORIZON_DAYS if task.due_date else 35
+            for offset in range(horizon + 1):
                 target = now.date() + timedelta(days=offset)
                 trigger = self._custom_reminder_trigger(task, target)
                 if trigger is not None and trigger > now:
-                    planned.append((1000000 + task.id * 8 + offset, task, target, trigger))
+                    planned.append((task, trigger))
+        grouped = self._group_custom_reminders(planned)
+        planned = [(2000000 + group[0][0].id * 64 + (group[0][1].date() - now.date()).days, group)
+                   for group in grouped]
         # Save IDs before scheduling so an interrupted rebuild can be cancelled.
         await db.set_setting("custom_reminder_alarm_ids", [item[0] for item in planned])
-        for nid, task, target, trigger in planned:
-            title, body = self._task_nudge_text(task, target)
+        for nid, group in planned:
+            task, trigger = group[0]
+            target = trigger.date()
+            title, body = self._custom_reminder_text(group, target)
             await self._schedule_extension_notification(nid, title, body, trigger, task.id,
-                actions=None if self._is_app_locked() else self._task_nudge_actions(),
+                actions=None if not task.due_date or self._is_app_locked() else self._task_nudge_actions(),
                 payload=self._task_nudge_payload(task, target),
                 visibility="private", category="reminder", schedule_mode="exact_allow_while_idle")
 

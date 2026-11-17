@@ -304,7 +304,7 @@ class TaskService:
                 raise ValueError("details_invalid_reminder")
             if any(type(day) is not int or not 0 <= day <= 6 for day in reminder_days):
                 raise ValueError("details_invalid_reminder")
-            if not due_date:
+            if not due_date and not reminder_days:
                 raise ValueError("details_reminder_needs_date")
         else:
             reminder_days = []
