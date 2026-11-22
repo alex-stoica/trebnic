@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
@@ -256,6 +256,19 @@ class RecordsMixin:
         except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             logger.error(f"Error loading time entries for task {task_id}: {e}")
             raise DatabaseError(f"Failed to load time entries: {e}") from e
+
+    async def has_task_activity_on(self, target: date) -> bool:
+        start = datetime.combine(target, datetime.min.time()).isoformat()
+        end = datetime.combine(target + timedelta(days=1), datetime.min.time()).isoformat()
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT 1 FROM tasks t WHERE t.due_date = ? AND t.is_draft = 0 AND ("
+                "(t.is_done = 1 AND COALESCE(t.is_failed, 0) = 0 AND t.completed_at >= ? AND t.completed_at < ?) "
+                "OR EXISTS (SELECT 1 FROM time_entries e WHERE e.task_id = t.id "
+                "AND e.start_time < ? AND COALESCE(e.end_time, e.heartbeat_at, e.start_time) > ?)) LIMIT 1",
+                (target.isoformat(), start, end, end, start),
+            ) as cursor:
+                return await cursor.fetchone() is not None
 
     async def load_time_entries_by_date(self, target_date: date) -> List[Dict[str, Any]]:
         """Load time entries for a specific date."""

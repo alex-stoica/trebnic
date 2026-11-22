@@ -1,13 +1,4 @@
-"""
-Notification service for Trebnic.
-
-Daily digest model: instead of per-task reminders, schedules up to 3 daily
-notifications (morning digest, evening preview, overdue nudge) plus immediate
-timer-complete notifications.
-
-On Android: uses AlarmManager via flet_android_notifications for scheduled digests.
-On desktop: a scheduler loop checks every 60 seconds if a digest is due.
-"""
+"""Task digests, inactivity reminders and timer alerts; Android alarms or desktop polling."""
 import asyncio
 import json
 import logging
@@ -18,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from config import (
     DIGEST_NOTIFICATION_ID,
+    INACTIVITY_NOTIFICATION_ID,
     PREVIEW_NOTIFICATION_ID,
     OVERDUE_NOTIFICATION_ID,
     TASK_NUDGE_NOTIFICATION_ID,
@@ -205,6 +197,7 @@ class NotificationService:
             AppEvent.TASK_UNCOMPLETED, AppEvent.TASK_DELETED, AppEvent.TASK_POSTPONED,
             AppEvent.TASK_DUPLICATED, AppEvent.TASK_RENAMED,
             AppEvent.DATA_RESET, AppEvent.LANGUAGE_CHANGED,
+            AppEvent.TIMER_STARTED, AppEvent.TIMER_STOPPED,
         ):
             self._subscriptions.append(event_bus.subscribe(evt, self._on_task_mutation))
 
@@ -344,6 +337,84 @@ class NotificationService:
         if state.task_nudges_enabled:
             await self._fire_task_nudges_if_due(state.task_nudge_time, today_str, now)
         await self._fire_custom_reminders(now)
+        await self._fire_inactivity_reminder(state, now)
+
+    @staticmethod
+    def _inactivity_trigger(state: Any, target: date) -> Optional[datetime]:
+        if not state.daily_digest_enabled:
+            return None
+        trigger = datetime.combine(target, state.daily_digest_time) + timedelta(hours=10)
+        return trigger if trigger.date() == target else None
+
+    async def _inactivity_tasks(self, target: date) -> List[Task]:
+        if await db.has_task_activity_on(target):
+            return []
+        timer = registry.get(Services.TIMER)
+        if target == date.today() and timer and timer.running and timer.active_task and timer.active_task.due_date == target:
+            return []
+        rows = await db.load_tasks_filtered(is_done=False, due_date_eq=target)
+        return [Task.from_dict(row) for row in rows]
+
+    def _inactivity_actions(self) -> List[Dict[str, Any]]:
+        return [
+            {"id": action, "title": t(label), "shows_user_interface": True, "cancel_notification": True}
+            for action, label in (
+                ("task_complete_with_time", "notif_action_done"),
+                ("task_postpone_1d", "notif_action_postpone"),
+                ("task_cancel", "cancel"),
+            )
+        ]
+
+    def _inactivity_content(self, task: Task, target: date) -> Dict[str, Any]:
+        locked = self._is_app_locked()
+        return {
+            "title": t("task_reminder") if locked else task.title,
+            "body": t("unlock_to_see_details") if locked else t("inactivity_reminder"),
+            "task_id": task.id,
+            "actions": None if locked else self._inactivity_actions(),
+            "payload": {"kind": "inactivity", "target_date": target.isoformat()},
+            "group_key": "trebnic_inactivity", "visibility": "private", "category": "reminder",
+        }
+
+    async def _fire_inactivity_reminder(self, state: Any, now: datetime) -> None:
+        trigger = self._inactivity_trigger(state, now.date())
+        if trigger is None or now < trigger or self._is_in_quiet_hours():
+            return
+        key = "last_inactivity_reminder_date"
+        today = now.date().isoformat()
+        if await db.get_setting(key, "") == today:
+            return
+        for task in await self._inactivity_tasks(now.date()):
+            await self._deliver_immediate(
+                **self._inactivity_content(task, now.date()),
+                notification_id=INACTIVITY_NOTIFICATION_ID + task.id,
+            )
+        await db.set_setting(key, today)
+
+    async def _cancel_inactivity_reminders(self) -> None:
+        if self._backend != NotificationBackend.FLET_EXTENSION:
+            return
+        for nid in await db.get_setting("inactivity_alarm_ids", []):
+            await self._cancel_extension_notification(nid)
+        await db.set_setting("inactivity_alarm_ids", [])
+
+    async def _schedule_inactivity_reminders(self, state: Any) -> None:
+        now = datetime.now()
+        planned = []
+        for offset in range(NOTIFICATION_HORIZON_DAYS):
+            target = now.date() + timedelta(days=offset)
+            trigger = self._inactivity_trigger(state, target)
+            if trigger is None or trigger <= now:
+                continue
+            for task in await self._inactivity_tasks(target):
+                planned.append((task, trigger))
+        ids = [INACTIVITY_NOTIFICATION_ID + i for i in range(len(planned))]
+        await db.set_setting("inactivity_alarm_ids", ids)
+        for nid, (task, trigger) in zip(ids, planned):
+            await self._schedule_extension_notification(
+                notification_id=nid, scheduled_time=trigger,
+                **self._inactivity_content(task, trigger.date()),
+            )
 
     @staticmethod
     def _custom_reminder_trigger(task: Task, target: date) -> Optional[datetime]:
@@ -719,6 +790,7 @@ class NotificationService:
         await self._cancel_all_digest_alarms()
         await self._cancel_all_task_nudge_alarms()
         await self._cancel_custom_reminders()
+        await self._cancel_inactivity_reminders()
 
         if not self._is_notifications_enabled():
             return
@@ -783,6 +855,7 @@ class NotificationService:
         )
         await self._schedule_android_task_nudges(state)
         await self._schedule_custom_reminders()
+        await self._schedule_inactivity_reminders(state)
 
     async def _schedule_android_task_nudges(self, state: Any) -> None:
         """Schedule actionable per-task nudges across the Android horizon."""

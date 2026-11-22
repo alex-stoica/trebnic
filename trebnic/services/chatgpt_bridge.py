@@ -100,7 +100,7 @@ class ChatGPTBridge:
         async def connect(event):
             try:
                 await self.start(url.value, token.value)
-                status.value = self.status
+                self.page.pop_dialog()
             except Exception as exc:
                 status.value = "Could not connect. Check the address, token and notification permission."
             self.page.update()

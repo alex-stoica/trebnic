@@ -568,6 +568,7 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "notification_settings": {"en": "Notification settings", "ro": "Setări notificări"},
     "notifications_enabled": {"en": "Enable notifications", "ro": "Activează notificările"},
     "daily_digest": {"en": "Morning digest", "ro": "Rezumat dimineața"},
+    "inactivity_reminder": {"en": "Don't forget this task today.", "ro": "Nu uita de această treabă azi."},
     "daily_digest_desc": {"en": "Tasks due today summary", "ro": "Rezumatul treburilor de azi"},
     "evening_preview": {"en": "Evening preview", "ro": "Previzualizare seară"},
     "evening_preview_desc": {"en": "Tomorrow's tasks preview", "ro": "Previzualizare treburi mâine"},

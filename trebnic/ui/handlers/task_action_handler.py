@@ -61,6 +61,8 @@ class TaskActionHandler:
         """Subscribe to task action events."""
         self._subscriptions.append(event_bus.subscribe(AppEvent.TASK_DETAILS_REQUESTED, self._on_details))
         self._subscriptions.append(event_bus.subscribe(AppEvent.TASK_FAIL_REQUESTED, self._on_fail))
+        self._subscriptions.append(event_bus.subscribe(
+            AppEvent.TASK_COMPLETE_WITH_TIME_REQUESTED, self._show_completion_time))
         self._subscriptions.append(
             event_bus.subscribe(AppEvent.TASK_COMPLETE_REQUESTED, self._on_complete)
         )

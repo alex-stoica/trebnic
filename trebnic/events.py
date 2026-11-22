@@ -21,6 +21,7 @@ class AppEvent(Enum):
 
     # Task action requests (emitted by UI, handled by app layer)
     TASK_COMPLETE_REQUESTED = auto()
+    TASK_COMPLETE_WITH_TIME_REQUESTED = auto()
     TASK_FAIL_REQUESTED = auto()
     TASK_UNCOMPLETE_REQUESTED = auto()
     TASK_DELETE_REQUESTED = auto()

@@ -15,7 +15,7 @@ except ImportError:
 
 from config import NavItem, TaskFilter, RecurrenceFrequency
 from database import db, DatabaseError
-from events import AppEvent
+from events import AppEvent, event_bus
 from i18n import set_language
 from models.entities import AppState, Task, Project, TimeEntry
 from registry import registry, Services
@@ -341,6 +341,7 @@ class TaskService:
             t = self.state.get_task_by_id(task_id)
             if t is not None:
                 t.spent_seconds = new_spent
+                event_bus.emit(AppEvent.TASK_UPDATED, t)
 
     async def rename_task(self, task: Task, new_title: str) -> None:
         """Rename a task with rollback on failure."""

@@ -291,12 +291,17 @@ async def test_digest_and_task_alarms_never_replace_each_other(svc, bridge, monk
     monkeypatch.setattr(db, "load_tasks_filtered", AsyncMock(return_value=[{"id": 1}]))
     for name in ("_build_morning_digest", "_build_evening_preview", "_build_overdue_nudge"):
         monkeypatch.setattr(svc, name, AsyncMock(return_value=("Digest", "Tasks", None)))
+    monkeypatch.setattr(svc, "_inactivity_tasks", AsyncMock(return_value=[_make_task(date.today())]))
     monkeypatch.setattr(svc, "_load_task_nudge_candidates", AsyncMock(return_value=[
         _make_task(date(2026, 9, 25), task_id=i) for i in range(4)
     ]))
     monkeypatch.setattr(svc, "_is_app_locked", lambda: False)
     await svc._schedule_android_digests(state)
     calls = bridge.call_args_list
-    assert len(calls) == 49
+    inactivity_count = sum(
+        c.kwargs["arguments"]["id"] >= 3000000 for c in calls
+    )
+    assert inactivity_count in (6, 7)
+    assert len(calls) == 49 + inactivity_count
     assert all(c.kwargs["method_name"] == "schedule_notification" for c in calls)
-    assert len({c.kwargs["arguments"]["id"] for c in calls}) == 49
+    assert len({c.kwargs["arguments"]["id"] for c in calls}) == 49 + inactivity_count

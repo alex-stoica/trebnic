@@ -238,6 +238,23 @@ class TrebnicApp:
         payload = data.get("payload") or {}
         task_id = data.get("task_id")
 
+        if action_id in {"task_complete_with_time", "task_cancel"}:
+            async def open_task_action():
+                self.nav_manager.navigate_to(PageType.TASKS)
+                if notification_service._is_app_locked():
+                    self.snack.show(t("notif_unlock_first"), COLORS["danger"])
+                    return
+                await self.service.refresh_state_tasks()
+                task = self.state.get_task_by_id(task_id)
+                if task is not None and task.completed_at is None:
+                    event_bus.emit(
+                        AppEvent.TASK_COMPLETE_WITH_TIME_REQUESTED
+                        if action_id == "task_complete_with_time" else AppEvent.TASK_FAIL_REQUESTED,
+                        task,
+                    )
+            self.page.run_task(open_task_action)
+            return
+
         if action_id in {"task_done", "task_postpone_1d"}:
             async def _apply_task_action() -> None:
                 result = await notification_service.handle_task_notification_action(action_id, task_id)

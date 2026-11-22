@@ -194,6 +194,7 @@ class TrebnicAPI:
             task.id, ended_at - timedelta(seconds=duration_seconds), ended_at
         )
         task.spent_seconds = affected.get(task.id, task.spent_seconds)
+        event_bus.emit(AppEvent.TASK_UPDATED, task)
 
         return entry
 
