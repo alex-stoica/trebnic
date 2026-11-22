@@ -1,6 +1,6 @@
 [project]
 name = "trebnic"
-version = "0.1.0"
+version = "0.2.0"
 description = "Privacy-first task manager with timer tracking, recurring tasks, and calendar view"
 authors = [
     {name = "Alex Stoica", email = "alexstoica@protonmail.com"}
@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "flet (==1.1.2)",
-    "flet-movable (==0.1.0)",
+    "flet-movable (==0.2.0)",
     "aiosqlite>=0.19.0",
     "cryptography>=46.0.3",
     "argon2-cffi>=25.1.0",
@@ -56,6 +56,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.flet]
 org = "ai.stoica"
 product = "Trebnic"
+build_number = 2
 
 [tool.flet.app]
 module = "main"

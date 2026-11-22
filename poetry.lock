@@ -594,14 +594,14 @@ mcp = ["flet-mcp"]
 
 [[package]]
 name = "flet-movable"
-version = "0.1.0"
+version = "0.2.0"
 description = "Native bounded dragging for Flet controls"
 optional = false
-python-versions = ">=3.11"
+python-versions = ">=3.13"
 groups = ["main"]
 files = [
-    {file = "flet_movable-0.1.0-py3-none-any.whl", hash = "sha256:e91ff0afb6306ca2773971efcef9366e0265b2b67363bbadb5c248326401b8de"},
-    {file = "flet_movable-0.1.0.tar.gz", hash = "sha256:5826ee3cdf91d3a369fda9fca86fd003c1fcb57348fa989128694f35239b27db"},
+    {file = "flet_movable-0.2.0-py3-none-any.whl", hash = "sha256:52416fa9c117580086ccdeb988165c6c602e7e417da4444ab062e905d7461e04"},
+    {file = "flet_movable-0.2.0.tar.gz", hash = "sha256:cc652753bffba2097361ed5ac4358938a0faa7ed033088294df6504b219363d7"},
 ]
 
 [package.dependencies]
@@ -1688,4 +1688,4 @@ dev = ["flet-cli", "pytest", "pytest-asyncio"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "512b47cfc1596b229f32a9003c33b7ec9d47ff0e8c76f7b82972c7df8ebf604d"
+content-hash = "61c83a5f4f0b38efeb4a315d6298cf2375db6e549ea1b73b3d1e2d2eb9eb01c1"
